@@ -29,7 +29,9 @@ except ImportError:
 SENTRY_TOKEN = os.getenv('SENTRY_AUTH_TOKEN')
 ORG_SLUG = os.getenv('SENTRY_ORG_SLUG')
 PROJECT_SLUG = os.getenv('SENTRY_PROJECT_SLUG')
+PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')  # 새로 추가
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
+DASH_BOARD_ID = os.getenv('DASH_BOARD_ID')
 
 # 테스트 모드 확인
 TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true'
@@ -43,7 +45,7 @@ if TEST_MODE:
     print("   - Slack 전송 없이 메시지만 출력")
     print("   - 상세 로그 출력\n")
 
-if not all([SENTRY_TOKEN, ORG_SLUG, PROJECT_SLUG]):
+if not all([SENTRY_TOKEN, ORG_SLUG, PROJECT_SLUG, PROJECT_ID]):
     print("❌ 필수 환경변수가 설정되지 않았습니다:")
     if not SENTRY_TOKEN:
         print("   - SENTRY_AUTH_TOKEN")
@@ -51,11 +53,22 @@ if not all([SENTRY_TOKEN, ORG_SLUG, PROJECT_SLUG]):
         print("   - SENTRY_ORG_SLUG")
     if not PROJECT_SLUG:
         print("   - SENTRY_PROJECT_SLUG")
+    if not PROJECT_ID:
+        print("   - SENTRY_PROJECT_ID")
     if not SLACK_WEBHOOK:
         print("   - SLACK_WEBHOOK_URL (경고: Slack 전송이 불가능합니다)")
 
-    if not SENTRY_TOKEN or not ORG_SLUG or not PROJECT_SLUG:
+    if not SENTRY_TOKEN or not ORG_SLUG or not PROJECT_SLUG or not PROJECT_ID:
         raise ValueError("Sentry 관련 필수 환경변수를 설정해주세요.")
+
+# PROJECT_ID를 정수로 변환
+try:
+    PROJECT_ID = int(PROJECT_ID)
+    if TEST_MODE:
+        print(f"✅ 프로젝트 ID 설정: {PROJECT_ID}")
+except (ValueError, TypeError):
+    print(f"❌ SENTRY_PROJECT_ID가 유효한 숫자가 아닙니다: {PROJECT_ID}")
+    raise ValueError("SENTRY_PROJECT_ID는 숫자여야 합니다.")
 
 # Sentry API 설정
 SENTRY_API_BASE = "https://sentry.io/api/0"
@@ -276,26 +289,27 @@ def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
 
 
 def get_crash_free_sessions():
-    """Crash-Free Sessions 비율 조회 (최종 수정 버전)"""
+    """Crash-Free Sessions 비율 조회 (환경변수 PROJECT_ID 사용)"""
 
-    # Sessions API 호출 (진단에서 확인된 방법 사용)
+    # Sessions API 호출
     sessions_url = f"{SENTRY_API_BASE}/organizations/{ORG_SLUG}/sessions/"
 
     end_time = datetime.now(timezone.utc)
     start_time = end_time - timedelta(days=1)
 
-    # 방법 1: crash_free_rate 직접 조회 (가장 정확함)
+    # 환경변수에서 가져온 PROJECT_ID 사용
     params = {
         'field': ['crash_free_rate(session)', 'crash_free_rate(user)'],
         'start': start_time.isoformat(),
         'end': end_time.isoformat(),
-        'project': [1539536],  # 프로젝트 ID
+        'project': [PROJECT_ID],  # 환경변수 사용
         'totals': 1
     }
 
     if TEST_MODE:
         print(f"🔍 Crash-Free Rate API 호출:")
         print(f"   URL: {sessions_url}")
+        print(f"   프로젝트 ID: {PROJECT_ID}")
         print(f"   파라미터: {json.dumps(params, indent=2)}")
 
     try:
@@ -311,7 +325,7 @@ def get_crash_free_sessions():
                 save_debug_data(f"crash_free_response_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                                 data, "Crash-Free Rate API 응답")
 
-            # groups에서 crash_free_rate 추출 (진단에서 확인된 구조)
+            # groups에서 crash_free_rate 추출
             if 'groups' in data and data['groups']:
                 for group in data['groups']:
                     totals = group.get('totals', {})
@@ -353,7 +367,7 @@ def get_crash_free_sessions():
             'field': ['sum(session)'],
             'start': start_time.isoformat(),
             'end': end_time.isoformat(),
-            'project': [1539536],
+            'project': [PROJECT_ID],  # 환경변수 사용
             'groupBy': ['session.status'],
             'totals': 1
         }
@@ -394,19 +408,7 @@ def get_crash_free_sessions():
         if TEST_MODE:
             print(f"   ❌ 그룹화 방법 오류: {str(e)}")
 
-    # 모든 방법이 실패한 경우
-    if TEST_MODE:
-        print(f"\n⚠️  Crash-Free Rate 조회에 실패했습니다.")
-
     return "N/A"
-
-
-def format_issue_title(title: str, max_length: int = 60) -> str:
-    """이슈 제목 포맷팅"""
-    if len(title) > max_length:
-        return title[:max_length - 3] + "..."
-    return title
-
 
 def get_trend_emoji(current: int, previous: int) -> str:
     """증감 추세에 따른 이모지 반환"""
@@ -429,8 +431,33 @@ def get_trend_emoji(current: int, previous: int) -> str:
         return "➡️"  # 유지
 
 
+# 환경 변수 확인 부분에 DASH_BOARD_ID 추가
+SENTRY_TOKEN = os.getenv('SENTRY_AUTH_TOKEN')
+ORG_SLUG = os.getenv('SENTRY_ORG_SLUG')
+PROJECT_SLUG = os.getenv('SENTRY_PROJECT_SLUG')
+PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')
+SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
+DASH_BOARD_ID = os.getenv('DASH_BOARD_ID')  # 새로 추가
+
+# 환경 변수 확인 부분에 DASH_BOARD_ID 추가
+SENTRY_TOKEN = os.getenv('SENTRY_AUTH_TOKEN')
+ORG_SLUG = os.getenv('SENTRY_ORG_SLUG')
+PROJECT_SLUG = os.getenv('SENTRY_PROJECT_SLUG')
+PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')
+SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
+DASH_BOARD_ID = os.getenv('DASH_BOARD_ID')  # 새로 추가
+
+# 환경 변수 확인 부분에 DASH_BOARD_ID 추가
+SENTRY_TOKEN = os.getenv('SENTRY_AUTH_TOKEN')
+ORG_SLUG = os.getenv('SENTRY_ORG_SLUG')
+PROJECT_SLUG = os.getenv('SENTRY_PROJECT_SLUG')
+PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')
+SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
+DASH_BOARD_ID = os.getenv('DASH_BOARD_ID')  # 새로 추가
+
+
 def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) -> Dict:
-    """Slack 메시지 포맷팅"""
+    """Slack 메시지 포맷팅 (최종 수정 버전)"""
 
     start_utc, end_utc, yesterday_kst = date_info
     date_str = yesterday_kst.strftime('%Y년 %m월 %d일')
@@ -450,25 +477,29 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
     if current == 0:
         main_emoji = "✨"
         status_text = "크래시 없음!"
+        status_color = "good"
     elif current < 10:
         main_emoji = "✅"
         status_text = "양호"
+        status_color = "good"
     elif current < 50:
         main_emoji = "⚠️"
         status_text = "주의 필요"
+        status_color = "warning"
     else:
         main_emoji = "🚨"
         status_text = "심각"
+        status_color = "danger"
 
-    # 상위 이슈 리스트 생성
+    # 상위 이슈 리스트 생성 (이모지 수정)
     top_issues_text = ""
     for i, issue in enumerate(stats['top_issues'], 1):
-        title = format_issue_title(issue.get('title', 'Unknown Issue'))
+        title = format_issue_title(issue.get('title', 'Unknown Issue'), 50)
         count = issue.get('yesterday_count', 0)
         issue_id = issue.get('id', '')
         permalink = f"https://sentry.io/organizations/{ORG_SLUG}/issues/{issue_id}/"
 
-        # 이슈별 심각도 표시
+        # 이슈별 심각도 표시 (가장 낮은 순위를 🟢로 변경)
         if count >= 100:
             severity = "🔴"
         elif count >= 50:
@@ -476,84 +507,110 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
         elif count >= 10:
             severity = "🟡"
         else:
-            severity = "⚪"
+            severity = "🟢"  # ⚪에서 🟢로 변경
 
-        top_issues_text += f"{i}. {severity} [{title}]({permalink}) - **{count:,}건**\n"
+        top_issues_text += f"{i}. {severity} <{permalink}|{title}> - *{count:,}건*\n"
 
     if not top_issues_text:
         top_issues_text = "어제 발생한 크래시가 없습니다! 🎊"
 
-    # 요약 통계
-    summary_stats = f"""
-• 총 크래시: **{current:,}건**{change_text}
-• 영향받은 사용자: **{stats['affected_users']:,}명**
-• 발생한 이슈: **{stats['total_issues']}개**
-• Crash-Free Rate: **{crash_free_rate}**
-"""
+    # 대시보드 URL 결정
+    if DASH_BOARD_ID:
+        dashboard_url = f"https://finda-b2c.sentry.io/dashboard/{DASH_BOARD_ID}"
+        button_text = "Sentry 대시보드 열기"
+    else:
+        dashboard_url = "https://finda-b2c.sentry.io/dashboards"
+        button_text = "Sentry 대시보드 목록 열기"
 
     # 테스트 모드일 때는 테스트 표시 추가
     test_indicator = " [테스트]" if TEST_MODE else ""
 
     message = {
-        "blocks": [
+        "attachments": [
             {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"{main_emoji} Android 일간 크래시 리포트{test_indicator}",
-                    "emoji": True
-                }
-            },
-            {
-                "type": "context",
-                "elements": [
+                "color": status_color,
+                "blocks": [
                     {
-                        "type": "mrkdwn",
-                        "text": f"📅 {date_str} | 상태: *{status_text}*"
-                    }
-                ]
-            },
-            {
-                "type": "divider"
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*📊 주요 지표*\n{summary_stats}"
-                }
-            },
-            {
-                "type": "divider"
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*🔝 Top 5 이슈*\n{top_issues_text}"
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
+                        "type": "header",
                         "text": {
                             "type": "plain_text",
-                            "text": "Sentry 대시보드 열기",
+                            "text": f"Android 일간 크래시 리포트{test_indicator}",
                             "emoji": True
-                        },
-                        "url": f"https://sentry.io/organizations/{ORG_SLUG}/projects/{PROJECT_SLUG}/",
-                        "style": "primary"
-                    }
-                ]
-            },
-            {
-                "type": "context",
-                "elements": [
+                        }
+                    },
                     {
-                        "type": "mrkdwn",
-                        "text": f"_{'로컬 테스트' if TEST_MODE else 'GitHub Actions'}에서 생성됨_"
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"📅 {date_str} | 상태: {main_emoji} {status_text}"
+                            }
+                        ]
+                    },
+                    {
+                        "type": "divider"
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*📊 주요 지표*"
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "fields": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*총 크래시*\n{current:,}건{change_text}"
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*영향받은 사용자*\n{stats['affected_users']:,}명"
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*발생한 이슈*\n{stats['total_issues']}개"
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*Crash-Free Rate*\n{crash_free_rate}"
+                            }
+                        ]
+                    },
+                    {
+                        "type": "divider"
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*🔝 Top 5 이슈*\n{top_issues_text}"
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": button_text,
+                                    "emoji": True
+                                },
+                                "url": dashboard_url,
+                                "style": "primary"
+                            }
+                        ]
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"_{'로컬 테스트' if TEST_MODE else 'GitHub Actions'}에서 생성됨_"
+                            }
+                        ]
                     }
                 ]
             }
@@ -561,6 +618,16 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
     }
 
     return message
+
+
+def format_issue_title(title: str, max_length: int = 50) -> str:
+    """이슈 제목 포맷팅 (Slack용 최적화)"""
+    if len(title) > max_length:
+        return title[:max_length - 3] + "..."
+
+    # Slack에서 문제가 될 수 있는 특수 문자 처리
+    title = title.replace('*', '').replace('_', '').replace('`', '')
+    return title
 
 
 def send_to_slack(message: Dict) -> bool:
