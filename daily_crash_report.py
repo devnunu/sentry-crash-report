@@ -4,14 +4,13 @@ Sentry 일간 Android 크래시 리포트 스크립트
 매일 전날의 크래시 현황을 Slack으로 전송
 """
 
-import os
-import requests
 import json
+import os
 from datetime import datetime, timedelta, timezone
-from dateutil import parser
-from typing import Dict, List, Tuple, Optional
-import time
 from pathlib import Path
+from typing import Dict, Tuple
+
+import requests
 
 # dotenv 지원 (로컬 환경)
 try:
@@ -277,38 +276,127 @@ def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
 
 
 def get_crash_free_sessions():
-    """Crash-Free Sessions 비율 조회"""
-    # Stats API를 통한 안정성 지표 조회
-    stats_url = f"{SENTRY_API_BASE}/organizations/{ORG_SLUG}/stats/"
+    """Crash-Free Sessions 비율 조회 (최종 수정 버전)"""
 
-    # 최근 24시간 데이터
+    # Sessions API 호출 (진단에서 확인된 방법 사용)
+    sessions_url = f"{SENTRY_API_BASE}/organizations/{ORG_SLUG}/sessions/"
+
     end_time = datetime.now(timezone.utc)
     start_time = end_time - timedelta(days=1)
 
+    # 방법 1: crash_free_rate 직접 조회 (가장 정확함)
     params = {
-        'field': ['sum(session)', 'sum(session.error)'],
-        'interval': '1d',
+        'field': ['crash_free_rate(session)', 'crash_free_rate(user)'],
         'start': start_time.isoformat(),
         'end': end_time.isoformat(),
-        'project': PROJECT_SLUG
+        'project': [1539536],  # 프로젝트 ID
+        'totals': 1
     }
 
+    if TEST_MODE:
+        print(f"🔍 Crash-Free Rate API 호출:")
+        print(f"   URL: {sessions_url}")
+        print(f"   파라미터: {json.dumps(params, indent=2)}")
+
     try:
-        response = requests.get(stats_url, headers=HEADERS, params=params)
+        response = requests.get(sessions_url, headers=HEADERS, params=params, timeout=30)
+
+        if TEST_MODE:
+            print(f"   응답 상태: {response.status_code}")
 
         if response.status_code == 200:
             data = response.json()
-            if data.get('data'):
-                latest = data['data'][-1]
-                total_sessions = latest.get('sum(session)', 0)
-                error_sessions = latest.get('sum(session.error)', 0)
 
-                if total_sessions > 0:
-                    crash_free_rate = ((total_sessions - error_sessions) / total_sessions) * 100
-                    return f"{crash_free_rate:.2f}%"
+            if TEST_MODE:
+                save_debug_data(f"crash_free_response_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                                data, "Crash-Free Rate API 응답")
+
+            # groups에서 crash_free_rate 추출 (진단에서 확인된 구조)
+            if 'groups' in data and data['groups']:
+                for group in data['groups']:
+                    totals = group.get('totals', {})
+                    session_crash_free = totals.get('crash_free_rate(session)')
+
+                    if session_crash_free is not None:
+                        # 값이 0-1 범위면 퍼센트로 변환
+                        rate = session_crash_free * 100 if session_crash_free <= 1 else session_crash_free
+
+                        if TEST_MODE:
+                            print(f"   ✅ Session Crash-Free Rate: {rate:.2f}%")
+
+                            # User crash-free rate도 출력 (참고용)
+                            user_crash_free = totals.get('crash_free_rate(user)')
+                            if user_crash_free is not None:
+                                user_rate = user_crash_free * 100 if user_crash_free <= 1 else user_crash_free
+                                print(f"   📊 User Crash-Free Rate: {user_rate:.2f}%")
+
+                        return f"{rate:.2f}%"
+
+            if TEST_MODE:
+                print(f"   ⚠️  예상하지 못한 응답 구조: {data}")
+
+        else:
+            if TEST_MODE:
+                print(f"   ❌ API 오류: {response.status_code}")
+                print(f"   응답: {response.text}")
+
     except Exception as e:
         if TEST_MODE:
-            print(f"⚠️  Crash-Free Sessions 조회 실패: {str(e)}")
+            print(f"   ❌ 오류 발생: {str(e)}")
+
+    # 방법 2: session.status로 그룹화하여 계산 (대안)
+    if TEST_MODE:
+        print(f"\n🔄 대안 방법: session.status 그룹화")
+
+    try:
+        group_params = {
+            'field': ['sum(session)'],
+            'start': start_time.isoformat(),
+            'end': end_time.isoformat(),
+            'project': [1539536],
+            'groupBy': ['session.status'],
+            'totals': 1
+        }
+
+        response = requests.get(sessions_url, headers=HEADERS, params=group_params, timeout=30)
+
+        if response.status_code == 200:
+            data = response.json()
+
+            total_sessions = 0
+            crashed_sessions = 0
+
+            if 'groups' in data:
+                for group in data['groups']:
+                    status = group.get('by', {}).get('session.status')
+                    session_count = group.get('totals', {}).get('sum(session)', 0)
+
+                    total_sessions += session_count
+
+                    if status == 'crashed':
+                        crashed_sessions = session_count
+
+                if total_sessions > 0:
+                    crash_free_rate = ((total_sessions - crashed_sessions) / total_sessions) * 100
+
+                    if TEST_MODE:
+                        print(f"   📊 계산 결과:")
+                        print(f"      총 세션: {total_sessions:,}")
+                        print(f"      크래시 세션: {crashed_sessions:,}")
+                        print(f"      Crash-Free Rate: {crash_free_rate:.2f}%")
+
+                    return f"{crash_free_rate:.2f}%"
+
+        elif TEST_MODE:
+            print(f"   ❌ 그룹화 방법 실패: {response.status_code}")
+
+    except Exception as e:
+        if TEST_MODE:
+            print(f"   ❌ 그룹화 방법 오류: {str(e)}")
+
+    # 모든 방법이 실패한 경우
+    if TEST_MODE:
+        print(f"\n⚠️  Crash-Free Rate 조회에 실패했습니다.")
 
     return "N/A"
 
