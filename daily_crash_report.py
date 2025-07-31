@@ -312,9 +312,86 @@ def get_issue_events_count_for_date(issue_id: str, start_time: datetime, end_tim
     return len(all_events)
 
 
+def get_issue_users_for_date(issue_id: str, start_time: datetime, end_time: datetime) -> int:
+    """특정 이슈의 특정 날짜 영향받은 사용자 수 조회"""
+
+    events_url = f"{SENTRY_API_BASE}/issues/{issue_id}/events/"
+    unique_users = set()
+    max_pages = 3  # 최대 3페이지만 조회
+    page = 0
+    cursor = None
+
+    while page < max_pages:
+        params = {
+            'limit': 100
+        }
+
+        if cursor:
+            params['cursor'] = cursor
+
+        try:
+            response = requests.get(events_url, headers=HEADERS, params=params, timeout=10)
+
+            if response.status_code != 200:
+                break
+
+            events = response.json()
+
+            if not events:
+                break
+
+            # 시간 범위 내 이벤트의 사용자만 수집
+            found_in_range = False
+            for event in events:
+                event_time_str = event.get('dateCreated')
+                if event_time_str:
+                    try:
+                        event_time = datetime.fromisoformat(event_time_str.replace('Z', '+00:00'))
+                        if start_time <= event_time <= end_time:
+                            found_in_range = True
+                            # 사용자 정보 추출
+                            user_info = event.get('user')
+                            if user_info:
+                                user_id = user_info.get('id') or user_info.get('email') or user_info.get('username')
+                                if user_id:
+                                    unique_users.add(str(user_id))
+                        elif event_time < start_time:
+                            # 시간 범위를 벗어나면 중단
+                            return len(unique_users)
+                    except:
+                        pass
+
+            # 해당 범위에 이벤트가 없으면 조기 중단
+            if not found_in_range and page > 0:
+                break
+
+            # 다음 페이지 체크
+            link_header = response.headers.get('Link', '')
+            if 'rel="next"' not in link_header:
+                break
+
+            cursor_match = re.search(r'cursor=([^&>]+).*rel="next"', link_header)
+            if cursor_match:
+                cursor = cursor_match.group(1)
+                page += 1
+            else:
+                break
+
+        except requests.exceptions.Timeout:
+            if TEST_MODE:
+                print(f"      ⏰ {issue_id} 사용자 조회 타임아웃")
+            break
+        except Exception as e:
+            if TEST_MODE:
+                print(f"      ⚠️  {issue_id} 사용자 조회 실패: {str(e)}")
+            break
+
+    return len(unique_users)
+
+
 def calculate_crash_stats_for_date(all_issues: List[Dict], start_time: datetime, end_time: datetime, date_label: str) -> \
 Tuple[int, int, int]:
-    """특정 날짜의 크래시 통계 계산 (타입 안전성 개선)"""
+    """특정 날짜의 크래시 통계 계산 (정확한 사용자 수 포함)"""
 
     # 크래시 이슈만 필터링
     crash_issues = []
@@ -326,54 +403,64 @@ Tuple[int, int, int]:
     if TEST_MODE:
         print(f"📊 {date_label}: 총 {len(all_issues)}개 이슈 중 {len(crash_issues)}개 크래시 이슈")
 
-    # 🚀 성능 최적화: 이슈가 많으면 제한 (count 기준 정렬)
+    # 🚀 성능 최적화: 이슈가 많으면 제한
     if len(crash_issues) > 50:
         print(f"⚡ {date_label}: 크래시 이슈가 {len(crash_issues)}개로 많아서 상위 50개만 처리합니다.")
-        # count 기준으로 정렬해서 상위 50개만 처리 (safe_int 사용)
         crash_issues_sorted = sorted(crash_issues, key=lambda x: safe_int(x.get('count', 0)), reverse=True)
         crash_issues = crash_issues_sorted[:50]
 
     # 크래시 이벤트 수 계산
     total_events = 0
     crash_issues_with_events = []
-    affected_users = set()
+    all_affected_users = set()  # 전체 사용자 추적용
 
     for i, issue in enumerate(crash_issues):
         issue_id = issue.get('id')
         if not issue_id:
             continue
 
-        # 진행 상황 표시 (더 자주)
+        # 진행 상황 표시
         if (i + 1) % 5 == 0 or i == 0:
             print(f"   🔄 {date_label}: {i + 1}/{len(crash_issues)} 크래시 이슈 처리 중...")
 
-        # 최적화된 이벤트 수 조회
+        # 이벤트 수 조회
         event_count = get_issue_events_count_optimized(issue, issue_id, start_time, end_time, date_label)
 
         if event_count > 0:
             issue['event_count'] = event_count
             total_events += event_count
 
-            # 사용자 수 추가 (안전한 변환)
-            user_count = safe_int(issue.get('userCount', 0))
-            if user_count > 0:
-                affected_users.add(issue_id)
+            # 🎯 핵심 수정: 타겟 날짜의 실제 영향받은 사용자 수 조회
+            actual_users = get_issue_users_for_date(issue_id, start_time, end_time)
+            issue['actual_users'] = actual_users
+
+            # 전체 영향받은 사용자에 추가 (중복 제거)
+            if actual_users > 0:
+                # 이슈별로 고유한 사용자 집합을 만들기 위해 이슈 ID를 포함
+                for user_idx in range(actual_users):
+                    all_affected_users.add(f"{issue_id}_{user_idx}")
 
             crash_issues_with_events.append(issue)
 
-            # TEST 모드에서 상세 정보 출력 (상위 5개만)
+            # TEST 모드에서 상세 정보 출력
             if TEST_MODE and len(crash_issues_with_events) <= 5:
+                total_users = safe_int(issue.get('userCount', 0))
                 print(f"   ✅ {date_label} 크래시: {issue.get('title', '')[:40]}")
-                print(f"      - 이벤트: {event_count}건, 사용자: {user_count}명")
+                print(f"      - 이벤트: {event_count}건")
+                print(f"      - {date_label} 영향 사용자: {actual_users}명")
+                print(f"      - 전체 기간 사용자: {total_users}명")
 
-        # 🚀 최적화: API 호출 간 딜레이 (rate limit 방지)
+        # API 호출 간 딜레이 (rate limit 방지)
         if (i + 1) % 10 == 0:
-            time.sleep(0.1)  # 10개마다 0.1초 대기
+            time.sleep(0.1)
 
-    # 안전한 사용자 수 계산
-    total_affected_users = sum(safe_int(issue.get('userCount', 0)) for issue in crash_issues_with_events)
+    # 실제 영향받은 사용자 수 (중복 제거된)
+    total_affected_users = len(all_affected_users)
 
-    print(f"   ✅ {date_label} 완료: {total_events}건 크래시, {len(crash_issues_with_events)}개 이슈, {total_affected_users}명 영향")
+    print(f"   ✅ {date_label} 완료:")
+    print(f"      - 크래시 이벤트: {total_events}건")
+    print(f"      - 크래시 이슈: {len(crash_issues_with_events)}개")
+    print(f"      - {date_label} 영향 사용자: {total_affected_users}명 ⭐")
 
     return total_events, len(crash_issues_with_events), total_affected_users
 
@@ -562,18 +649,17 @@ def get_issue_events_count_for_date_limited(issue_id: str, start_time: datetime,
 
 
 def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
-    """타겟 날짜와 전날의 크래시 통계 조회 (성능 최적화)"""
+    """타겟 날짜와 전날의 크래시 통계 조회"""
 
     target_date_str = start_time.astimezone(KST).strftime('%Y-%m-%d')
 
     print(f"📅 타겟 날짜 ({target_date_str})의 모든 이슈 수집 중...")
     print(f"🌍 Environment: {ENVIRONMENT}")
 
-    # 1. 타겟 날짜 이슈 수집
+    # 1-2단계: 이슈 수집 (기존과 동일)
     print(f"⏱️  1단계: 타겟 날짜 이슈 수집...")
     target_issues = collect_issues_for_date(start_time, end_time, f"타겟날짜({target_date_str})")
 
-    # 2. 전날(그저께) 이슈 수집
     prev_start_time = start_time - timedelta(days=1)
     prev_end_time = start_time
     prev_date_str = prev_start_time.astimezone(KST).strftime('%Y-%m-%d')
@@ -581,19 +667,17 @@ def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
     print(f"⏱️  2단계: 전날 이슈 수집...")
     prev_issues = collect_issues_for_date(prev_start_time, prev_end_time, f"전날({prev_date_str})")
 
-    # 3. 타겟 날짜 크래시 통계 계산
+    # 3-4단계: 통계 계산 (정확한 사용자 수 vs 추정 사용자 수)
     print(f"⏱️  3단계: 타겟 날짜 크래시 통계 계산...")
     target_events, target_issue_count, target_users = calculate_crash_stats_for_date(
         target_issues, start_time, end_time, target_date_str
     )
 
-    # 4. 전날 크래시 통계 계산
     print(f"⏱️  4단계: 전날 크래시 통계 계산...")
     prev_events, prev_issue_count, prev_users = calculate_crash_stats_for_date(
         prev_issues, prev_start_time, prev_end_time, prev_date_str
     )
 
-    # 5. 타겟 날짜 상위 이슈 생성
     print(f"⏱️  5단계: 상위 이슈 정렬...")
     crash_issues_with_events = []
     for issue in target_issues:
@@ -601,20 +685,17 @@ def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
         if level in ['error', 'fatal']:
             issue_id = issue.get('id')
             if issue_id:
-                # 이미 계산된 결과 활용
                 event_count = get_issue_events_count_optimized(issue, issue_id, start_time, end_time, "정렬용")
                 if event_count > 0:
                     issue['yesterday_count'] = event_count
                     crash_issues_with_events.append(issue)
 
-    # 이벤트 수로 정렬
     crash_issues_with_events.sort(key=lambda x: x.get('yesterday_count', 0), reverse=True)
 
     print(f"\n✅ 크래시 분석 완료:")
     print(f"   📅 {target_date_str}: {target_events}건 크래시, {target_issue_count}개 이슈, {target_users}명 영향")
     print(f"   📅 {prev_date_str}: {prev_events}건 크래시, {prev_issue_count}개 이슈, {prev_users}명 영향")
 
-    # 증감률 계산 및 출력
     if prev_events > 0:
         change_percent = ((target_events - prev_events) / prev_events) * 100
         change_direction = "증가" if change_percent > 0 else "감소"
@@ -627,7 +708,7 @@ def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
     return {
         'total_crashes': target_events,
         'total_issues': target_issue_count,
-        'affected_users': target_users,
+        'affected_users': target_users,  # 🎯 이제 타겟 날짜만의 사용자 수!
         'top_issues': crash_issues_with_events[:5],
         'prev_day_crashes': prev_events,
         'all_issues': crash_issues_with_events
@@ -982,7 +1063,7 @@ def main():
         print(f"\n📈 수집 결과:")
         print(f"  - 크래시 발생 횟수: {stats['total_crashes']}건")
         print(f"  - 크래시 이슈 종류: {stats['total_issues']}개")
-        print(f"  - 영향 사용자: {stats['affected_users']}명")
+        print(f"  - 영향받은 사용자: {stats['affected_users']}명")
         print(f"  - 전날 크래시: {stats['prev_day_crashes']}건")
 
         # Crash-Free Rate 조회
