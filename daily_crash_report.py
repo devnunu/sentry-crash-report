@@ -840,10 +840,15 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
     elif current == 0:
         change_text = " (완전 해결 🎉)"
     else:
-        change_percent = ((current - previous) / previous) * 100
+        change_count = current - previous  # ✅ 절대 건수 차이 계산
         trend_emoji = get_trend_emoji(current, previous)
-        change_sign = "+" if change_percent > 0 else ""
-        change_text = f" ({change_sign}{change_percent:.1f}% {trend_emoji})"
+
+        if change_count > 0:
+            change_text = f" (전날 대비 +{change_count}건 {trend_emoji})"
+        elif change_count < 0:
+            change_text = f" (전날 대비 {change_count}건 {trend_emoji})"  # 음수라 자동으로 - 붙음
+        else:
+            change_text = " (전날과 동일 ➡️)"
 
     # 심각도 레벨에 따른 메인 이모지
     if current == 0:
