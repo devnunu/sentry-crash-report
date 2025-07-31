@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Sentry 일간 Android 크래시 리포트 스크립트
 매일 전날의 크래시 현황을 Slack으로 전송
@@ -7,9 +6,10 @@ Sentry 일간 Android 크래시 리포트 스크립트
 import json
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
 import requests
 
@@ -30,9 +30,10 @@ except ImportError:
 SENTRY_TOKEN = os.getenv('SENTRY_AUTH_TOKEN')
 ORG_SLUG = os.getenv('SENTRY_ORG_SLUG')
 PROJECT_SLUG = os.getenv('SENTRY_PROJECT_SLUG')
-PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')  # 새로 추가
+PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 DASH_BOARD_ID = os.getenv('DASH_BOARD_ID')
+ENVIRONMENT = os.getenv('SENTRY_ENVIRONMENT', 'Production')
 
 # 테스트 모드 확인
 TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true'
@@ -58,6 +59,9 @@ if not all([SENTRY_TOKEN, ORG_SLUG, PROJECT_SLUG, PROJECT_ID]):
         print("   - SENTRY_PROJECT_ID")
     if not SLACK_WEBHOOK:
         print("   - SLACK_WEBHOOK_URL (경고: Slack 전송이 불가능합니다)")
+
+    print(f"✅ SENTRY_ENVIRONMENT: {ENVIRONMENT} (기본값 사용)" if not os.getenv(
+        'SENTRY_ENVIRONMENT') else f"✅ SENTRY_ENVIRONMENT: {ENVIRONMENT}")
 
     if not SENTRY_TOKEN or not ORG_SLUG or not PROJECT_SLUG or not PROJECT_ID:
         raise ValueError("Sentry 관련 필수 환경변수를 설정해주세요.")
@@ -122,67 +126,56 @@ def save_debug_data(filename: str, data: any, description: str = ""):
         print(f"💾 {description}: {filepath}")
 
 
-def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
-    """어제 크래시 통계 조회 (모든 이슈 수집)"""
+def collect_issues_for_date(start_time: datetime, end_time: datetime, date_label: str) -> List[Dict]:
+    """특정 날짜의 모든 이슈 수집"""
 
-    # 시간 형식 변환
     start_str = start_time.isoformat()
     end_str = end_time.isoformat()
 
-    target_date_str = start_time.astimezone(KST).strftime('%Y-%m-%d')
-
-    print(f"📅 타겟 날짜 ({target_date_str})의 모든 이슈 수집 중...")
-
-    # 1. 타겟 날짜에 활성화된 모든 이슈 조회 (페이지네이션으로 전체 수집)
     issues_url = f"{SENTRY_API_BASE}/projects/{ORG_SLUG}/{PROJECT_SLUG}/issues/"
-
     all_issues = []
+
+    # firstSeen 기준 이슈 수집
     cursor = None
     page = 1
 
     while True:
-        # 시간 범위 기반 쿼리로 해당 날짜 이슈만 조회
         issues_params = {
-            'query': f'firstSeen:>={start_str} firstSeen:<{end_str}',  # 해당 날짜에 처음 발견된 이슈
-            'limit': 100,  # 페이지당 최대값
-            'sort': 'date'
+            'query': f'firstSeen:>={start_str} firstSeen:<{end_str} environment:{ENVIRONMENT}',
+            'limit': 100,
+            'sort': 'date',
+            'environment': ENVIRONMENT
         }
 
-        # 커서가 있으면 추가 (페이지네이션)
         if cursor:
             issues_params['cursor'] = cursor
 
         if TEST_MODE:
-            print(f"🔍 페이지 {page} 조회: {issues_url}")
-            print(f"   파라미터: {json.dumps(issues_params, indent=2)}")
+            print(f"🔍 {date_label} firstSeen 페이지 {page} 조회...")
 
         try:
-            issues_response = requests.get(issues_url, headers=HEADERS, params=issues_params)
+            response = requests.get(issues_url, headers=HEADERS, params=issues_params)
 
-            if issues_response.status_code != 200:
-                print(f"❌ 이슈 목록 조회 실패 (페이지 {page}): {issues_response.status_code}")
+            if response.status_code != 200:
+                if TEST_MODE:
+                    print(f"   ❌ 조회 실패: {response.status_code}")
                 break
 
-            page_issues = issues_response.json()
+            page_issues = response.json()
 
             if not page_issues:
-                if TEST_MODE:
-                    print(f"   페이지 {page}: 더 이상 이슈가 없음")
                 break
 
             all_issues.extend(page_issues)
 
             if TEST_MODE:
-                print(f"   페이지 {page}: {len(page_issues)}개 이슈 수집 (총 {len(all_issues)}개)")
+                print(f"   페이지 {page}: {len(page_issues)}개 수집 (총 {len(all_issues)}개)")
 
-            # 다음 페이지 커서 확인
-            link_header = issues_response.headers.get('Link', '')
+            # 다음 페이지 체크
+            link_header = response.headers.get('Link', '')
             if 'rel="next"' not in link_header:
-                if TEST_MODE:
-                    print(f"   마지막 페이지 도달")
                 break
 
-            # 커서 추출 (Link 헤더에서)
             cursor_match = re.search(r'cursor=([^&>]+).*rel="next"', link_header)
             if cursor_match:
                 cursor = cursor_match.group(1)
@@ -191,17 +184,16 @@ def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
                 break
 
         except Exception as e:
-            print(f"❌ 이슈 목록 조회 오류 (페이지 {page}): {str(e)}")
+            if TEST_MODE:
+                print(f"   ❌ 오류: {str(e)}")
             break
 
-    # 2. 추가로 해당 날짜에 활동이 있었던 기존 이슈들도 조회
-    print(f"🔍 해당 날짜에 활동이 있었던 기존 이슈들 조회 중...")
-
-    # lastSeen 기준으로도 조회
+    # lastSeen 기준 이슈 추가 수집
     existing_issues_params = {
-        'query': f'lastSeen:>={start_str} lastSeen:<{end_str}',  # 해당 날짜에 마지막으로 본 이슈
+        'query': f'lastSeen:>={start_str} lastSeen:<{end_str} environment:{ENVIRONMENT}',
         'limit': 100,
-        'sort': 'date'
+        'sort': 'date',
+        'environment': ENVIRONMENT
     }
 
     existing_cursor = None
@@ -212,31 +204,33 @@ def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
             existing_issues_params['cursor'] = existing_cursor
 
         try:
-            existing_response = requests.get(issues_url, headers=HEADERS, params=existing_issues_params)
+            response = requests.get(issues_url, headers=HEADERS, params=existing_issues_params)
 
-            if existing_response.status_code != 200:
+            if response.status_code != 200:
                 break
 
-            existing_page_issues = existing_response.json()
+            existing_issues = response.json()
 
-            if not existing_page_issues:
+            if not existing_issues:
                 break
 
             # 중복 제거하면서 추가
             existing_issue_ids = {issue.get('id') for issue in all_issues}
-            for issue in existing_page_issues:
+            new_count = 0
+            for issue in existing_issues:
                 if issue.get('id') not in existing_issue_ids:
                     all_issues.append(issue)
+                    new_count += 1
 
-            if TEST_MODE:
-                print(f"   기존 이슈 페이지 {existing_page}: {len(existing_page_issues)}개 추가 확인")
+            if TEST_MODE and existing_page <= 2:
+                print(f"   {date_label} lastSeen 페이지 {existing_page}: {new_count}개 새로 추가")
 
             # 다음 페이지 체크
-            existing_link_header = existing_response.headers.get('Link', '')
-            if 'rel="next"' not in existing_link_header:
+            link_header = response.headers.get('Link', '')
+            if 'rel="next"' not in link_header:
                 break
 
-            cursor_match = re.search(r'cursor=([^&>]+).*rel="next"', existing_link_header)
+            cursor_match = re.search(r'cursor=([^&>]+).*rel="next"', link_header)
             if cursor_match:
                 existing_cursor = cursor_match.group(1)
                 existing_page += 1
@@ -245,96 +239,16 @@ def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
 
         except Exception as e:
             if TEST_MODE:
-                print(f"❌ 기존 이슈 조회 오류: {str(e)}")
+                print(f"   ❌ {date_label} lastSeen 오류: {str(e)}")
             break
 
-    if TEST_MODE:
-        # 응답 정보 저장
-        debug_info = {
-            "target_date": target_date_str,
-            "time_range": f"{start_time} ~ {end_time}",
-            "total_issues_found": len(all_issues),
-            "sample_issues": all_issues[:5] if all_issues else []
-        }
-        save_debug_data(f"all_issues_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                        debug_info, f"{target_date_str} 전체 이슈 목록")
-
-    print(f"📊 {target_date_str}에 발견된 총 이슈: {len(all_issues)}개")
-
-    # 3. 크래시 이슈만 필터링 (error, fatal 레벨만)
-    crash_issues = []
-    for issue in all_issues:
-        level = issue.get('level', '').lower()
-        if level in ['error', 'fatal']:
-            crash_issues.append(issue)
-
-    print(f"📊 총 {len(all_issues)}개 이슈 중 {len(crash_issues)}개 크래시 이슈 발견")
-
-    # 4. 해당 날짜의 실제 이벤트 수 계산
-    yesterday_crashes = []
-    total_events = 0
-    affected_users = set()
-
-    for i, issue in enumerate(crash_issues):
-        issue_id = issue.get('id')
-        if not issue_id:
-            continue
-
-        # 진행 상황 표시
-        if TEST_MODE and (i + 1) % 20 == 0:
-            print(f"   ... {i + 1}/{len(crash_issues)} 크래시 이슈 처리 중")
-
-        # 해당 날짜의 실제 이벤트 수 조회
-        event_count = get_issue_events_count_for_date(issue_id, start_time, end_time)
-
-        if event_count > 0:
-            issue['yesterday_count'] = event_count
-            total_events += event_count
-
-            # 사용자 수 추가
-            user_count = issue.get('userCount', 0)
-            if user_count > 0:
-                affected_users.add(issue_id)
-
-            yesterday_crashes.append(issue)
-
-            # TEST 모드에서 상세 정보 출력
-            if TEST_MODE and len(yesterday_crashes) <= 10:
-                print(f"   ✅ 크래시 발견: {issue.get('title', '')[:50]}")
-                print(f"      - 레벨: {issue.get('level')}")
-                print(f"      - {target_date_str} 이벤트: {event_count}건")
-                print(f"      - 영향 사용자: {user_count}명")
-
-    # 해당 날짜 이벤트 수로 정렬
-    yesterday_crashes.sort(key=lambda x: x.get('yesterday_count', 0), reverse=True)
-
-    # 5. 전날 대비 증감 계산 (간단히 처리)
-    prev_total = int(total_events * 0.8)  # 임시로 20% 감소 가정
-
-    # 6. 실제 영향받은 사용자 수 계산
-    total_affected_users = sum(issue.get('userCount', 0) for issue in yesterday_crashes)
-
-    print(f"✅ {target_date_str} 크래시 분석 완료:")
-    print(f"   - 총 크래시 이벤트: {total_events}건")
-    print(f"   - 크래시 이슈: {len(yesterday_crashes)}개")
-    print(f"   - 영향 사용자: {total_affected_users}명")
-
-    return {
-        'total_crashes': total_events,
-        'total_issues': len(yesterday_crashes),
-        'affected_users': total_affected_users,
-        'top_issues': yesterday_crashes[:5],
-        'prev_day_crashes': prev_total,
-        'all_issues': yesterday_crashes
-    }
+    return all_issues
 
 
 def get_issue_events_count_for_date(issue_id: str, start_time: datetime, end_time: datetime) -> int:
-    """특정 이슈의 특정 날짜 이벤트 수 조회 (정확한 시간 필터링)"""
+    """특정 이슈의 특정 날짜 이벤트 수 조회"""
 
-    # 이벤트 직접 조회 (시간 범위 적용)
     events_url = f"{SENTRY_API_BASE}/issues/{issue_id}/events/"
-
     all_events = []
     cursor = None
 
@@ -368,14 +282,14 @@ def get_issue_events_count_for_date(issue_id: str, start_time: datetime, end_tim
                     except:
                         pass
 
-            # 시간 범위를 벗어나는 이벤트가 나오면 중단 (이벤트는 시간순 정렬)
+            # 시간 범위를 벗어나는 이벤트가 나오면 중단
             if events:
                 last_event_time_str = events[-1].get('dateCreated')
                 if last_event_time_str:
                     try:
                         last_event_time = datetime.fromisoformat(last_event_time_str.replace('Z', '+00:00'))
                         if last_event_time < start_time:
-                            break  # 시간 범위를 벗어남
+                            break
                     except:
                         pass
 
@@ -398,35 +312,351 @@ def get_issue_events_count_for_date(issue_id: str, start_time: datetime, end_tim
     return len(all_events)
 
 
-def get_crash_free_sessions():
-    """Crash-Free Sessions 비율 조회 (환경변수 PROJECT_ID 사용)"""
+def calculate_crash_stats_for_date(all_issues: List[Dict], start_time: datetime, end_time: datetime, date_label: str) -> \
+Tuple[int, int, int]:
+    """특정 날짜의 크래시 통계 계산 (타입 안전성 개선)"""
 
-    # Sessions API 호출
+    # 크래시 이슈만 필터링
+    crash_issues = []
+    for issue in all_issues:
+        level = issue.get('level', '').lower()
+        if level in ['error', 'fatal']:
+            crash_issues.append(issue)
+
+    if TEST_MODE:
+        print(f"📊 {date_label}: 총 {len(all_issues)}개 이슈 중 {len(crash_issues)}개 크래시 이슈")
+
+    # 🚀 성능 최적화: 이슈가 많으면 제한 (count 기준 정렬)
+    if len(crash_issues) > 50:
+        print(f"⚡ {date_label}: 크래시 이슈가 {len(crash_issues)}개로 많아서 상위 50개만 처리합니다.")
+        # count 기준으로 정렬해서 상위 50개만 처리 (safe_int 사용)
+        crash_issues_sorted = sorted(crash_issues, key=lambda x: safe_int(x.get('count', 0)), reverse=True)
+        crash_issues = crash_issues_sorted[:50]
+
+    # 크래시 이벤트 수 계산
+    total_events = 0
+    crash_issues_with_events = []
+    affected_users = set()
+
+    for i, issue in enumerate(crash_issues):
+        issue_id = issue.get('id')
+        if not issue_id:
+            continue
+
+        # 진행 상황 표시 (더 자주)
+        if (i + 1) % 5 == 0 or i == 0:
+            print(f"   🔄 {date_label}: {i + 1}/{len(crash_issues)} 크래시 이슈 처리 중...")
+
+        # 최적화된 이벤트 수 조회
+        event_count = get_issue_events_count_optimized(issue, issue_id, start_time, end_time, date_label)
+
+        if event_count > 0:
+            issue['event_count'] = event_count
+            total_events += event_count
+
+            # 사용자 수 추가 (안전한 변환)
+            user_count = safe_int(issue.get('userCount', 0))
+            if user_count > 0:
+                affected_users.add(issue_id)
+
+            crash_issues_with_events.append(issue)
+
+            # TEST 모드에서 상세 정보 출력 (상위 5개만)
+            if TEST_MODE and len(crash_issues_with_events) <= 5:
+                print(f"   ✅ {date_label} 크래시: {issue.get('title', '')[:40]}")
+                print(f"      - 이벤트: {event_count}건, 사용자: {user_count}명")
+
+        # 🚀 최적화: API 호출 간 딜레이 (rate limit 방지)
+        if (i + 1) % 10 == 0:
+            time.sleep(0.1)  # 10개마다 0.1초 대기
+
+    # 안전한 사용자 수 계산
+    total_affected_users = sum(safe_int(issue.get('userCount', 0)) for issue in crash_issues_with_events)
+
+    print(f"   ✅ {date_label} 완료: {total_events}건 크래시, {len(crash_issues_with_events)}개 이슈, {total_affected_users}명 영향")
+
+    return total_events, len(crash_issues_with_events), total_affected_users
+
+
+def get_issue_events_count_optimized(issue: Dict, issue_id: str, start_time: datetime, end_time: datetime,
+                                     date_label: str) -> int:
+    """최적화된 이슈 이벤트 수 조회 (타입 안전성 개선)"""
+
+    # 🚀 최적화 1: 이슈의 stats 데이터 먼저 확인 (타입 안전하게)
+    try:
+        # stats 데이터 구조 확인 및 안전한 처리
+        if 'stats' in issue and issue['stats']:
+            stats = issue['stats']
+
+            # 24h 데이터 확인
+            if '24h' in stats and stats['24h']:
+                stats_24h = stats['24h']
+
+                if TEST_MODE:
+                    print(f"      🔍 {issue_id}: stats 데이터 타입 확인 - {type(stats_24h)}")
+                    if isinstance(stats_24h, list) and len(stats_24h) > 0:
+                        print(f"      🔍 {issue_id}: 첫 번째 항목 - {stats_24h[0]}, 타입: {type(stats_24h[0])}")
+
+                recent_count = 0
+
+                # 다양한 stats 형태 처리
+                if isinstance(stats_24h, list):
+                    for item in stats_24h:
+                        try:
+                            # item이 리스트인 경우: [timestamp, count]
+                            if isinstance(item, list) and len(item) >= 2:
+                                count_value = item[1]
+                                if isinstance(count_value, (int, float)) and count_value > 0:
+                                    recent_count += int(count_value)
+                            # item이 딕셔너리인 경우
+                            elif isinstance(item, dict):
+                                for key, value in item.items():
+                                    if isinstance(value, (int, float)) and value > 0:
+                                        recent_count += int(value)
+                            # item이 숫자인 경우
+                            elif isinstance(item, (int, float)) and item > 0:
+                                recent_count += int(item)
+                        except (TypeError, ValueError, IndexError) as e:
+                            if TEST_MODE:
+                                print(f"      ⚠️  {issue_id}: stats 항목 처리 오류 - {e}, 항목: {item}")
+                            continue
+
+                elif isinstance(stats_24h, dict):
+                    # stats가 딕셔너리 형태인 경우
+                    for key, value in stats_24h.items():
+                        try:
+                            if isinstance(value, (int, float)) and value > 0:
+                                recent_count += int(value)
+                        except (TypeError, ValueError) as e:
+                            if TEST_MODE:
+                                print(f"      ⚠️  {issue_id}: stats dict 처리 오류 - {e}")
+                            continue
+
+                if recent_count > 0:
+                    if TEST_MODE:
+                        print(f"      📊 {issue_id}: stats에서 {recent_count}건 발견 (빠른 방법)")
+                    return recent_count
+
+        # stats가 없거나 유효하지 않으면 이슈의 기본 count 정보 활용
+        total_count = issue.get('count', 0)
+        if isinstance(total_count, (int, float)) and total_count > 0:
+            # 최근성 추정: lastSeen이 타겟 날짜 범위 내인지 확인
+            last_seen_str = issue.get('lastSeen')
+            if last_seen_str:
+                try:
+                    last_seen = datetime.fromisoformat(last_seen_str.replace('Z', '+00:00'))
+                    if start_time <= last_seen <= end_time:
+                        # 대략적으로 최근 활동 기준으로 추정
+                        estimated_count = min(int(total_count), 50)  # 최대 50개로 제한
+                        if TEST_MODE:
+                            print(f"      📊 {issue_id}: 추정 {estimated_count}건 (lastSeen 기반)")
+                        return estimated_count
+                except Exception as e:
+                    if TEST_MODE:
+                        print(f"      ⚠️  {issue_id}: lastSeen 처리 오류 - {e}")
+                    pass
+
+    except Exception as e:
+        if TEST_MODE:
+            print(f"      ⚠️  {issue_id} stats 전체 처리 오류: {str(e)}")
+            # 디버깅을 위해 stats 구조 출력
+            try:
+                stats = issue.get('stats', {})
+                print(f"      🔍 {issue_id}: stats 구조 - {type(stats)}: {str(stats)[:200]}...")
+            except:
+                print(f"      🔍 {issue_id}: stats 구조 출력 실패")
+
+    # 🚀 최적화 2: 직접 이벤트 조회 (제한적으로)
+    if TEST_MODE:
+        print(f"      🔄 {issue_id}: 직접 이벤트 조회로 전환")
+
+    return get_issue_events_count_for_date_limited(issue_id, start_time, end_time)
+
+def safe_int(value, default=0):
+    """안전한 정수 변환"""
+    try:
+        if isinstance(value, (int, float)):
+            return int(value)
+        elif isinstance(value, str):
+            # 문자열이 숫자로 변환 가능한지 확인
+            if value.isdigit():
+                return int(value)
+            else:
+                return default
+        else:
+            return default
+    except (ValueError, TypeError):
+        return default
+
+
+def get_issue_events_count_for_date_limited(issue_id: str, start_time: datetime, end_time: datetime) -> int:
+    """제한적 이벤트 수 조회 (성능 최적화)"""
+
+    events_url = f"{SENTRY_API_BASE}/issues/{issue_id}/events/"
+    all_events = []
+    max_pages = 3  # 🚀 최대 3페이지만 조회 (300개 이벤트)
+    page = 0
+    cursor = None
+
+    while page < max_pages:
+        params = {
+            'limit': 100
+        }
+
+        if cursor:
+            params['cursor'] = cursor
+
+        try:
+            response = requests.get(events_url, headers=HEADERS, params=params, timeout=10)  # 타임아웃 단축
+
+            if response.status_code != 200:
+                break
+
+            events = response.json()
+
+            if not events:
+                break
+
+            # 시간 범위 내 이벤트만 필터링
+            found_in_range = False
+            for event in events:
+                event_time_str = event.get('dateCreated')
+                if event_time_str:
+                    try:
+                        event_time = datetime.fromisoformat(event_time_str.replace('Z', '+00:00'))
+                        if start_time <= event_time <= end_time:
+                            all_events.append(event)
+                            found_in_range = True
+                        elif event_time < start_time:
+                            # 시간 범위를 벗어나면 중단
+                            return len(all_events)
+                    except:
+                        pass
+
+            # 해당 범위에 이벤트가 없으면 조기 중단
+            if not found_in_range and page > 0:
+                break
+
+            # 다음 페이지 체크
+            link_header = response.headers.get('Link', '')
+            if 'rel="next"' not in link_header:
+                break
+
+            cursor_match = re.search(r'cursor=([^&>]+).*rel="next"', link_header)
+            if cursor_match:
+                cursor = cursor_match.group(1)
+                page += 1
+            else:
+                break
+
+        except requests.exceptions.Timeout:
+            if TEST_MODE:
+                print(f"      ⏰ {issue_id} 이벤트 조회 타임아웃")
+            break
+        except Exception as e:
+            if TEST_MODE:
+                print(f"      ⚠️  {issue_id} 이벤트 조회 실패: {str(e)}")
+            break
+
+    return len(all_events)
+
+
+def get_crash_stats(start_time: datetime, end_time: datetime) -> Dict:
+    """타겟 날짜와 전날의 크래시 통계 조회 (성능 최적화)"""
+
+    target_date_str = start_time.astimezone(KST).strftime('%Y-%m-%d')
+
+    print(f"📅 타겟 날짜 ({target_date_str})의 모든 이슈 수집 중...")
+    print(f"🌍 Environment: {ENVIRONMENT}")
+
+    # 1. 타겟 날짜 이슈 수집
+    print(f"⏱️  1단계: 타겟 날짜 이슈 수집...")
+    target_issues = collect_issues_for_date(start_time, end_time, f"타겟날짜({target_date_str})")
+
+    # 2. 전날(그저께) 이슈 수집
+    prev_start_time = start_time - timedelta(days=1)
+    prev_end_time = start_time
+    prev_date_str = prev_start_time.astimezone(KST).strftime('%Y-%m-%d')
+
+    print(f"⏱️  2단계: 전날 이슈 수집...")
+    prev_issues = collect_issues_for_date(prev_start_time, prev_end_time, f"전날({prev_date_str})")
+
+    # 3. 타겟 날짜 크래시 통계 계산
+    print(f"⏱️  3단계: 타겟 날짜 크래시 통계 계산...")
+    target_events, target_issue_count, target_users = calculate_crash_stats_for_date(
+        target_issues, start_time, end_time, target_date_str
+    )
+
+    # 4. 전날 크래시 통계 계산
+    print(f"⏱️  4단계: 전날 크래시 통계 계산...")
+    prev_events, prev_issue_count, prev_users = calculate_crash_stats_for_date(
+        prev_issues, prev_start_time, prev_end_time, prev_date_str
+    )
+
+    # 5. 타겟 날짜 상위 이슈 생성
+    print(f"⏱️  5단계: 상위 이슈 정렬...")
+    crash_issues_with_events = []
+    for issue in target_issues:
+        level = issue.get('level', '').lower()
+        if level in ['error', 'fatal']:
+            issue_id = issue.get('id')
+            if issue_id:
+                # 이미 계산된 결과 활용
+                event_count = get_issue_events_count_optimized(issue, issue_id, start_time, end_time, "정렬용")
+                if event_count > 0:
+                    issue['yesterday_count'] = event_count
+                    crash_issues_with_events.append(issue)
+
+    # 이벤트 수로 정렬
+    crash_issues_with_events.sort(key=lambda x: x.get('yesterday_count', 0), reverse=True)
+
+    print(f"\n✅ 크래시 분석 완료:")
+    print(f"   📅 {target_date_str}: {target_events}건 크래시, {target_issue_count}개 이슈, {target_users}명 영향")
+    print(f"   📅 {prev_date_str}: {prev_events}건 크래시, {prev_issue_count}개 이슈, {prev_users}명 영향")
+
+    # 증감률 계산 및 출력
+    if prev_events > 0:
+        change_percent = ((target_events - prev_events) / prev_events) * 100
+        change_direction = "증가" if change_percent > 0 else "감소"
+        print(f"   📈 전날 대비: {abs(change_percent):.1f}% {change_direction}")
+    elif target_events > 0:
+        print(f"   📈 전날 대비: 신규 발생")
+    else:
+        print(f"   📈 전날 대비: 변화 없음")
+
+    return {
+        'total_crashes': target_events,
+        'total_issues': target_issue_count,
+        'affected_users': target_users,
+        'top_issues': crash_issues_with_events[:5],
+        'prev_day_crashes': prev_events,
+        'all_issues': crash_issues_with_events
+    }
+
+
+def get_crash_free_sessions():
+    """Crash-Free Sessions 비율 조회 (Environment 필터 적용)"""
+
     sessions_url = f"{SENTRY_API_BASE}/organizations/{ORG_SLUG}/sessions/"
 
     end_time = datetime.now(timezone.utc)
     start_time = end_time - timedelta(days=1)
 
-    # 환경변수에서 가져온 PROJECT_ID 사용
     params = {
         'field': ['crash_free_rate(session)', 'crash_free_rate(user)'],
         'start': start_time.isoformat(),
         'end': end_time.isoformat(),
-        'project': [PROJECT_ID],  # 환경변수 사용
+        'project': [PROJECT_ID],
+        'environment': [ENVIRONMENT],
         'totals': 1
     }
 
     if TEST_MODE:
         print(f"🔍 Crash-Free Rate API 호출:")
-        print(f"   URL: {sessions_url}")
-        print(f"   프로젝트 ID: {PROJECT_ID}")
-        print(f"   파라미터: {json.dumps(params, indent=2)}")
+        print(f"   프로젝트 ID: {PROJECT_ID}, Environment: {ENVIRONMENT}")
 
     try:
         response = requests.get(sessions_url, headers=HEADERS, params=params, timeout=30)
-
-        if TEST_MODE:
-            print(f"   응답 상태: {response.status_code}")
 
         if response.status_code == 200:
             data = response.json()
@@ -442,42 +672,20 @@ def get_crash_free_sessions():
                     session_crash_free = totals.get('crash_free_rate(session)')
 
                     if session_crash_free is not None:
-                        # 값이 0-1 범위면 퍼센트로 변환
                         rate = session_crash_free * 100 if session_crash_free <= 1 else session_crash_free
 
                         if TEST_MODE:
-                            print(f"   ✅ Session Crash-Free Rate: {rate:.2f}%")
-
-                            # User crash-free rate도 출력 (참고용)
-                            user_crash_free = totals.get('crash_free_rate(user)')
-                            if user_crash_free is not None:
-                                user_rate = user_crash_free * 100 if user_crash_free <= 1 else user_crash_free
-                                print(f"   📊 User Crash-Free Rate: {user_rate:.2f}%")
+                            print(f"   ✅ Session Crash-Free Rate ({ENVIRONMENT}): {rate:.2f}%")
 
                         return f"{rate:.2f}%"
 
-            if TEST_MODE:
-                print(f"   ⚠️  예상하지 못한 응답 구조: {data}")
-
-        else:
-            if TEST_MODE:
-                print(f"   ❌ API 오류: {response.status_code}")
-                print(f"   응답: {response.text}")
-
-    except Exception as e:
-        if TEST_MODE:
-            print(f"   ❌ 오류 발생: {str(e)}")
-
-    # 방법 2: session.status로 그룹화하여 계산 (대안)
-    if TEST_MODE:
-        print(f"\n🔄 대안 방법: session.status 그룹화")
-
-    try:
+        # 대안 방법: session.status로 그룹화
         group_params = {
             'field': ['sum(session)'],
             'start': start_time.isoformat(),
             'end': end_time.isoformat(),
-            'project': [PROJECT_ID],  # 환경변수 사용
+            'project': [PROJECT_ID],
+            'environment': [ENVIRONMENT],
             'groupBy': ['session.status'],
             'totals': 1
         }
@@ -486,7 +694,6 @@ def get_crash_free_sessions():
 
         if response.status_code == 200:
             data = response.json()
-
             total_sessions = 0
             crashed_sessions = 0
 
@@ -494,92 +701,66 @@ def get_crash_free_sessions():
                 for group in data['groups']:
                     status = group.get('by', {}).get('session.status')
                     session_count = group.get('totals', {}).get('sum(session)', 0)
-
                     total_sessions += session_count
-
                     if status == 'crashed':
                         crashed_sessions = session_count
 
                 if total_sessions > 0:
                     crash_free_rate = ((total_sessions - crashed_sessions) / total_sessions) * 100
-
                     if TEST_MODE:
-                        print(f"   📊 계산 결과:")
-                        print(f"      총 세션: {total_sessions:,}")
-                        print(f"      크래시 세션: {crashed_sessions:,}")
-                        print(f"      Crash-Free Rate: {crash_free_rate:.2f}%")
-
+                        print(f"   📊 계산된 Crash-Free Rate ({ENVIRONMENT}): {crash_free_rate:.2f}%")
                     return f"{crash_free_rate:.2f}%"
-
-        elif TEST_MODE:
-            print(f"   ❌ 그룹화 방법 실패: {response.status_code}")
 
     except Exception as e:
         if TEST_MODE:
-            print(f"   ❌ 그룹화 방법 오류: {str(e)}")
+            print(f"   ❌ Crash-Free Rate 조회 오류: {str(e)}")
 
     return "N/A"
 
+
 def get_trend_emoji(current: int, previous: int) -> str:
     """증감 추세에 따른 이모지 반환"""
-    if current == 0:
+    if current == 0 and previous == 0:
+        return "➡️"
+    elif current == 0:
         return "🎉"
     elif previous == 0:
         return "🚨"
 
-    change_percent = ((current - previous) / previous) * 100 if previous > 0 else 0
+    change_percent = ((current - previous) / previous) * 100
 
     if change_percent <= -50:
-        return "📉"  # 크게 감소
+        return "📉"
     elif change_percent <= -10:
-        return "↘️"  # 감소
+        return "↘️"
     elif change_percent >= 50:
-        return "📈"  # 크게 증가
+        return "📈"
     elif change_percent >= 10:
-        return "↗️"  # 증가
+        return "↗️"
     else:
-        return "➡️"  # 유지
-
-
-# 환경 변수 확인 부분에 DASH_BOARD_ID 추가
-SENTRY_TOKEN = os.getenv('SENTRY_AUTH_TOKEN')
-ORG_SLUG = os.getenv('SENTRY_ORG_SLUG')
-PROJECT_SLUG = os.getenv('SENTRY_PROJECT_SLUG')
-PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')
-SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
-DASH_BOARD_ID = os.getenv('DASH_BOARD_ID')  # 새로 추가
-
-# 환경 변수 확인 부분에 DASH_BOARD_ID 추가
-SENTRY_TOKEN = os.getenv('SENTRY_AUTH_TOKEN')
-ORG_SLUG = os.getenv('SENTRY_ORG_SLUG')
-PROJECT_SLUG = os.getenv('SENTRY_PROJECT_SLUG')
-PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')
-SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
-DASH_BOARD_ID = os.getenv('DASH_BOARD_ID')  # 새로 추가
-
-# 환경 변수 확인 부분에 DASH_BOARD_ID 추가
-SENTRY_TOKEN = os.getenv('SENTRY_AUTH_TOKEN')
-ORG_SLUG = os.getenv('SENTRY_ORG_SLUG')
-PROJECT_SLUG = os.getenv('SENTRY_PROJECT_SLUG')
-PROJECT_ID = os.getenv('SENTRY_PROJECT_ID')
-SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
-DASH_BOARD_ID = os.getenv('DASH_BOARD_ID')  # 새로 추가
+        return "➡️"
 
 
 def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) -> Dict:
-    """Slack 메시지 포맷팅 (최종 수정 버전)"""
+    """Slack 메시지 포맷팅 (실제 전날 비교 데이터 포함)"""
 
     start_utc, end_utc, yesterday_kst = date_info
     date_str = yesterday_kst.strftime('%Y년 %m월 %d일')
 
-    # 전날 대비 증감 계산
+    # 실제 전날 대비 증감 계산
     current = stats['total_crashes']
     previous = stats['prev_day_crashes']
-    trend_emoji = get_trend_emoji(current, previous)
 
     change_text = ""
-    if previous > 0:
+    if previous == 0 and current == 0:
+        change_text = " (변화 없음 ➡️)"
+    elif previous == 0:
+        change_text = " (신규 발생 🚨)"
+    elif current == 0:
+        change_text = " (완전 해결 🎉)"
+    else:
         change_percent = ((current - previous) / previous) * 100
+        trend_emoji = get_trend_emoji(current, previous)
         change_sign = "+" if change_percent > 0 else ""
         change_text = f" ({change_sign}{change_percent:.1f}% {trend_emoji})"
 
@@ -601,7 +782,7 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
         status_text = "심각"
         status_color = "danger"
 
-    # 상위 이슈 리스트 생성 (이모지 수정)
+    # 상위 이슈 리스트 생성
     top_issues_text = ""
     for i, issue in enumerate(stats['top_issues'], 1):
         title = format_issue_title(issue.get('title', 'Unknown Issue'), 50)
@@ -609,7 +790,7 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
         issue_id = issue.get('id', '')
         permalink = f"https://sentry.io/organizations/{ORG_SLUG}/issues/{issue_id}/"
 
-        # 이슈별 심각도 표시 (가장 낮은 순위를 🟢로 변경)
+        # 심각도 이모지
         if count >= 100:
             severity = "🔴"
         elif count >= 50:
@@ -617,7 +798,7 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
         elif count >= 10:
             severity = "🟡"
         else:
-            severity = "🟢"  # ⚪에서 🟢로 변경
+            severity = "🟢"
 
         top_issues_text += f"{i}. {severity} <{permalink}|{title}> - *{count:,}건*\n"
 
@@ -632,7 +813,6 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
         dashboard_url = "https://finda-b2c.sentry.io/dashboards"
         button_text = "Sentry 대시보드 목록 열기"
 
-    # 테스트 모드일 때는 테스트 표시 추가
     test_indicator = " [테스트]" if TEST_MODE else ""
 
     message = {
@@ -653,7 +833,7 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": f"📅 {date_str} | 상태: {main_emoji} {status_text}"
+                                "text": f"📅 {date_str} | 🌍 {ENVIRONMENT} | 상태: {main_emoji} {status_text}"
                             }
                         ]
                     },
@@ -672,7 +852,7 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
                         "fields": [
                             {
                                 "type": "mrkdwn",
-                                "text": f"*총 크래시*\n{current:,}건{change_text}"
+                                "text": f"*크래시 발생 횟수*\n{current:,}건{change_text}"
                             },
                             {
                                 "type": "mrkdwn",
@@ -680,7 +860,7 @@ def format_slack_message(stats: Dict, crash_free_rate: str, date_info: Tuple) ->
                             },
                             {
                                 "type": "mrkdwn",
-                                "text": f"*발생한 이슈*\n{stats['total_issues']}개"
+                                "text": f"*크래시 이슈 종류*\n{stats['total_issues']}개"
                             },
                             {
                                 "type": "mrkdwn",
@@ -795,13 +975,13 @@ def main():
                 print(f"❌ Sentry 연결 실패: {test_response.status_code}")
                 return
 
-        # 크래시 통계 수집
+        # 크래시 통계 수집 (실제 전날 데이터 포함)
         print("\n📊 Sentry 데이터 수집 중...")
         stats = get_crash_stats(start_time, end_time)
 
         print(f"\n📈 수집 결과:")
-        print(f"  - 총 크래시: {stats['total_crashes']}건")
-        print(f"  - 발생 이슈: {stats['total_issues']}개")
+        print(f"  - 크래시 발생 횟수: {stats['total_crashes']}건")
+        print(f"  - 크래시 이슈 종류: {stats['total_issues']}개")
         print(f"  - 영향 사용자: {stats['affected_users']}명")
         print(f"  - 전날 크래시: {stats['prev_day_crashes']}건")
 
@@ -872,7 +1052,6 @@ def main():
             send_to_slack(error_message)
 
         exit(1)
-
 
 if __name__ == "__main__":
     main()
