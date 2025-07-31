@@ -404,10 +404,10 @@ Tuple[int, int, int]:
         print(f"📊 {date_label}: 총 {len(all_issues)}개 이슈 중 {len(crash_issues)}개 크래시 이슈")
 
     # 🚀 성능 최적화: 이슈가 많으면 제한
-    if len(crash_issues) > 50:
-        print(f"⚡ {date_label}: 크래시 이슈가 {len(crash_issues)}개로 많아서 상위 50개만 처리합니다.")
+    if len(crash_issues) > 100:
+        print(f"⚡ {date_label}: 크래시 이슈가 {len(crash_issues)}개로 많아서 상위 100개만 처리합니다.")
         crash_issues_sorted = sorted(crash_issues, key=lambda x: safe_int(x.get('count', 0)), reverse=True)
-        crash_issues = crash_issues_sorted[:50]
+        crash_issues = crash_issues_sorted[:100]
 
     # 크래시 이벤트 수 계산
     total_events = 0
