@@ -89,7 +89,7 @@ def get_weekly_datetime_range():
         week_start = today - timedelta(days=7)
         print(f"📅 기본 주간 범위 사용 (오늘 기준 지난 7일)")
 
-    # 이번 주: 7일 전 00:00 ~ 어제 23:59
+    # 이번 주: 7일 전 00:00 ~ 어제 23:59 (1마이크로초 빼서 경계 명확히)
     this_week_start = week_start
     this_week_end = (today - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
 
@@ -117,6 +117,7 @@ def collect_issues_for_date(start_time: datetime, end_time: datetime) -> List[Di
 
     issues_url = f"{SENTRY_API_BASE}/projects/{ORG_SLUG}/{PROJECT_SLUG}/issues/"
     all_issues = []
+    all_issue_ids = set()  # ID 중복 체크용
 
     # firstSeen 기준 이슈 수집
     cursor = None
@@ -144,7 +145,12 @@ def collect_issues_for_date(start_time: datetime, end_time: datetime) -> List[Di
             if not page_issues:
                 break
 
-            all_issues.extend(page_issues)
+            # ID가 유효한 이슈만 추가
+            for issue in page_issues:
+                issue_id = issue.get('id')
+                if issue_id and issue_id not in all_issue_ids:
+                    all_issues.append(issue)
+                    all_issue_ids.add(issue_id)
 
             # 다음 페이지 체크
             link_header = response.headers.get('Link', '')
@@ -159,6 +165,8 @@ def collect_issues_for_date(start_time: datetime, end_time: datetime) -> List[Di
                 break
 
         except Exception as e:
+            if TEST_MODE:
+                print(f"      ❌ firstSeen 오류: {str(e)}")
             break
 
     # lastSeen 기준 이슈 추가 수집
@@ -187,12 +195,13 @@ def collect_issues_for_date(start_time: datetime, end_time: datetime) -> List[Di
             if not existing_issues:
                 break
 
-            # 중복 제거하면서 추가
-            existing_issue_ids = {issue.get('id') for issue in all_issues}
+            # ID가 유효하고 중복이 아닌 이슈만 추가
             new_count = 0
             for issue in existing_issues:
-                if issue.get('id') not in existing_issue_ids:
+                issue_id = issue.get('id')
+                if issue_id and issue_id not in all_issue_ids:
                     all_issues.append(issue)
+                    all_issue_ids.add(issue_id)
                     new_count += 1
 
             # 다음 페이지 체크
@@ -220,19 +229,29 @@ def calculate_crash_stats_for_date(all_issues: List[Dict], start_time: datetime,
 
     # 크래시 이슈만 필터링 (error, fatal만)
     crash_issues = []
+    non_crash_levels = set()  # 디버깅용
+
     for issue in all_issues:
         level = issue.get('level', '').lower()
         if level in ['error', 'fatal']:
-            crash_issues.append(issue)
+            # ID가 있는 이슈만 처리
+            if issue.get('id'):
+                crash_issues.append(issue)
+        else:
+            non_crash_levels.add(level)
 
     if TEST_MODE:
         day_str = start_time.astimezone(KST).strftime('%m/%d')
         print(f"         📊 {day_str}: 총 {len(all_issues)}개 이슈 중 {len(crash_issues)}개 크래시 이슈")
+        if non_crash_levels:
+            print(f"         🔍 크래시가 아닌 레벨들: {non_crash_levels}")
 
     # 성능 최적화: 이슈가 많으면 제한
     if len(crash_issues) > 150:  # 100에서 150으로 증가
         crash_issues_sorted = sorted(crash_issues, key=lambda x: safe_int(x.get('count', 0)), reverse=True)
         crash_issues = crash_issues_sorted[:150]
+        if TEST_MODE:
+            print(f"         ⚡ 상위 150개 이슈만 처리")
 
     # 크래시 이벤트 수 계산
     total_events = 0
@@ -260,6 +279,7 @@ def calculate_crash_stats_for_date(all_issues: List[Dict], start_time: datetime,
             if TEST_MODE and len(crash_issues_with_events) <= 3:
                 print(f"            ✅ 크래시: {issue.get('title', '')[:40]}")
                 print(f"               - 이벤트: {event_count}건")
+                print(f"               - 레벨: {issue.get('level', 'unknown')}")
 
         # API 호출 간 딜레이 (rate limit 방지)
         if (i + 1) % 10 == 0:
@@ -1169,7 +1189,16 @@ def main():
         prev_week_issues = collect_weekly_issues(prev_week_start_utc, prev_week_end_utc, "전주")
 
         # 간단한 통계 (이슈 개수와 영향 사용자는 대략적으로 계산)
-        this_week_crash_issues = [issue for issue in this_week_issues if issue.get('level', '').lower() in ['error', 'fatal']]
+        this_week_crash_issues = []
+        crash_issue_ids = set()  # 중복 제거용
+
+        for issue in this_week_issues:
+            level = issue.get('level', '').lower()
+            issue_id = issue.get('id')
+            # ID가 있고, 크래시 레벨이며, 중복이 아닌 경우만
+            if issue_id and level in ['error', 'fatal'] and issue_id not in crash_issue_ids:
+                this_week_crash_issues.append(issue)
+                crash_issue_ids.add(issue_id)
 
         # 영향받은 사용자 수 추정 (각 이슈의 userCount 합계, 중복 고려 안함)
         estimated_users = 0
@@ -1178,15 +1207,21 @@ def main():
 
         this_week_stats = {
             'total_crashes': this_week_total,  # 요일별 합계 사용
-            'total_issues': len(this_week_crash_issues),
+            'total_issues': len(crash_issue_ids),  # 고유 크래시 이슈 개수
             'affected_users': min(estimated_users, this_week_total),  # 크래시 수보다 많을 수 없음
             'issues': this_week_crash_issues
         }
 
         print(f"\n📊 최종 통계:")
         print(f"  - 이번 주 크래시: {this_week_stats['total_crashes']}건")
-        print(f"  - 이번 주 이슈: {this_week_stats['total_issues']}개")
+        print(f"  - 이번 주 크래시 이슈: {this_week_stats['total_issues']}개 (고유 ID 기준)")
         print(f"  - 이번 주 영향 사용자: {this_week_stats['affected_users']}명 (추정)")
+
+        if TEST_MODE:
+            print(f"\n🔍 디버깅 정보:")
+            print(f"  - 전체 이슈 수: {len(this_week_issues)}개")
+            print(f"  - 크래시 이슈 수: {len(this_week_crash_issues)}개")
+            print(f"  - 고유 이슈 ID 수: {len(crash_issue_ids)}개")
 
         # 이상 징후 탐지
         print("\n🔍 이상 징후 탐지 중...")
