@@ -15,7 +15,7 @@ from alert_sender import (
 # 설정 및 모듈 import
 from config import (
     load_environment, validate_configuration, print_configuration,
-    get_input_value, TEST_MODE, is_local_environment, KST
+    get_input_value, TEST_MODE, is_local_environment, KST, utc_to_kst
 )
 from monitoring_state import (
     get_active_monitoring_releases, add_monitoring_release,
@@ -45,8 +45,9 @@ def get_release_start_time() -> datetime:
                     parsed_time = datetime.strptime(input_time, fmt)
                     kst_time = parsed_time.replace(tzinfo=KST)
 
-                    print(f"✅ 사용자 지정 릴리즈 시간 (KST): {kst_time}")
-                    print(f"   UTC 변환: {kst_time.astimezone(timezone.utc)}")
+                    print(f"✅ 사용자 지정 릴리즈 시간:")
+                    print(f"   KST: {kst_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"   UTC: {kst_time.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
 
                     # UTC로 변환해서 반환
                     return kst_time.astimezone(timezone.utc)
@@ -64,8 +65,8 @@ def get_release_start_time() -> datetime:
     current_kst = current_time.astimezone(KST)
 
     print(f"✅ 현재 시간 사용:")
-    print(f"   KST: {current_kst}")
-    print(f"   UTC: {current_time}")
+    print(f"   KST: {current_kst.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"   UTC: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     return current_time
 
@@ -78,7 +79,10 @@ def handle_manual_trigger():
         # 릴리즈 정보 수집
         release_version = get_input_value('release_version')
         release_start_time = get_release_start_time()
-        monitoring_duration = int(get_input_value('monitoring_duration', '168'))
+
+        # .env에서 기본 duration 로드
+        default_duration = os.getenv('TEST_MONITORING_DURATION', '168')
+        monitoring_duration = int(get_input_value('monitoring_duration', default_duration))
 
         if not release_version:
             raise ValueError("릴리즈 버전이 지정되지 않았습니다.")
@@ -95,7 +99,7 @@ def handle_manual_trigger():
 
         print(f"📝 릴리즈 정보:")
         print(f"   - 버전: {release_version}")
-        print(f"   - 시작: {release_start_time}")
+        print(f"   - 시작: {utc_to_kst(release_start_time).strftime('%Y-%m-%d %H:%M:%S')} KST")
         print(f"   - 기간: {monitoring_duration}시간")
 
         # 모니터링 상태에 추가
@@ -220,16 +224,16 @@ def handle_automatic_trigger():
 def setup_local_cli():
     """로컬 CLI 인자 처리"""
     parser = argparse.ArgumentParser(description='릴리즈 모니터링 시스템')
-    parser.add_argument('--version', help='릴리즈 버전')
+    parser.add_argument('--version', help='릴리즈 버전 (미지정시 .env의 TEST_RELEASE_VERSION 사용)')
     parser.add_argument('--start-time', help='릴리즈 시작 시간 (YYYY-MM-DD HH:MM)')
-    parser.add_argument('--duration', type=int, default=168, help='모니터링 기간 (시간)')
+    parser.add_argument('--duration', type=int, help='모니터링 기간 (시간, 미지정시 .env의 TEST_MONITORING_DURATION 사용)')
     parser.add_argument('--test-mode', action='store_true', help='테스트 모드 활성화')
     parser.add_argument('--status', action='store_true', help='현재 모니터링 상태 확인')
     parser.add_argument('--cleanup', action='store_true', help='완료된 릴리즈 정리')
 
     args = parser.parse_args()
 
-    # CLI 인자를 환경변수로 설정
+    # CLI 인자를 환경변수로 설정 (우선순위: CLI > .env)
     if args.version:
         os.environ['TEST_RELEASE_VERSION'] = args.version
     if args.start_time:

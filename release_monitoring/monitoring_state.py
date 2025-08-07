@@ -4,6 +4,7 @@ monitoring_state.json 파일을 통한 릴리즈 상태 추적
 """
 
 import json
+import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List
@@ -200,16 +201,21 @@ def get_release_summary() -> Dict:
 
 def create_test_release(version: str = None, hours_ago: int = 0) -> Dict:
     """테스트용 릴리즈 데이터 생성"""
+    # .env에서 기본값 로드
     if not version:
-        version = f"test-{datetime.now().strftime('%H%M%S')}"
+        version = os.getenv('TEST_RELEASE_VERSION') or f"test-{datetime.now().strftime('%H%M%S')}"
 
     start_time = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+
+    # .env에서 설정 로드
+    duration_hours = int(os.getenv('TEST_MONITORING_DURATION', '168'))
+    environment = os.getenv('SENTRY_ENVIRONMENT', 'Test')
 
     release_data = {
         'version': version,
         'start_time': start_time.isoformat(),
-        'duration_hours': 168,  # 7일
-        'environment': 'Test',
+        'duration_hours': duration_hours,
+        'environment': environment,
         'created_at': datetime.now(timezone.utc).isoformat(),
         'created_by': 'local_test'
     }

@@ -11,7 +11,7 @@ import requests
 
 from config import (
     SENTRY_API_BASE, HEADERS, PROJECT_SLUG, ORG_SLUG, ENVIRONMENT,
-    ALERT_THRESHOLDS, TEST_MODE
+    ALERT_THRESHOLDS, TEST_MODE, utc_to_kst
 )
 
 
@@ -64,7 +64,10 @@ def collect_release_issues(start_time: datetime, end_time: datetime,
         base_query += f' release:{release_version}'
 
     if TEST_MODE:
-        print(f"🔍 이슈 수집 중: {start_time.strftime('%m/%d %H:%M')} ~ {end_time.strftime('%m/%d %H:%M')}")
+        # 한국 시간으로 변환하여 출력
+        start_kst = utc_to_kst(start_time)
+        end_kst = utc_to_kst(end_time)
+        print(f"🔍 이슈 수집 중: {start_kst.strftime('%m/%d %H:%M')} ~ {end_kst.strftime('%m/%d %H:%M')} KST")
         if release_version:
             print(f"   릴리즈: {release_version}")
 
@@ -203,7 +206,10 @@ def get_baseline_comparison(release_start: datetime, analysis_hours: int = 24) -
     baseline_start = baseline_end - timedelta(hours=analysis_hours)
 
     if TEST_MODE:
-        print(f"🔍 베이스라인 데이터 수집 중: {baseline_start.strftime('%m/%d %H:%M')} ~ {baseline_end.strftime('%m/%d %H:%M')}")
+        # 한국 시간으로 변환하여 출력
+        start_kst = utc_to_kst(baseline_start)
+        end_kst = utc_to_kst(baseline_end)
+        print(f"🔍 베이스라인 데이터 수집 중: {start_kst.strftime('%m/%d %H:%M')} ~ {end_kst.strftime('%m/%d %H:%M')} KST")
 
     baseline_issues = collect_release_issues(baseline_start, baseline_end)
     baseline_analysis = analyze_crash_issues(baseline_issues)
@@ -263,7 +269,11 @@ def analyze_release_impact(release: Dict) -> Dict:
         elapsed_hours = 0.25
 
     if TEST_MODE:
-        print(f"\n🔍 릴리즈 {release_version} 영향 분석 시작 (경과: {elapsed_hours:.1f}시간)")
+        # 한국 시간으로 변환하여 출력
+        release_start_kst = utc_to_kst(release_start)
+        print(f"\n🔍 릴리즈 {release_version} 영향 분석 시작")
+        print(f"   📅 릴리즈 시작: {release_start_kst.strftime('%Y-%m-%d %H:%M:%S')} KST")
+        print(f"   ⏱️ 경과 시간: {elapsed_hours:.1f}시간")
 
     # 릴리즈 기간 데이터 수집
     analysis_start, analysis_end = get_release_timeframe(release_start, int(elapsed_hours))
@@ -410,6 +420,8 @@ def get_trend_emoji(current: int, previous: int) -> str:
 
 def get_crash_free_rate(start_time: datetime, end_time: datetime) -> str:
     """Crash-Free Rate 조회"""
+    import os
+
     sessions_url = f"{SENTRY_API_BASE}/organizations/{ORG_SLUG}/sessions/"
 
     params = {

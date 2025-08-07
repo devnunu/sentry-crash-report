@@ -9,7 +9,7 @@ from typing import Dict
 
 import requests
 
-from config import SLACK_WEBHOOK, DASH_BOARD_ID, ORG_SLUG, ENVIRONMENT, TEST_MODE, is_local_environment
+from config import SLACK_WEBHOOK, DASH_BOARD_ID, ORG_SLUG, ENVIRONMENT, TEST_MODE, is_local_environment, utc_to_kst
 
 
 def send_to_slack(message: Dict) -> bool:
@@ -81,6 +81,9 @@ def format_critical_alert(analysis_result: Dict) -> Dict:
 
     test_indicator = " [테스트]" if TEST_MODE else ""
 
+    # 한국 시간으로 변환
+    kst_time = utc_to_kst(datetime.now(timezone.utc))
+
     message = {
         "attachments": [
             {
@@ -142,7 +145,7 @@ def format_critical_alert(analysis_result: Dict) -> Dict:
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": f"_분석 시간: {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC_"
+                                "text": f"_분석 시간: {kst_time.strftime('%Y-%m-%d %H:%M:%S')} KST_"
                             }
                         ]
                     }
@@ -268,6 +271,9 @@ def format_monitoring_complete(release_version: str, final_stats: Dict) -> Dict:
 
     test_indicator = " [테스트]" if TEST_MODE else ""
 
+    # 한국 시간으로 변환
+    kst_time = utc_to_kst(datetime.now(timezone.utc))
+
     message = {
         "attachments": [
             {
@@ -297,7 +303,7 @@ def format_monitoring_complete(release_version: str, final_stats: Dict) -> Dict:
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": f"_완료 시간: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC_"
+                                "text": f"_완료 시간: {kst_time.strftime('%Y-%m-%d %H:%M:%S')} KST_"
                             }
                         ]
                     }
@@ -387,6 +393,9 @@ def send_error_alert(error_message: str, context: Dict = None) -> bool:
     """오류 알림 전송"""
     test_indicator = " [테스트]" if TEST_MODE else ""
 
+    # 한국 시간으로 변환
+    kst_time = utc_to_kst(datetime.now(timezone.utc))
+
     message = {
         "text": f"🚨 릴리즈 모니터링 오류{test_indicator}: {error_message}",
         "blocks": [
@@ -396,7 +405,7 @@ def send_error_alert(error_message: str, context: Dict = None) -> bool:
                     "type": "mrkdwn",
                     "text": f"*🚨 릴리즈 모니터링 오류{test_indicator}*\n\n"
                            f"• 오류: `{error_message}`\n"
-                           f"• 시간: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
+                           f"• 시간: {kst_time.strftime('%Y-%m-%d %H:%M:%S')} KST\n"
                            f"• 환경: {'로컬 테스트' if is_local_environment() else 'GitHub Actions'}"
                 }
             }
