@@ -20,17 +20,30 @@ def setup_local_environment():
         if env_path.exists():
             load_dotenv(env_path)
             print(f"✅ {env_path}에서 환경변수를 로드했습니다.")
+
+            # .env에서 TEST_MODE 값 확인
+            env_test_mode = os.getenv('TEST_MODE', 'true').lower()
+            print(f"📝 .env 파일의 TEST_MODE: {env_test_mode}")
+
+            # .env 파일에 TEST_MODE가 명시적으로 설정되어 있지 않은 경우에만 기본값 설정
+            if 'TEST_MODE' not in open(env_path).read():
+                os.environ['TEST_MODE'] = 'true'
+                print("🧪 TEST_MODE가 .env에 없어서 기본값 true로 설정")
+            else:
+                print(f"🔧 .env 파일의 TEST_MODE={env_test_mode} 사용")
+
         else:
             print(f"⚠️ {env_path} 파일이 없습니다.")
+            # .env 파일이 없는 경우에만 기본값 설정
+            os.environ['TEST_MODE'] = 'true'
+            print("🧪 .env 파일이 없어서 TEST_MODE=true로 설정")
             return False
     except ImportError:
         print("❌ python-dotenv가 설치되지 않았습니다.")
         return False
 
-    os.environ['TEST_MODE'] = 'true'
     print("🧪 로컬 테스트 환경 설정 완료")
     return True
-
 
 def validate_configuration():
     """설정 유효성 검사"""

@@ -17,11 +17,16 @@ from config import (
 
 def send_to_slack(message: Dict) -> bool:
     """Slack으로 메시지 전송"""
+    print("🔍 TEST_MODE 디버깅:")
+    print(f"   - config.TEST_MODE: {TEST_MODE}")
+    print(f"   - type(TEST_MODE): {type(TEST_MODE)}")
+
     if not SLACK_WEBHOOK:
         print("⚠️ SLACK_WEBHOOK_URL이 설정되지 않아 Slack 전송을 건너뜁니다.")
         return True
 
-    if TEST_MODE or is_local_environment():
+    # if TEST_MODE or is_local_environment():
+    if TEST_MODE:
         print("\n🔍 테스트 모드 - Slack 메시지 내용:")
         print("=" * 60)
         print(json.dumps(message, indent=2, ensure_ascii=False))
@@ -82,15 +87,18 @@ def format_level_alert(analysis_result: Dict) -> Dict:
 
     crash_level = levels['crash']
     if crash_level['level'] > 0:
-        level_details.append(f"📊 크래시: Level {crash_level['level']} - {current['total_crashes']}건 ({crash_level['status']})")
+        level_details.append(
+            f"📊 크래시: Level {crash_level['level']} - {current['total_crashes']}건 ({crash_level['status']})")
 
     fatal_level = levels['fatal']
     if fatal_level['level'] > 0:
-        level_details.append(f"💀 Fatal: Level {fatal_level['level']} - {current['total_fatal']}건 ({fatal_level['status']})")
+        level_details.append(
+            f"💀 Fatal: Level {fatal_level['level']} - {current['total_fatal']}건 ({fatal_level['status']})")
 
     user_level = levels['user_impact']
     if user_level['level'] > 0:
-        level_details.append(f"👥 사용자: Level {user_level['level']} - {current['affected_users']}명 ({user_level['status']})")
+        level_details.append(
+            f"👥 사용자: Level {user_level['level']} - {current['affected_users']}명 ({user_level['status']})")
 
     single_level = levels['single_issue']
     if single_level['level'] > 0:
@@ -135,9 +143,9 @@ def format_level_alert(analysis_result: Dict) -> Dict:
                         "text": {
                             "type": "mrkdwn",
                             "text": f"📱 *버전:* {release_version}\n"
-                                   f"📊 *분석기간:* {period_desc}\n"
-                                   f"⚠️ *위험도:* Level {overall_level} ({overall_status})\n"
-                                   f"🌍 *환경:* {ENVIRONMENT}"
+                                    f"📊 *분석기간:* {period_desc}\n"
+                                    f"⚠️ *위험도:* Level {overall_level} ({overall_status})\n"
+                                    f"🌍 *환경:* {ENVIRONMENT}"
                         }
                     },
                     {
@@ -319,10 +327,10 @@ def format_monitoring_complete(release_version: str, final_stats: Dict) -> Dict:
                         "text": {
                             "type": "mrkdwn",
                             "text": f"📅 *모니터링 기간:* 7일간\n"
-                                   f"📊 *총 크래시:* {final_stats.get('total_crashes', 0)}건\n"
-                                   f"👥 *총 영향 사용자:* {final_stats.get('total_users', 0)}명\n"
-                                   f"🏆 *최종 상태:* 안정적\n"
-                                   f"🌍 *환경:* {ENVIRONMENT}"
+                                    f"📊 *총 크래시:* {final_stats.get('total_crashes', 0)}건\n"
+                                    f"👥 *총 영향 사용자:* {final_stats.get('total_users', 0)}명\n"
+                                    f"🏆 *최종 상태:* 안정적\n"
+                                    f"🌍 *환경:* {ENVIRONMENT}"
                         }
                     },
                     {
@@ -393,9 +401,9 @@ def send_error_alert(error_message: str, context: Dict = None) -> bool:
                 "text": {
                     "type": "mrkdwn",
                     "text": f"*🚨 릴리즈 모니터링 오류{test_indicator}*\n\n"
-                           f"• 오류: `{error_message}`\n"
-                           f"• 시간: {kst_time.strftime('%Y-%m-%d %H:%M:%S')} KST\n"
-                           f"• 환경: {'로컬 테스트' if is_local_environment() else 'GitHub Actions'}"
+                            f"• 오류: `{error_message}`\n"
+                            f"• 시간: {kst_time.strftime('%Y-%m-%d %H:%M:%S')} KST\n"
+                            f"• 환경: {'로컬 테스트' if is_local_environment() else 'GitHub Actions'}"
                 }
             }
         ]
