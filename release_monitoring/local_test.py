@@ -309,6 +309,60 @@ def clear_all_data():
 
 
 def test_version_update():
+    """릴리즈 모니터링 취소"""
+    print("\n🗑️ 릴리즈 모니터링 취소")
+
+    try:
+        from monitoring_state import get_active_monitoring_releases, remove_release, get_release_by_version
+        from config import utc_to_kst
+
+        # 현재 모니터링 중인 릴리즈 목록 표시
+        active_releases = get_active_monitoring_releases()
+
+        if not active_releases:
+            print("   📝 현재 모니터링 중인 릴리즈가 없습니다.")
+            return False
+
+        print(f"   📋 현재 모니터링 중인 릴리즈:")
+        for i, release in enumerate(active_releases, 1):
+            version = release.get('version', 'unknown')
+            start_time_str = release.get('start_time')
+            created_by = release.get('created_by', 'unknown')
+
+            if start_time_str:
+                start_time_utc = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                start_time_kst = utc_to_kst(start_time_utc)
+                time_str = start_time_kst.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                time_str = 'Unknown'
+
+            print(f"      {i}. {version} (시작: {time_str} KST, 생성자: {created_by})")
+
+        # 사용자 입력 받기 (실제로는 .env의 TEST_RELEASE_VERSION 사용)
+        target_version = os.getenv('TEST_RELEASE_VERSION')
+        if not target_version:
+            print("   ⚠️ 취소할 릴리즈 버전을 TEST_RELEASE_VERSION에 설정하세요.")
+            return False
+
+        print(f"   🎯 취소 대상: {target_version}")
+
+        # 해당 릴리즈 정보 확인
+        release_info = get_release_by_version(target_version)
+        if not release_info:
+            print(f"   ❌ 릴리즈 {target_version}을 찾을 수 없습니다.")
+            return False
+
+        # 릴리즈 제거
+        if remove_release(target_version):
+            print(f"   ✅ 릴리즈 {target_version} 모니터링이 취소되었습니다.")
+            return True
+        else:
+            print(f"   ❌ 릴리즈 {target_version} 취소에 실패했습니다.")
+            return False
+
+    except Exception as e:
+        print(f"❌ 릴리즈 취소 실패: {e}")
+        return False
     """동일 버전 업데이트 테스트"""
     print("\n🔄 동일 버전 업데이트 테스트")
 
@@ -441,7 +495,8 @@ def main():
     parser = argparse.ArgumentParser(description='릴리즈 모니터링 로컬 테스트 (단일 버전 관리)')
     parser.add_argument('--scenario',
                         choices=['validate', 'new_release', 'monitoring', 'cleanup',
-                                 'status', 'sample_data', 'clear_data', 'version_update', 'full_test'],
+                                 'status', 'sample_data', 'clear_data', 'version_update',
+                                 'cancel_monitoring', 'full_test'],
                         default='validate',
                         help='테스트 시나리오')
     parser.add_argument('--version', help='테스트할 릴리즈 버전 (미지정시 .env의 TEST_RELEASE_VERSION 사용)')
@@ -475,6 +530,8 @@ def main():
         success = clear_all_data()
     elif args.scenario == 'version_update':
         success = test_version_update()
+    elif args.scenario == 'cancel_monitoring':
+        success = cancel_release_monitoring()
     elif args.scenario == 'full_test':
         success = run_full_test_suite()
 

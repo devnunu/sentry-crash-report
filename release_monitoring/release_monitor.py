@@ -27,9 +27,142 @@ from release_analyzer import (
 )
 
 
+def get_input_action():
+    """GitHub Actions에서 실행할 작업 종류 확인"""
+    return get_input_value('action', 'start_monitoring')
+
+
+def handle_cancel_monitoring():
+    """모니터링 취소 처리"""
+    print("🗑️ 모니터링 취소를 진행합니다...")
+
+    try:
+        release_version = get_input_value('release_version')
+
+        if not release_version:
+            raise ValueError("취소할 릴리즈 버전이 지정되지 않았습니다.")
+
+        print(f"📝 취소 대상: {release_version}")
+
+        # 해당 릴리즈가 존재하는지 확인
+        from monitoring_state import get_release_by_version, remove_release
+
+        existing_release = get_release_by_version(release_version)
+
+        if not existing_release:
+            print(f"⚠️ 릴리즈 {release_version}을 찾을 수 없습니다.")
+            print("📋 현재 모니터링 중인 릴리즈 목록:")
+            print_monitoring_status()
+            return
+
+        # 릴리즈 정보 출력
+        release_start_kst = utc_to_kst(datetime.fromisoformat(existing_release['start_time'].replace('Z', '+00:00')))
+        created_by = existing_release.get('created_by', 'unknown')
+
+        print(f"🔍 릴리즈 정보:")
+        print(f"   - 버전: {release_version}")
+        print(f"   - 시작: {release_start_kst.strftime('%Y-%m-%d %H:%M:%S')} KST")
+        print(f"   - 생성자: {created_by}")
+
+        # 릴리즈 제거
+        if remove_release(release_version):
+            print(f"✅ 릴리즈 {release_version} 모니터링이 취소되었습니다.")
+
+            # Slack 알림 전송
+            try:
+                cancel_message = {
+                    "text": f"🗑️ 릴리즈 모니터링 취소: {release_version}",
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*🗑️ 릴리즈 모니터링 취소*\n\n"
+                                        f"• 버전: `{release_version}`\n"
+                                        f"• 취소자: {os.getenv('GITHUB_ACTOR', 'unknown')}\n"
+                                        f"• 시간: {utc_to_kst(datetime.now(timezone.utc)).strftime('%Y-%m-%d %H:%M:%S')} KST"
+                            }
+                        }
+                    ]
+                }
+
+                from alert_sender import send_to_slack
+                send_to_slack(cancel_message)
+
+            except Exception as e:
+                print(f"⚠️ Slack 알림 전송 실패: {e}")
+        else:
+            print(f"❌ 릴리즈 {release_version} 취소에 실패했습니다.")
+
+    except Exception as e:
+        error_context = {
+            'action': 'cancel_monitoring',
+            'release_version': get_input_value('release_version', 'unknown')
+        }
+        print(f"❌ 모니터링 취소 처리 오류: {e}")
+        send_error_alert(str(e), error_context)
+        sys.exit(1)
+
+
+def handle_status_check():
+    """모니터링 상태 확인"""
+    print("📊 모니터링 상태를 확인합니다...")
+
+    try:
+        print_monitoring_status()
+
+        # 추가로 요약 정보 제공
+        from monitoring_state import get_release_summary
+        summary = get_release_summary()
+
+        if summary['total_releases'] > 0:
+            print(f"\n📈 요약:")
+            print(f"   - 총 {summary['total_releases']}개 릴리즈 모니터링 중")
+
+            for phase, count in summary['by_phase'].items():
+                if count > 0:
+                    phase_name = {
+                        'intensive': '집중 모니터링',
+                        'normal': '일반 모니터링',
+                        'completed': '완료',
+                        'scheduled': '예정'
+                    }.get(phase, phase)
+                    print(f"   - {phase_name}: {count}개")
+
+        # Slack으로도 상태 전송
+        try:
+            status_message = {
+                "text": f"📊 릴리즈 모니터링 상태 확인",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*📊 현재 모니터링 상태*\n\n"
+                                    f"• 총 릴리즈: {summary['total_releases']}개\n"
+                                    f"• 집중 모니터링: {summary['by_phase'].get('intensive', 0)}개\n"
+                                    f"• 일반 모니터링: {summary['by_phase'].get('normal', 0)}개\n"
+                                    f"• 확인자: {os.getenv('GITHUB_ACTOR', 'unknown')}\n"
+                                    f"• 시간: {utc_to_kst(datetime.now(timezone.utc)).strftime('%Y-%m-%d %H:%M:%S')} KST"
+                        }
+                    }
+                ]
+            }
+
+            from alert_sender import send_to_slack
+            send_to_slack(status_message)
+
+        except Exception as e:
+            print(f"⚠️ Slack 상태 전송 실패: {e}")
+
+    except Exception as e:
+        print(f"❌ 상태 확인 오류: {e}")
+
+
 def is_manual_trigger() -> bool:
     """수동 실행인지 확인 (GitHub Actions input 또는 CLI 인자)"""
-    return bool(get_input_value('release_version'))
+    action = get_input_action()
+    return action in ['start_monitoring', 'cancel_monitoring', 'status_check']
 
 
 def get_release_start_time() -> datetime:
@@ -294,9 +427,17 @@ def main():
                 sys.exit(1)
 
         # 실행 모드 결정 및 처리
-        if is_manual_trigger():
+        action = get_input_action()
+
+        if action == 'start_monitoring':
             print("\n📝 수동 실행 모드 (새 릴리즈)")
             handle_manual_trigger()
+        elif action == 'cancel_monitoring':
+            print("\n🗑️ 모니터링 취소 모드")
+            handle_cancel_monitoring()
+        elif action == 'status_check':
+            print("\n📊 상태 확인 모드")
+            handle_status_check()
         else:
             print("\n⏰ 자동 실행 모드 (기존 모니터링)")
             handle_automatic_trigger()
