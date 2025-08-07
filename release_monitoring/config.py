@@ -74,7 +74,33 @@ ALERT_THRESHOLDS = {
 }
 
 # 상태 파일 경로
-MONITORING_STATE_FILE = 'monitoring_state.json'
+MONITORING_STATE_FILE = Path(__file__).parent / 'monitoring_state.json'
+
+# 한국 시간대 설정
+from datetime import timezone, timedelta
+KST = timezone(timedelta(hours=9))
+
+def get_current_kst():
+    """현재 한국 시간 반환"""
+    from datetime import datetime
+    return datetime.now(KST)
+
+def get_current_utc():
+    """현재 UTC 시간 반환"""
+    from datetime import datetime
+    return datetime.now(timezone.utc)
+
+def kst_to_utc(kst_datetime):
+    """KST를 UTC로 변환"""
+    if kst_datetime.tzinfo is None:
+        kst_datetime = kst_datetime.replace(tzinfo=KST)
+    return kst_datetime.astimezone(timezone.utc)
+
+def utc_to_kst(utc_datetime):
+    """UTC를 KST로 변환"""
+    if utc_datetime.tzinfo is None:
+        utc_datetime = utc_datetime.replace(tzinfo=timezone.utc)
+    return utc_datetime.astimezone(KST)
 
 def validate_configuration():
     """필수 설정 유효성 검사"""

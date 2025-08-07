@@ -15,7 +15,7 @@ from alert_sender import (
 # 설정 및 모듈 import
 from config import (
     load_environment, validate_configuration, print_configuration,
-    get_input_value, TEST_MODE, is_local_environment
+    get_input_value, TEST_MODE, is_local_environment, KST
 )
 from monitoring_state import (
     get_active_monitoring_releases, add_monitoring_release,
@@ -33,30 +33,40 @@ def is_manual_trigger() -> bool:
 
 
 def get_release_start_time() -> datetime:
-    """릴리즈 시작 시간 결정"""
+    """릴리즈 시작 시간 결정 (한국 시간 기준 입력 → UTC 저장)"""
     input_time = get_input_value('release_start_time', '').strip()
 
     if input_time:
         try:
-            # 다양한 형식 지원
+            # 다양한 형식 지원 (모두 한국 시간으로 간주)
             for fmt in ['%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S']:
                 try:
+                    # 한국 시간으로 파싱
                     parsed_time = datetime.strptime(input_time, fmt)
-                    parsed_time = parsed_time.replace(tzinfo=timezone.utc)
-                    print(f"✅ 사용자 지정 릴리즈 시간: {parsed_time}")
-                    return parsed_time
+                    kst_time = parsed_time.replace(tzinfo=KST)
+
+                    print(f"✅ 사용자 지정 릴리즈 시간 (KST): {kst_time}")
+                    print(f"   UTC 변환: {kst_time.astimezone(timezone.utc)}")
+
+                    # UTC로 변환해서 반환
+                    return kst_time.astimezone(timezone.utc)
                 except ValueError:
                     continue
 
             print(f"⚠️ 잘못된 시간 형식: {input_time}")
-            print("   지원 형식: YYYY-MM-DD HH:MM 또는 YYYY-MM-DD HH:MM:SS")
+            print("   지원 형식: YYYY-MM-DD HH:MM (한국 시간 기준)")
 
         except Exception as e:
             print(f"⚠️ 시간 파싱 오류: {e}")
 
-    # 기본값: 현재 시간
+    # 기본값: 현재 시간 (UTC)
     current_time = datetime.now(timezone.utc)
-    print(f"✅ 현재 시간 사용: {current_time}")
+    current_kst = current_time.astimezone(KST)
+
+    print(f"✅ 현재 시간 사용:")
+    print(f"   KST: {current_kst}")
+    print(f"   UTC: {current_time}")
+
     return current_time
 
 

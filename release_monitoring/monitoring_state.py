@@ -35,7 +35,6 @@ def get_active_monitoring_releases() -> List[Dict]:
             print(f"⚠️ 상태 파일 읽기 오류: {e}")
         return []
 
-
 def add_monitoring_release(release_data: Dict) -> bool:
     """새 릴리즈를 모니터링 목록에 추가"""
     try:
@@ -62,7 +61,6 @@ def add_monitoring_release(release_data: Dict) -> bool:
         print(f"❌ 릴리즈 추가 실패: {e}")
         return False
 
-
 def save_monitoring_releases(releases: List[Dict]) -> bool:
     """릴리즈 목록을 파일에 저장"""
     try:
@@ -80,7 +78,6 @@ def save_monitoring_releases(releases: List[Dict]) -> bool:
     except Exception as e:
         print(f"❌ 상태 파일 저장 실패: {e}")
         return False
-
 
 def remove_release(version: str) -> bool:
     """특정 버전의 릴리즈를 목록에서 제거"""
@@ -102,7 +99,6 @@ def remove_release(version: str) -> bool:
         print(f"❌ 릴리즈 제거 실패: {e}")
         return False
 
-
 def get_monitoring_phase(release: Dict) -> str:
     """릴리즈의 현재 모니터링 단계 반환"""
     try:
@@ -122,7 +118,7 @@ def get_monitoring_phase(release: Dict) -> str:
         elif elapsed < timedelta(hours=MONITORING_PERIODS['intensive_hours']):
             return 'intensive'  # 집중 모니터링 (0-6시간)
         elif elapsed < timedelta(days=MONITORING_PERIODS['total_days']):
-            return 'normal'  # 일반 모니터링 (6시간-7일)
+            return 'normal'     # 일반 모니터링 (6시간-7일)
         else:
             return 'completed'  # 완료 (7일 후)
 
@@ -130,7 +126,6 @@ def get_monitoring_phase(release: Dict) -> str:
         if TEST_MODE:
             print(f"⚠️ 단계 판단 오류: {e}")
         return 'invalid'
-
 
 def should_monitor_now(release: Dict, phase: str) -> bool:
     """현재 모니터링해야 하는지 판단"""
@@ -141,7 +136,6 @@ def should_monitor_now(release: Dict, phase: str) -> bool:
         return datetime.now().minute == 0
     else:
         return False  # scheduled, completed, invalid
-
 
 def cleanup_completed_releases() -> int:
     """완료된 릴리즈들을 정리하고 제거된 개수 반환"""
@@ -175,7 +169,6 @@ def cleanup_completed_releases() -> int:
         print(f"❌ 릴리즈 정리 실패: {e}")
         return 0
 
-
 def get_release_summary() -> Dict:
     """현재 모니터링 상태 요약 정보 반환"""
     releases = get_active_monitoring_releases()
@@ -205,7 +198,6 @@ def get_release_summary() -> Dict:
 
     return summary
 
-
 def create_test_release(version: str = None, hours_ago: int = 0) -> Dict:
     """테스트용 릴리즈 데이터 생성"""
     if not version:
@@ -223,7 +215,6 @@ def create_test_release(version: str = None, hours_ago: int = 0) -> Dict:
     }
 
     return release_data
-
 
 def print_monitoring_status():
     """현재 모니터링 상태를 보기 좋게 출력"""
