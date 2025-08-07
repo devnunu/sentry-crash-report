@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 릴리즈 후 모니터링 알림 시스템 - 메인 스크립트
-새로운 앱 버전 배포 후 크래시 및 중요 이슈 모니터링
+슬라이딩 윈도우 방식 + 레벨링 시스템 적용
 """
 
 import argparse
@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timezone
 
 from alert_sender import (
-    send_critical_alert, send_summary_report, send_error_alert
+    send_level_alert, send_summary_report, send_error_alert
 )
 # 설정 및 모듈 import
 from config import (
@@ -113,9 +113,9 @@ def handle_manual_trigger():
             # 결과에 따른 알림 전송
             risk_level = analysis_result['risk_assessment']['level']
 
-            if risk_level >= 4:
-                print(f"🚨 Critical 알림 전송 (Level {risk_level})")
-                send_critical_alert(analysis_result)
+            if risk_level >= 3:
+                print(f"🚨 레벨 알림 전송 (Level {risk_level})")
+                send_level_alert(analysis_result)
             else:
                 print(f"📊 요약 리포트 전송 (Level {risk_level})")
                 send_summary_report(analysis_result)
@@ -176,9 +176,9 @@ def handle_automatic_trigger():
                     risk_level = analysis_result['risk_assessment']['level']
 
                     # 위험도에 따른 알림 전송
-                    if risk_level >= 4:
-                        print(f"   🚨 Critical 알림 전송 (Level {risk_level})")
-                        send_critical_alert(analysis_result)
+                    if risk_level >= 3:
+                        print(f"   🚨 레벨 알림 전송 (Level {risk_level})")
+                        send_level_alert(analysis_result)
                     elif phase == 'intensive' or datetime.now().hour % 6 == 0:
                         # 집중 모니터링이거나 6시간마다 요약 리포트
                         print(f"   📊 요약 리포트 전송 (Level {risk_level})")

@@ -1,5 +1,5 @@
 """
-알림 발송 관리 모듈
+알림 발송 관리 모듈 - 레벨링 시스템 적용
 Slack 메시지 포맷팅 및 전송
 """
 
@@ -9,7 +9,10 @@ from typing import Dict
 
 import requests
 
-from config import SLACK_WEBHOOK, DASH_BOARD_ID, ORG_SLUG, ENVIRONMENT, TEST_MODE, is_local_environment, utc_to_kst
+from config import (
+    SLACK_WEBHOOK, DASH_BOARD_ID, ORG_SLUG, ENVIRONMENT, TEST_MODE,
+    is_local_environment, utc_to_kst
+)
 
 
 def send_to_slack(message: Dict) -> bool:
@@ -41,27 +44,60 @@ def send_to_slack(message: Dict) -> bool:
         print(f"❌ Slack 전송 중 오류 발생: {str(e)}")
         return False
 
-def format_critical_alert(analysis_result: Dict) -> Dict:
-    """Critical 알림 메시지 포맷팅 (Level 4-5)"""
+
+def format_level_alert(analysis_result: Dict) -> Dict:
+    """레벨링 기반 알림 메시지 포맷팅"""
 
     release_version = analysis_result['release_version']
     risk = analysis_result['risk_assessment']
     current = analysis_result['current_analysis']
-    baseline = analysis_result['baseline_analysis']
+    levels = risk['details']
     critical_issues = analysis_result['critical_issues']
     recommendations = analysis_result['recommendations']
+    period = analysis_result['analysis_period']
 
-    # 경과 시간 계산
-    elapsed_hours = analysis_result['analysis_period']['hours']
-    elapsed_text = f"{elapsed_hours:.0f}시간" if elapsed_hours >= 1 else f"{elapsed_hours*60:.0f}분"
+    # 전체 위험도 레벨
+    overall_level = risk['level']
+    overall_status = risk['status']
 
-    # 변화량 계산
-    change_text = ""
-    if baseline['total_crashes'] > 0:
-        change = current['total_crashes'] - baseline['total_crashes']
-        change_text = f" (이전 대비 {change:+d}건)"
-    elif current['total_crashes'] > 0:
-        change_text = f" (신규 발생)"
+    # 색상 결정 (레벨에 따른)
+    if overall_level >= 4:
+        color = "danger"
+        main_emoji = "🚨"
+    elif overall_level >= 3:
+        color = "warning"
+        main_emoji = "⚠️"
+    elif overall_level >= 1:
+        color = "warning"
+        main_emoji = "🔶"
+    else:
+        color = "good"
+        main_emoji = "✅"
+
+    # 분석 기간 정보
+    period_desc = period['description']
+
+    # 레벨별 상세 정보
+    level_details = []
+
+    crash_level = levels['crash']
+    if crash_level['level'] > 0:
+        level_details.append(f"📊 크래시: Level {crash_level['level']} - {current['total_crashes']}건 ({crash_level['status']})")
+
+    fatal_level = levels['fatal']
+    if fatal_level['level'] > 0:
+        level_details.append(f"💀 Fatal: Level {fatal_level['level']} - {current['total_fatal']}건 ({fatal_level['status']})")
+
+    user_level = levels['user_impact']
+    if user_level['level'] > 0:
+        level_details.append(f"👥 사용자: Level {user_level['level']} - {current['affected_users']}명 ({user_level['status']})")
+
+    single_level = levels['single_issue']
+    if single_level['level'] > 0:
+        max_issue_count = max([issue['count'] for issue in critical_issues], default=0)
+        level_details.append(f"🎯 단일이슈: Level {single_level['level']} - {max_issue_count}건 ({single_level['status']})")
+
+    level_details_text = "\n".join(level_details) if level_details else "모든 지표가 정상 범위입니다."
 
     # 상위 이슈 텍스트
     issues_text = ""
@@ -71,13 +107,10 @@ def format_critical_alert(analysis_result: Dict) -> Dict:
         issues_text += f"   - 발생: {issue['count']}건, 영향: {issue['users']}명\n"
 
     if not issues_text:
-        issues_text = "상세 이슈 정보를 수집 중입니다."
+        issues_text = "주요 이슈가 감지되지 않았습니다."
 
     # 권장 조치 텍스트
     recommendations_text = "\n".join([f"• {rec}" for rec in recommendations[:4]])
-
-    # 색상 결정
-    color = "danger" if risk['level'] >= 4 else "warning"
 
     test_indicator = " [테스트]" if TEST_MODE else ""
 
@@ -93,7 +126,7 @@ def format_critical_alert(analysis_result: Dict) -> Dict:
                         "type": "header",
                         "text": {
                             "type": "plain_text",
-                            "text": f"🚨 긴급: {release_version} 릴리즈 문제 감지{test_indicator}",
+                            "text": f"{main_emoji} {release_version} 모니터링 알림{test_indicator}",
                             "emoji": True
                         }
                     },
@@ -101,15 +134,21 @@ def format_critical_alert(analysis_result: Dict) -> Dict:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"📱 *버전:* {release_version} (배포 후 {elapsed_text})\n"
-                                   f"⚠️ *위험도:* Level {risk['level']} ({risk['status']})\n"
-                                   f"📊 *크래시:* {current['total_crashes']}건{change_text}\n"
-                                   f"👥 *영향 사용자:* {current['affected_users']}명\n"
+                            "text": f"📱 *버전:* {release_version}\n"
+                                   f"📊 *분석기간:* {period_desc}\n"
+                                   f"⚠️ *위험도:* Level {overall_level} ({overall_status})\n"
                                    f"🌍 *환경:* {ENVIRONMENT}"
                         }
                     },
                     {
                         "type": "divider"
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*📈 레벨별 상세 현황:*\n{level_details_text}"
+                        }
                     },
                     {
                         "type": "section",
@@ -136,7 +175,7 @@ def format_critical_alert(analysis_result: Dict) -> Dict:
                                     "emoji": True
                                 },
                                 "url": get_dashboard_url(),
-                                "style": "danger"
+                                "style": "danger" if overall_level >= 4 else "primary"
                             }
                         ]
                     },
@@ -156,45 +195,32 @@ def format_critical_alert(analysis_result: Dict) -> Dict:
 
     return message
 
+
 def format_summary_report(analysis_result: Dict) -> Dict:
-    """요약 리포트 메시지 포맷팅 (Level 1-3)"""
+    """요약 리포트 메시지 포맷팅 (정상 상태용)"""
 
     release_version = analysis_result['release_version']
     risk = analysis_result['risk_assessment']
     current = analysis_result['current_analysis']
-    baseline = analysis_result['baseline_analysis']
+    period = analysis_result['analysis_period']
 
-    # 경과 시간
-    elapsed_hours = analysis_result['analysis_period']['hours']
-    if elapsed_hours >= 24:
-        elapsed_text = f"{elapsed_hours/24:.0f}일"
-    elif elapsed_hours >= 1:
-        elapsed_text = f"{elapsed_hours:.0f}시간"
-    else:
-        elapsed_text = f"{elapsed_hours*60:.0f}분"
+    # 경과 시간 표시
+    period_desc = period['description']
 
-    # 상태 이모지 및 색상
-    status_info = {
-        1: {"emoji": "✅", "color": "good"},
-        2: {"emoji": "⚠️", "color": "warning"},
-        3: {"emoji": "🔶", "color": "warning"}
-    }
-
-    info = status_info.get(risk['level'], {"emoji": "❓", "color": "warning"})
-
-    # 변화 추세
-    trend_emoji = get_trend_emoji(current['total_crashes'], baseline['total_crashes'])
-    change_text = calculate_change_text(current['total_crashes'], baseline['total_crashes'])
+    # 상태 이모지 및 색상 (정상 상태)
+    main_emoji = "✅"
+    status_text = risk['status']
+    color = "good"
 
     # 다음 체크 시간
-    next_check = get_next_check_time(elapsed_hours)
+    next_check = get_next_check_time(period_desc)
 
     test_indicator = " [테스트]" if TEST_MODE else ""
 
     message = {
         "attachments": [
             {
-                "color": info["color"],
+                "color": color,
                 "blocks": [
                     {
                         "type": "header",
@@ -209,7 +235,7 @@ def format_summary_report(analysis_result: Dict) -> Dict:
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": f"📅 배포 후 {elapsed_text} | 🌍 {ENVIRONMENT} | 상태: {info['emoji']} {risk['status']}"
+                                "text": f"📅 {period_desc} | 🌍 {ENVIRONMENT} | 상태: {main_emoji} {status_text}"
                             }
                         ]
                     },
@@ -221,7 +247,11 @@ def format_summary_report(analysis_result: Dict) -> Dict:
                         "fields": [
                             {
                                 "type": "mrkdwn",
-                                "text": f"*크래시 발생*\n{current['total_crashes']}건 {trend_emoji}"
+                                "text": f"*총 크래시 발생*\n{current['total_crashes']}건"
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*Fatal 크래시*\n{current['total_fatal']}건"
                             },
                             {
                                 "type": "mrkdwn",
@@ -229,11 +259,7 @@ def format_summary_report(analysis_result: Dict) -> Dict:
                             },
                             {
                                 "type": "mrkdwn",
-                                "text": f"*크래시 이슈*\n{current['total_issues']}개"
-                            },
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*위험도*\nLevel {risk['level']}"
+                                "text": f"*크래시 이슈 종류*\n{current['total_issues']}개"
                             }
                         ]
                     },
@@ -241,7 +267,7 @@ def format_summary_report(analysis_result: Dict) -> Dict:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*📈 변화:* {change_text}\n*🎯 다음 체크:* {next_check}"
+                            "text": f"*🎯 다음 체크:* {next_check}"
                         }
                     },
                     {
@@ -265,6 +291,7 @@ def format_summary_report(analysis_result: Dict) -> Dict:
     }
 
     return message
+
 
 def format_monitoring_complete(release_version: str, final_stats: Dict) -> Dict:
     """모니터링 완료 메시지"""
@@ -314,6 +341,7 @@ def format_monitoring_complete(release_version: str, final_stats: Dict) -> Dict:
 
     return message
 
+
 def get_dashboard_url() -> str:
     """대시보드 URL 생성"""
     if DASH_BOARD_ID:
@@ -321,73 +349,34 @@ def get_dashboard_url() -> str:
     else:
         return f"https://sentry.io/organizations/{ORG_SLUG}/dashboards/"
 
-def get_trend_emoji(current: int, previous: int) -> str:
-    """증감 추세 이모지"""
-    if current == 0 and previous == 0:
-        return "➡️"
-    elif current == 0:
-        return "🎉"
-    elif previous == 0:
-        return "🚨"
 
-    if previous > 0:
-        change_percent = ((current - previous) / previous) * 100
-
-        if change_percent <= -50:
-            return "📉"
-        elif change_percent <= -10:
-            return "↘️"
-        elif change_percent >= 50:
-            return "📈"
-        elif change_percent >= 10:
-            return "↗️"
-
-    return "➡️"
-
-def calculate_change_text(current: int, previous: int) -> str:
-    """변화량 텍스트 생성"""
-    if previous == 0 and current == 0:
-        return "변화 없음"
-    elif previous == 0:
-        return f"신규 발생 {current}건"
-    elif current == 0:
-        return f"완전 해결 (이전 {previous}건)"
-    else:
-        change = current - previous
-        if change > 0:
-            percent = (change / previous) * 100
-            return f"증가 +{change}건 ({percent:+.0f}%)"
-        elif change < 0:
-            percent = (abs(change) / previous) * 100
-            return f"감소 {change}건 (-{percent:.0f}%)"
-        else:
-            return "동일"
-
-def get_next_check_time(elapsed_hours: float) -> str:
+def get_next_check_time(period_desc: str) -> str:
     """다음 체크 시간 안내"""
-    if elapsed_hours < 6:
+    if "집중 모니터링" in period_desc or "릴리즈 후" in period_desc:
         return "15분 후 (집중 모니터링)"
-    elif elapsed_hours < 24:
+    elif "최근 24시간" in period_desc:
         return "1시간 후 (일반 모니터링)"
-    elif elapsed_hours < 168:  # 7일
-        return "24시간 후 (주기적 확인)"
     else:
-        return "모니터링 완료 예정"
+        return "다음 스케줄에 따라"
 
-def send_critical_alert(analysis_result: Dict) -> bool:
-    """Critical 알림 전송"""
-    message = format_critical_alert(analysis_result)
+
+def send_level_alert(analysis_result: Dict) -> bool:
+    """레벨 기반 알림 전송"""
+    message = format_level_alert(analysis_result)
     return send_to_slack(message)
+
 
 def send_summary_report(analysis_result: Dict) -> bool:
     """요약 리포트 전송"""
     message = format_summary_report(analysis_result)
     return send_to_slack(message)
 
+
 def send_completion_notice(release_version: str, final_stats: Dict) -> bool:
     """완료 알림 전송"""
     message = format_monitoring_complete(release_version, final_stats)
     return send_to_slack(message)
+
 
 def send_error_alert(error_message: str, context: Dict = None) -> bool:
     """오류 알림 전송"""

@@ -1,6 +1,7 @@
 """
 모니터링 상태 관리 모듈
 monitoring_state.json 파일을 통한 릴리즈 상태 추적
+단일 버전으로 통합 관리
 """
 
 import json
@@ -37,29 +38,49 @@ def get_active_monitoring_releases() -> List[Dict]:
         return []
 
 def add_monitoring_release(release_data: Dict) -> bool:
-    """새 릴리즈를 모니터링 목록에 추가"""
+    """새 릴리즈를 모니터링 목록에 추가 또는 기존 릴리즈 업데이트"""
     try:
         # 기존 릴리즈 목록 로드
         releases = get_active_monitoring_releases()
 
-        # 중복 확인
         version = release_data.get('version')
-        for existing in releases:
-            if existing.get('version') == version:
-                print(f"⚠️ 릴리즈 {version}이 이미 모니터링 중입니다.")
-                return False
+        if not version:
+            print(f"❌ 릴리즈 버전이 없습니다.")
+            return False
 
-        # 새 릴리즈 추가
-        releases.append(release_data)
+        # 동일 버전이 이미 있는지 확인
+        existing_release = None
+        for i, existing in enumerate(releases):
+            if existing.get('version') == version:
+                existing_release = existing
+                existing_index = i
+                break
+
+        if existing_release:
+            # 기존 릴리즈 업데이트 (더 최신 정보로)
+            print(f"📝 릴리즈 {version}이 이미 존재합니다. 정보를 업데이트합니다.")
+
+            # 기존 정보 유지하면서 새 정보 병합
+            updated_release = existing_release.copy()
+            updated_release.update(release_data)
+
+            # updated_at 필드 추가
+            updated_release['updated_at'] = datetime.now(timezone.utc).isoformat()
+
+            releases[existing_index] = updated_release
+
+            print(f"✅ 릴리즈 {version} 정보가 업데이트되었습니다.")
+        else:
+            # 새 릴리즈 추가
+            releases.append(release_data)
+            print(f"📝 릴리즈 {version} 모니터링 목록에 추가되었습니다.")
 
         # 파일 저장
         save_monitoring_releases(releases)
-
-        print(f"📝 릴리즈 {version} 모니터링 목록에 추가되었습니다.")
         return True
 
     except Exception as e:
-        print(f"❌ 릴리즈 추가 실패: {e}")
+        print(f"❌ 릴리즈 추가/업데이트 실패: {e}")
         return False
 
 def save_monitoring_releases(releases: List[Dict]) -> bool:
@@ -101,7 +122,7 @@ def remove_release(version: str) -> bool:
         return False
 
 def get_monitoring_phase(release: Dict) -> str:
-    """릴리즈의 현재 모니터링 단계 반환"""
+    """릴리즈의 현재 모니터링 단계 반환 (start_time 기준)"""
     try:
         now = datetime.now(timezone.utc)
         start_time_str = release.get('start_time')
@@ -190,11 +211,31 @@ def get_release_summary() -> Dict:
         phase = get_monitoring_phase(release)
         summary['by_phase'][phase] += 1
 
+        # 경과 시간 계산
+        start_time_str = release.get('start_time')
+        elapsed_text = "Unknown"
+        if start_time_str:
+            try:
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                elapsed = datetime.now(timezone.utc) - start_time
+                elapsed_hours = elapsed.total_seconds() / 3600
+
+                if elapsed_hours >= 24:
+                    elapsed_text = f"{elapsed_hours/24:.0f}일"
+                elif elapsed_hours >= 1:
+                    elapsed_text = f"{elapsed_hours:.0f}시간"
+                else:
+                    elapsed_text = f"{elapsed_hours*60:.0f}분"
+            except:
+                pass
+
         summary['releases'].append({
             'version': release.get('version'),
             'phase': phase,
             'start_time': release.get('start_time'),
-            'environment': release.get('environment', 'unknown')
+            'environment': release.get('environment', 'unknown'),
+            'elapsed': elapsed_text,
+            'created_by': release.get('created_by', 'unknown')
         })
 
     return summary
@@ -249,6 +290,8 @@ def print_monitoring_status():
         version = release_info['version']
         phase = release_info['phase']
         env = release_info['environment']
+        elapsed = release_info['elapsed']
+        created_by = release_info['created_by']
 
         phase_emoji = {
             'scheduled': '⏳',
@@ -258,4 +301,44 @@ def print_monitoring_status():
             'invalid': '❌'
         }.get(phase, '❓')
 
-        print(f"   {phase_emoji} {version} ({env}) - {phase}")
+        phase_name = {
+            'scheduled': '예정',
+            'intensive': '집중',
+            'normal': '일반',
+            'completed': '완료',
+            'invalid': '오류'
+        }.get(phase, phase)
+
+        print(f"   {phase_emoji} {version} ({env}) - {phase_name} | 경과: {elapsed} | 생성자: {created_by}")
+
+def get_release_by_version(version: str) -> Dict:
+    """특정 버전의 릴리즈 정보 반환"""
+    releases = get_active_monitoring_releases()
+
+    for release in releases:
+        if release.get('version') == version:
+            return release
+
+    return None
+
+def update_release_info(version: str, update_data: Dict) -> bool:
+    """특정 릴리즈의 정보 업데이트"""
+    try:
+        releases = get_active_monitoring_releases()
+
+        for i, release in enumerate(releases):
+            if release.get('version') == version:
+                # 기존 정보에 새 정보 병합
+                releases[i].update(update_data)
+                releases[i]['updated_at'] = datetime.now(timezone.utc).isoformat()
+
+                save_monitoring_releases(releases)
+                print(f"✅ 릴리즈 {version} 정보가 업데이트되었습니다.")
+                return True
+
+        print(f"⚠️ 릴리즈 {version}을 찾을 수 없습니다.")
+        return False
+
+    except Exception as e:
+        print(f"❌ 릴리즈 업데이트 실패: {e}")
+        return False

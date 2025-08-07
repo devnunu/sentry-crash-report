@@ -1,5 +1,6 @@
 """
 릴리즈 모니터링 시스템 설정 관리
+레벨링 기반 경고 시스템 추가
 """
 
 import os
@@ -63,15 +64,73 @@ MONITORING_PERIODS = {
     'intensive_hours': 6,        # 집중 모니터링 기간 (시간)
     'total_days': 7,            # 전체 모니터링 기간 (일)
     'check_interval': 15,       # 체크 간격 (분)
+    'analysis_window_hours': 24, # 분석 윈도우 크기 (시간)
 }
 
-# 위험도 임계값
-ALERT_THRESHOLDS = {
-    'new_crash_threshold': 5,           # 신규 크래시 임계값
-    'increase_threshold_warning': 1.5,  # 50% 증가 시 경고
-    'increase_threshold_danger': 2.0,   # 100% 증가 시 위험
-    'critical_user_impact': 20,         # 20명 이상 영향 시 Critical
+# 레벨링 기반 경고 임계값
+CRASH_ALERT_LEVELS = {
+    1: {'threshold': 20, 'status': '주의', 'action': '모니터링 강화', 'color': 'warning'},
+    2: {'threshold': 50, 'status': '경고', 'action': '원인 분석 시작', 'color': 'warning'},
+    3: {'threshold': 100, 'status': '위험', 'action': '긴급 대응팀 소집', 'color': 'danger'},
+    4: {'threshold': 200, 'status': '심각', 'action': '롤백 검토', 'color': 'danger'},
+    5: {'threshold': 500, 'status': '긴급', 'action': '즉시 롤백', 'color': 'danger'}
 }
+
+SINGLE_ISSUE_LEVELS = {
+    1: {'threshold': 10, 'status': '관심', 'action': '이슈 추적', 'color': 'good'},
+    2: {'threshold': 25, 'status': '주의', 'action': '상세 분석', 'color': 'warning'},
+    3: {'threshold': 50, 'status': '경고', 'action': '핫픽스 준비', 'color': 'warning'},
+    4: {'threshold': 100, 'status': '위험', 'action': '즉시 수정', 'color': 'danger'},
+    5: {'threshold': 200, 'status': '긴급', 'action': '긴급 패치', 'color': 'danger'}
+}
+
+FATAL_ALERT_LEVELS = {
+    1: {'threshold': 20, 'status': '주의', 'action': 'Fatal 이슈 확인', 'color': 'warning'},
+    2: {'threshold': 50, 'status': '경고', 'action': '즉시 분석', 'color': 'warning'},
+    3: {'threshold': 100, 'status': '위험', 'action': '긴급 수정', 'color': 'danger'},
+    4: {'threshold': 200, 'status': '심각', 'action': '롤백 검토', 'color': 'danger'},
+    5: {'threshold': 300, 'status': '긴급', 'action': '즉시 롤백', 'color': 'danger'}
+}
+
+# 사용자 영향 레벨
+USER_IMPACT_LEVELS = {
+    1: {'threshold': 30, 'status': '주의', 'action': '사용자 영향 추적', 'color': 'warning'},
+    2: {'threshold': 60, 'status': '경고', 'action': '영향 범위 분석', 'color': 'warning'},
+    3: {'threshold': 100, 'status': '위험', 'action': '사용자 공지 검토', 'color': 'danger'},
+    4: {'threshold': 150, 'status': '심각', 'action': '긴급 공지 발송', 'color': 'danger'},
+    5: {'threshold': 200, 'status': '긴급', 'action': '즉시 롤백', 'color': 'danger'}
+}
+
+def get_alert_level(value: int, level_config: dict) -> dict:
+    """값에 따른 경고 레벨 반환"""
+    current_level = 0
+    current_config = {'threshold': 0, 'status': '정상', 'action': '계속 모니터링', 'color': 'good'}
+
+    for level, config in level_config.items():
+        if value >= config['threshold']:
+            current_level = level
+            current_config = config.copy()
+            current_config['level'] = level
+        else:
+            break
+
+    return current_config
+
+def should_send_alert(current_level: int, previous_level: int, hours_since_last_alert: float) -> bool:
+    """알림 전송 여부 결정"""
+    # 레벨이 상승한 경우
+    if current_level > previous_level:
+        return True
+
+    # 레벨이 하락한 경우 (Level 3 이상에서만)
+    if current_level < previous_level and previous_level >= 3:
+        return True
+
+    # 같은 레벨에서 2시간 경과 시 재알림 (Level 2 이상)
+    if current_level >= 2 and hours_since_last_alert >= 2:
+        return True
+
+    return False
 
 # 상태 파일 경로
 MONITORING_STATE_FILE = Path(__file__).parent / 'monitoring_state.json'
@@ -140,6 +199,7 @@ def print_configuration():
     print(f"   - Sentry 조직: {ORG_SLUG}")
     print(f"   - 프로젝트: {PROJECT_SLUG}")
     print(f"   - 환경: {ENVIRONMENT}")
+    print(f"   - 분석 윈도우: {MONITORING_PERIODS['analysis_window_hours']}시간")
     if SLACK_WEBHOOK:
         print(f"   - Slack 알림: 설정됨")
     else:
