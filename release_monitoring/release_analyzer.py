@@ -1,5 +1,5 @@
 """
-릴리즈 분석 모듈 - 슬라이딩 윈도우 방식 + 레벨링 시스템
+릴리즈 분석 모듈 - 슬라이딩 윈도우 방식 + 레벨링 시스템 + 릴리즈 버전 필터링
 """
 
 import re
@@ -36,6 +36,62 @@ def test_sentry_connection() -> bool:
         return False
 
 
+def debug_sentry_releases():
+    """Sentry에 등록된 릴리즈 목록 확인 (디버깅용)"""
+    if not TEST_MODE:
+        return
+
+    releases_url = f"{SENTRY_API_BASE}/projects/{ORG_SLUG}/{PROJECT_SLUG}/releases/"
+
+    try:
+        params = {'per_page': 20}
+        response = requests.get(releases_url, headers=HEADERS, params=params, timeout=10)
+        if response.status_code == 200:
+            releases = response.json()
+            print(f"\n📦 Sentry에 등록된 최근 릴리즈 ({len(releases)}개):")
+            for release in releases[:10]:
+                version = release.get('version')
+                date_created = release.get('dateCreated', '').split('T')[0]
+                print(f"   - {version} ({date_created})")
+
+            return [r.get('version') for r in releases]
+        else:
+            print(f"❌ 릴리즈 조회 실패: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"❌ 릴리즈 디버깅 오류: {e}")
+        return []
+
+
+def get_release_version_variations(version: str) -> List[str]:
+    """릴리즈 버전의 다양한 형태 반환 (Sentry에서 태그되는 방식이 다를 수 있음)"""
+    if not version:
+        return []
+
+    variations = [version]
+
+    # 일반적인 버전 형태들
+    if version.startswith('v'):
+        variations.append(version[1:])  # v1.2.3 -> 1.2.3
+    else:
+        variations.append(f'v{version}')  # 1.2.3 -> v1.2.3
+
+    # Android 앱의 경우 빌드 번호가 포함될 수 있음
+    if '-' in version:
+        base_version = version.split('-')[0]
+        variations.extend([base_version, f'v{base_version}'])
+
+    # 점(.) 구분자 처리
+    if '.' in version:
+        # 1.2.3 -> 1-2-3 형태도 시도
+        dash_version = version.replace('.', '-')
+        variations.append(dash_version)
+        if not dash_version.startswith('v'):
+            variations.append(f'v{dash_version}')
+
+    return list(set(variations))  # 중복 제거
+
+
 def get_sliding_window_timeframe(release_start: datetime) -> Tuple[datetime, datetime, str]:
     """슬라이딩 윈도우 시간 범위 계산"""
     now = datetime.now(timezone.utc)
@@ -61,7 +117,7 @@ def get_sliding_window_timeframe(release_start: datetime) -> Tuple[datetime, dat
 
 def collect_release_issues(start_time: datetime, end_time: datetime,
                            release_version: str = None) -> List[Dict]:
-    """슬라이딩 윈도우 기간의 이슈 수집"""
+    """슬라이딩 윈도우 기간의 이슈 수집 (릴리즈 버전 필터링 포함)"""
 
     start_str = start_time.isoformat()
     end_str = end_time.isoformat()
@@ -70,15 +126,30 @@ def collect_release_issues(start_time: datetime, end_time: datetime,
     all_issues = []
     all_issue_ids = set()  # 중복 제거용
 
-    # 기본 쿼리 - firstSeen과 lastSeen 모두 고려
-    base_query = f'firstSeen:>={start_str} firstSeen:<{end_str} environment:{ENVIRONMENT}'
-    lastSeen_query = f'lastSeen:>={start_str} lastSeen:<{end_str} environment:{ENVIRONMENT}'
+    # 릴리즈 버전 필터 준비
+    release_filter = ""
+    version_variations = []
+
+    if release_version:
+        version_variations = get_release_version_variations(release_version)
+        # 첫 번째 변형을 기본으로 사용
+        release_filter = f" release:{version_variations[0]}"
+
+        if TEST_MODE:
+            print(f"🎯 릴리즈 버전 필터 적용: {release_version}")
+            print(f"   시도할 버전 형태: {version_variations}")
+
+    # 기본 쿼리 - firstSeen과 lastSeen 모두 고려 + 릴리즈 필터
+    base_query = f'firstSeen:>={start_str} firstSeen:<{end_str} environment:{ENVIRONMENT}{release_filter}'
+    lastSeen_query = f'lastSeen:>={start_str} lastSeen:<{end_str} environment:{ENVIRONMENT}{release_filter}'
 
     if TEST_MODE:
         start_kst = utc_to_kst(start_time)
         end_kst = utc_to_kst(end_time)
         print(f"🔍 이슈 수집 중: {start_kst.strftime('%m/%d %H:%M')} ~ {end_kst.strftime('%m/%d %H:%M')} KST")
         print(f"   환경: {ENVIRONMENT}")
+        if release_version:
+            print(f"   릴리즈 필터: {release_filter}")
 
     # 1단계: firstSeen 기준 이슈 수집
     cursor = None
@@ -113,6 +184,10 @@ def collect_release_issues(start_time: datetime, end_time: datetime,
             for issue in page_issues:
                 issue_id = issue.get('id')
                 if issue_id and issue_id not in all_issue_ids:
+                    # 릴리즈 버전 필터링이 적용된 경우 추가 검증
+                    if release_version and not is_issue_from_release(issue, version_variations):
+                        continue
+
                     all_issues.append(issue)
                     all_issue_ids.add(issue_id)
                     added_count += 1
@@ -137,62 +212,157 @@ def collect_release_issues(start_time: datetime, end_time: datetime,
                 print(f"   ❌ firstSeen 이슈 수집 오류: {e}")
             break
 
-    # 2단계: lastSeen 기준 이슈 추가 수집
-    lastSeen_cursor = None
-    lastSeen_page = 1
-    max_lastSeen_pages = 10
+    # 2단계: lastSeen 기준 이슈 추가 수집 (릴리즈 버전이 있는 경우에만)
+    if not release_version:
+        lastSeen_cursor = None
+        lastSeen_page = 1
+        max_lastSeen_pages = 10
 
-    while lastSeen_page <= max_lastSeen_pages:
-        lastSeen_params = {
-            'query': lastSeen_query,
-            'limit': 100,
-            'sort': 'date',
-            'environment': ENVIRONMENT
-        }
+        while lastSeen_page <= max_lastSeen_pages:
+            lastSeen_params = {
+                'query': lastSeen_query,
+                'limit': 100,
+                'sort': 'date',
+                'environment': ENVIRONMENT
+            }
 
-        if lastSeen_cursor:
-            lastSeen_params['cursor'] = lastSeen_cursor
+            if lastSeen_cursor:
+                lastSeen_params['cursor'] = lastSeen_cursor
 
-        try:
-            response = requests.get(issues_url, headers=HEADERS, params=lastSeen_params, timeout=15)
+            try:
+                response = requests.get(issues_url, headers=HEADERS, params=lastSeen_params, timeout=15)
 
-            if response.status_code != 200:
+                if response.status_code != 200:
+                    break
+
+                lastSeen_issues = response.json()
+                if not lastSeen_issues:
+                    break
+
+                added_count = 0
+                for issue in lastSeen_issues:
+                    issue_id = issue.get('id')
+                    if issue_id and issue_id not in all_issue_ids:
+                        all_issues.append(issue)
+                        all_issue_ids.add(issue_id)
+                        added_count += 1
+
+                if TEST_MODE and lastSeen_page <= 3:
+                    print(f"   lastSeen 페이지 {lastSeen_page}: {added_count}개 새로 추가")
+
+                # 다음 페이지 확인
+                link_header = response.headers.get('Link', '')
+                if 'rel="next"' not in link_header:
+                    break
+
+                cursor_match = re.search(r'cursor=([^&>]+).*rel="next"', link_header)
+                if cursor_match:
+                    lastSeen_cursor = cursor_match.group(1)
+                    lastSeen_page += 1
+                else:
+                    break
+
+            except Exception as e:
+                if TEST_MODE:
+                    print(f"   ❌ lastSeen 이슈 수집 오류: {e}")
                 break
-
-            lastSeen_issues = response.json()
-            if not lastSeen_issues:
-                break
-
-            added_count = 0
-            for issue in lastSeen_issues:
-                issue_id = issue.get('id')
-                if issue_id and issue_id not in all_issue_ids:
-                    all_issues.append(issue)
-                    all_issue_ids.add(issue_id)
-                    added_count += 1
-
-            if TEST_MODE and lastSeen_page <= 3:
-                print(f"   lastSeen 페이지 {lastSeen_page}: {added_count}개 새로 추가")
-
-            # 다음 페이지 확인
-            link_header = response.headers.get('Link', '')
-            if 'rel="next"' not in link_header:
-                break
-
-            cursor_match = re.search(r'cursor=([^&>]+).*rel="next"', link_header)
-            if cursor_match:
-                lastSeen_cursor = cursor_match.group(1)
-                lastSeen_page += 1
-            else:
-                break
-
-        except Exception as e:
-            if TEST_MODE:
-                print(f"   ❌ lastSeen 이슈 수집 오류: {e}")
-            break
 
     if TEST_MODE:
         print(f"   ✅ 총 {len(all_issues)}개 이슈 수집 완료 (고유 ID: {len(all_issue_ids)}개)")
+        if release_version and all_issues:
+            # 실제로 수집된 이슈의 릴리즈 태그 분석
+            debug_issue_release_tags(all_issues[:5], release_version)
+
+    return all_issues
+
+
+def is_issue_from_release(issue: Dict, version_variations: List[str]) -> bool:
+    """이슈가 지정된 릴리즈 버전에서 발생했는지 확인"""
+    if not version_variations:
+        return True
+
+    # 이슈의 릴리즈 태그 확인
+    tags = issue.get('tags', [])
+    release_tags = [tag['value'] for tag in tags if tag.get('key') == 'release']
+
+    # 버전 변형 중 하나라도 매치되면 True
+    for release_tag in release_tags:
+        for version in version_variations:
+            if version == release_tag or release_tag.endswith(version) or version in release_tag:
+                return True
+
+    # 릴리즈 태그가 없는 경우에도 포함 (기본 동작)
+    return len(release_tags) == 0
+
+
+def debug_issue_release_tags(issues: List[Dict], target_version: str):
+    """이슈의 릴리즈 태그 분석 (디버깅용)"""
+    if not TEST_MODE or not issues:
+        return
+
+    print(f"\n🏷️ 상위 {len(issues)}개 이슈의 릴리즈 태그 분석 (대상: {target_version}):")
+
+    tag_summary = {}
+
+    for i, issue in enumerate(issues):
+        title = issue.get('title', 'Unknown')[:40]
+        tags = issue.get('tags', [])
+        release_tags = [tag['value'] for tag in tags if tag.get('key') == 'release']
+
+        print(f"   {i+1}. {title}...")
+        if release_tags:
+            print(f"      릴리즈: {release_tags}")
+            for tag in release_tags:
+                tag_summary[tag] = tag_summary.get(tag, 0) + 1
+        else:
+            print(f"      릴리즈 태그 없음")
+            tag_summary['(없음)'] = tag_summary.get('(없음)', 0) + 1
+
+    print(f"\n📊 릴리즈 태그 요약:")
+    for tag, count in sorted(tag_summary.items(), key=lambda x: x[1], reverse=True):
+        print(f"   - {tag}: {count}개")
+
+
+def collect_release_issues_with_fallback(start_time: datetime, end_time: datetime,
+                                        release_version: str = None) -> List[Dict]:
+    """릴리즈 버전으로 먼저 필터링하고, 결과가 적으면 전체 조회로 fallback"""
+
+    if not release_version:
+        return collect_release_issues(start_time, end_time, None)
+
+    # 1차: 릴리즈 버전으로 필터링
+    version_variations = get_release_version_variations(release_version)
+
+    for version in version_variations:
+        issues = collect_release_issues(start_time, end_time, version)
+        if len(issues) >= 5:  # 최소 5개 이상의 이슈가 있으면 성공으로 간주
+            if TEST_MODE:
+                print(f"✅ 릴리즈 버전 '{version}'으로 {len(issues)}개 이슈 발견")
+            return issues
+
+    # 2차: 릴리즈 태그가 없거나 다른 형태일 수 있으므로 전체 조회
+    if TEST_MODE:
+        print(f"⚠️ 릴리즈 버전 필터로 충분한 이슈를 찾을 수 없음. 전체 이슈 조회로 fallback")
+        print(f"   (시도한 버전: {version_variations})")
+
+    all_issues = collect_release_issues(start_time, end_time, None)
+
+    # 전체 이슈에서 릴리즈 버전과 관련된 것들을 우선적으로 필터링
+    if all_issues and release_version:
+        related_issues = []
+        other_issues = []
+
+        for issue in all_issues:
+            if is_issue_from_release(issue, version_variations):
+                related_issues.append(issue)
+            else:
+                other_issues.append(issue)
+
+        if TEST_MODE:
+            print(f"   전체 {len(all_issues)}개 중 {len(related_issues)}개가 릴리즈와 관련됨")
+
+        # 관련 이슈가 있으면 우선 반환, 없으면 전체 반환
+        return related_issues if related_issues else all_issues
 
     return all_issues
 
@@ -372,7 +542,7 @@ def analyze_crash_issues_with_levels(issues: List[Dict], start_time: datetime, e
 
 
 def analyze_release_impact(release: Dict) -> Dict:
-    """슬라이딩 윈도우 방식 릴리즈 영향 분석"""
+    """슬라이딩 윈도우 방식 릴리즈 영향 분석 (릴리즈 버전 필터링 포함)"""
 
     release_version = release['version']
     release_start = datetime.fromisoformat(release['start_time'].replace('Z', '+00:00'))
@@ -381,6 +551,10 @@ def analyze_release_impact(release: Dict) -> Dict:
         release_start_kst = utc_to_kst(release_start)
         print(f"\n🔍 릴리즈 {release_version} 영향 분석 시작")
         print(f"   📅 릴리즈 시작: {release_start_kst.strftime('%Y-%m-%d %H:%M:%S')} KST")
+
+    # 디버깅: Sentry에 등록된 릴리즈 확인
+    if TEST_MODE:
+        debug_sentry_releases()
 
     # 슬라이딩 윈도우 시간 범위 계산
     analysis_start, analysis_end, period_desc = get_sliding_window_timeframe(release_start)
@@ -391,8 +565,8 @@ def analyze_release_impact(release: Dict) -> Dict:
         print(f"   📊 분석 기간: {period_desc}")
         print(f"   ⏰ 분석 범위: {analysis_start_kst.strftime('%Y-%m-%d %H:%M')} ~ {analysis_end_kst.strftime('%Y-%m-%d %H:%M')} KST")
 
-    # 현재 윈도우 데이터 분석
-    current_issues = collect_release_issues(analysis_start, analysis_end)
+    # 현재 윈도우 데이터 분석 - 릴리즈 버전 필터링 적용!
+    current_issues = collect_release_issues_with_fallback(analysis_start, analysis_end, release_version)
     current_analysis = analyze_crash_issues_with_levels(current_issues, analysis_start, analysis_end)
 
     # 중요 이슈 상세 분석
@@ -627,3 +801,57 @@ def debug_environment_issues() -> None:
 
     except Exception as e:
         print(f"   ❌ 환경 디버깅 오류: {e}")
+
+
+def test_release_version_filtering():
+    """릴리즈 버전 필터링 테스트 함수"""
+    if not TEST_MODE:
+        return
+
+    print(f"\n🧪 릴리즈 버전 필터링 테스트")
+
+    import os
+    test_version = os.getenv('TEST_RELEASE_VERSION', 'test-1.0.0')
+    print(f"   테스트 버전: {test_version}")
+
+    # 버전 변형 확인
+    variations = get_release_version_variations(test_version)
+    print(f"   시도할 버전 변형: {variations}")
+
+    # Sentry 릴리즈 목록 확인
+    available_releases = debug_sentry_releases()
+
+    # 매칭되는 릴리즈 확인
+    matching_releases = []
+    for variation in variations:
+        for available in available_releases:
+            if variation in available or available in variation:
+                matching_releases.append((variation, available))
+
+    if matching_releases:
+        print(f"   ✅ 매칭되는 릴리즈 발견:")
+        for variation, available in matching_releases:
+            print(f"      {variation} ↔ {available}")
+    else:
+        print(f"   ⚠️ 매칭되는 릴리즈를 찾을 수 없습니다.")
+        print(f"   💡 Sentry에 릴리즈가 제대로 등록되었는지 확인하세요.")
+
+    # 최근 24시간 이슈로 실제 테스트
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(hours=24)
+
+    print(f"\n📊 실제 이슈 수집 테스트:")
+
+    # 1. 버전 필터 없이 조회
+    all_issues = collect_release_issues(start_time, end_time, None)
+    print(f"   전체 이슈: {len(all_issues)}개")
+
+    # 2. 버전 필터 적용해서 조회
+    filtered_issues = collect_release_issues_with_fallback(start_time, end_time, test_version)
+    print(f"   필터링된 이슈: {len(filtered_issues)}개")
+
+    # 3. 상위 이슈의 릴리즈 태그 분석
+    if filtered_issues:
+        debug_issue_release_tags(filtered_issues[:5], test_version)
+
+    return len(filtered_issues)
