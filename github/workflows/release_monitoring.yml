@@ -1,0 +1,97 @@
+name: Release Monitoring
+
+on:
+  # 수동 실행 (새 릴리즈 모니터링 시작)
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: '릴리즈 버전 (예: 1.2.3)'
+        required: true
+        type: string
+      release_start_time:
+        description: '릴리즈 시작 시간 (YYYY-MM-DD HH:MM, 비워두면 현재 시간)'
+        required: false
+        type: string
+        default: ''
+      monitoring_duration:
+        description: '모니터링 기간 (시간 단위)'
+        required: false
+        type: string
+        default: '168'
+
+  # 자동 실행 (15분마다 체크)
+  schedule:
+    - cron: '*/15 * * * *'  # 15분마다 실행
+
+jobs:
+  release-monitoring:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # monitoring_state.json 파일 변경사항을 커밋하기 위해 토큰 필요
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install requests python-dotenv
+
+      - name: Run Release Monitoring
+        env:
+          # Sentry 설정
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG_SLUG: ${{ secrets.SENTRY_ORG_SLUG }}
+          SENTRY_PROJECT_SLUG: ${{ secrets.SENTRY_PROJECT_SLUG }}
+          SENTRY_PROJECT_ID: ${{ secrets.SENTRY_PROJECT_ID }}
+          SENTRY_ENVIRONMENT: ${{ secrets.SENTRY_ENVIRONMENT }}
+
+          # Slack 설정
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+          # 대시보드 설정 (선택사항)
+          DASH_BOARD_ID: ${{ secrets.DASH_BOARD_ID }}
+
+          # GitHub Actions 입력값
+          INPUT_RELEASE_VERSION: ${{ github.event.inputs.release_version }}
+          INPUT_RELEASE_START_TIME: ${{ github.event.inputs.release_start_time }}
+          INPUT_MONITORING_DURATION: ${{ github.event.inputs.monitoring_duration }}
+
+          # GitHub 관련
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          python release_monitoring/release_monitor.py
+
+      - name: Commit monitoring state changes
+        if: always()
+        run: |
+          # monitoring_state.json 파일 변경사항이 있으면 커밋
+          git config --local user.email "actions@github.com"
+          git config --local user.name "Release Monitor Bot"
+          
+          if git diff --exit-code release_monitoring/monitoring_state.json > /dev/null; then
+            echo "모니터링 상태 변경사항이 없습니다."
+          else
+            git add release_monitoring/monitoring_state.json
+            git commit -m "Update release monitoring state [skip ci]"
+            git push
+            echo "모니터링 상태가 업데이트되었습니다."
+          fi
+
+      - name: Upload monitoring logs
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: monitoring-logs
+          path: |
+            release_monitoring/monitoring_state.json
+            release_monitoring/debug_output/
+          retention-days: 7
