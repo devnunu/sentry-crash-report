@@ -403,81 +403,106 @@ def sessions_crash_free_for_day(
 # =========================
 # AI 조언 생성 (OpenAI)
 # =========================
+from openai import OpenAI
+
 def generate_ai_advice(summary_payload: Dict[str, Any], y_key: str, dby_key: Optional[str], environment: Optional[str]) -> Dict[str, Any]:
     """
-    summary_payload: main()에서 만든 result 전체(dict)
-    y_key: 어제 날짜 키 ("YYYY-MM-DD")
-    dby_key: 그저께 날짜 키 또는 None
-    environment: 환경명 (예: Production)
-    반환: 구조화된 dict (모델이 JSON 문자를 반환하면 파싱)
-    실패 시: {"fallback_text": "..."} 형태
+    출력 스키마:
+    {
+      "newsletter_summary": "<string>",
+      "today_actions": [ { "title": "", "why": "", "owner_role": "", "suggestion": "" } ],
+      "root_cause": ["..."],
+      "per_issue_notes": [ { "issue_title": "", "note": "" } ]
+    }
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return {"fallback_text": "AI 조언을 생성하려면 OPENAI_API_KEY가 필요합니다."}
 
-    try:
-        from openai import OpenAI
-    except Exception:
-        return {"fallback_text": "openai 패키지가 필요합니다. pip install openai"}
-
     client = OpenAI(api_key=api_key)
 
-    # 프롬프트: 한국어 + 행동지향 + 우리 요약 JSON 그대로 제공
-    prompt = {
-        "role": "user",
-        "content": (
-            "당신은 모바일/백엔드 크래시 품질 코치입니다. 다음 Sentry 일간 요약(JSON)을 바탕으로 팀에 실질적인 도움을 주는 조언을 한국어로 작성하세요.\n"
-            "- 오늘 당장 실행할 액션 1~3개(담당 역할/이유 포함)\n"
-            "- 추가 모니터링 항목(지표/필터/릴리즈/OS/디바이스 등)\n"
-            "- 원인 추정 및 점검 체크리스트\n"
-            "- 로그·계측(추가 수집) 제안\n"
-            "- 상위 이슈별 코멘트(필요 시만, 1~2줄)\n"
-            "- 과장 표현 없이 근거 지표를 간단히 써 주세요.\n"
-            "출력은 반드시 JSON으로:\n"
-            "{\n"
-            "  \"today_actions\": [ {\"title\":\"\", \"why\":\"\", \"owner_role\":\"\", \"suggestion\":\"\"} ],\n"
-            "  \"monitoring\": [\"\"],\n"
-            "  \"root_cause\": [\"\"],\n"
-            "  \"logging\": [\"\"],\n"
-            "  \"per_issue_notes\": [ {\"issue_title\":\"\", \"note\":\"\"} ]\n"
-            "}\n\n"
-            f"환경: {environment or 'N/A'}\n"
-            f"요약(JSON):\n{json.dumps(summary_payload, ensure_ascii=False)}\n"
-            f"어제 키: {y_key}\n그저께 키: {dby_key or '없음'}\n"
-        )
-    }
+    prompt = (
+        "당신은 한국인 모바일/백엔드 크래시 품질 코치입니다. 아래 Sentry 일간 요약(JSON)을 분석해 "
+        "다음 항목을 **순수 JSON**으로만 반환하세요(코드블록 금지). "
+        "‘오늘의 액션’은 우선순위/효용이 충분할 때만 채우고, 의미 없으면 비워두세요. "
+        "원인 추정이나 이슈별 코멘트는 한국어로 작성되어야합니다.\n\n"
+        "JSON 스키마:\n"
+        "{\n"
+        "  \"newsletter_summary\": \"\",        // 뉴스레터 스타일 1~2문장 요약 (필수)\n"
+        "  \"today_actions\": [                 // 의미 있을 때만 작성(옵션)\n"
+        "    {\"title\":\"\", \"why\":\"\", \"owner_role\":\"\", \"suggestion\":\"\"}\n"
+        "  ],\n"
+        "  \"root_cause\": [],                  // 원인 추정/점검 포인트(옵션)\n"
+        "  \"per_issue_notes\": [               // 이슈별 코멘트(옵션)\n"
+        "    {\"issue_title\":\"\", \"note\":\"\"}\n"
+        "  ]\n"
+        "}\n\n"
+        f"환경: {environment or 'N/A'}\n"
+        f"요약(JSON):\n{json.dumps(summary_payload, ensure_ascii=False)}\n"
+        f"어제 키: {y_key}\n그저께 키: {dby_key or '없음'}\n"
+    )
 
     try:
-        # 최신 SDK: Responses API 사용 (필요시 gpt-4o-mini 등 변경 가능)
-        resp = client.responses.create(
+        resp = client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0.2,
-            max_output_tokens=800,
-            input=[prompt],
+            max_tokens=900,
+            messages=[{"role": "user", "content": prompt}],
         )
-        text = resp.output_text  # SDK가 제공하는 편의 접근자
-        # JSON 파싱 시도
-        data = json.loads(text)
-        # 최소 키 보정
-        for k in ["today_actions", "monitoring", "root_cause", "logging", "per_issue_notes"]:
-            data.setdefault(k, [])
-        return data
-    except Exception as e:
-        # 실패 시 텍스트로라도 반환
-        fallback = str(e)
-        try:
-            # 혹시 모델이 JSON 비슷한 걸 줬다면 느슨하게 재시도
+        text = resp.choices[0].message.content.strip()
+
+        # 모델이 ```json ...```으로 감싸면 본문만 추출
+        if text.startswith("```"):
             import re
-            m = re.search(r"\{.*\}", text, re.DOTALL)  # type: ignore
-            if m:
-                data = json.loads(m.group(0))
-                for k in ["today_actions", "monitoring", "root_cause", "logging", "per_issue_notes"]:
-                    data.setdefault(k, [])
-                return data
-        except Exception:
-            pass
-        return {"fallback_text": f"AI 조언 생성 실패: {fallback[:200]}"}  # 200자 제한
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            text = m.group(0) if m else text
+
+        data = json.loads(text)
+
+        # 기본 키/타입 보정
+        if not isinstance(data, dict):
+            raise ValueError("Model returned non-dict JSON.")
+
+        data.setdefault("newsletter_summary", "")
+        data.setdefault("today_actions", [])
+        data.setdefault("root_cause", [])
+        data.setdefault("per_issue_notes", [])
+
+        if not isinstance(data["newsletter_summary"], str):
+            data["newsletter_summary"] = str(data["newsletter_summary"])
+        if not isinstance(data["today_actions"], list):
+            data["today_actions"] = []
+        if not isinstance(data["root_cause"], list):
+            data["root_cause"] = []
+        if not isinstance(data["per_issue_notes"], list):
+            data["per_issue_notes"] = []
+
+        # 액션 항목 필드 보정 + 전부 빈 값인 항목 제거
+        norm_actions = []
+        for x in data["today_actions"]:
+            if not isinstance(x, dict):
+                continue
+            a = {
+                "title": x.get("title", "").strip(),
+                "why": x.get("why", "").strip(),
+                "owner_role": x.get("owner_role", "").strip(),
+                "suggestion": x.get("suggestion", "").strip(),
+            }
+            if any(a.values()):
+                norm_actions.append(a)
+        data["today_actions"] = norm_actions
+
+        # per_issue_notes도 문자열 안전화
+        data["per_issue_notes"] = [
+            {"issue_title": str(i.get("issue_title", "")).strip(), "note": str(i.get("note", "")).strip()}
+            for i in data["per_issue_notes"] if isinstance(i, dict)
+        ]
+
+        return data
+
+    except Exception as e:
+        snippet = text[:200] if 'text' in locals() and text else "(no text)"
+        return {"fallback_text": f"AI 조언 생성 실패: {e.__class__.__name__}: {str(e)} | snippet={snippet}"}
 
 
 # ====== Slack 메시지 빌더/전송 ======
@@ -564,17 +589,22 @@ def surge_explanation_kr(item: Dict[str, Any]) -> str:
 def build_ai_advice_blocks(ai: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     AI 결과 dict → Slack Blocks
-    타이틀: ":brain: AI 분석 코멘트"
-    '추가 모니터링', '로그·계측 제안' 섹션은 제외
+    - 타이틀: ":brain: AI 분석 코멘트"
+    - 뉴스레터 요약(필수) + 기존 섹션(오늘의 액션 / 원인 추정·점검 / 이슈별 코멘트)
     """
     blocks: List[Dict[str, Any]] = []
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*:brain: AI 분석 코멘트*"}})
 
-    # 실패/폴백 텍스트
+    # 실패/폴백
     if "fallback_text" in ai:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": ai["fallback_text"]}})
         blocks.append({"type": "divider"})
         return blocks
+
+    # 뉴스레터 요약(있으면 한두 문장)
+    summary_text = (ai.get("newsletter_summary") or "").strip()
+    if summary_text:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"> {summary_text}"}})
 
     def bullets(label_emoji: str, title: str, items: List[Any]) -> Optional[Dict[str, Any]]:
         if not items:
@@ -597,15 +627,15 @@ def build_ai_advice_blocks(ai: Dict[str, Any]) -> List[Dict[str, Any]]:
                 lines = "\n".join(f"• {x}" for x in items)
         return {"type": "section", "text": {"type": "mrkdwn", "text": f"*{label_emoji} {title}*\n{lines}"}}
 
-    # 오늘의 액션
+    # 오늘의 액션 (옵션)
     sec = bullets(":memo:", "오늘의 액션", ai.get("today_actions", []))
     if sec: blocks.append(sec)
 
-    # 원인 추정·점검
+    # 원인 추정·점검 (옵션)
     sec = bullets(":toolbox:", "원인 추정·점검", ai.get("root_cause", []))
     if sec: blocks.append(sec)
 
-    # 이슈별 코멘트
+    # 이슈별 코멘트 (옵션)
     sec = bullets(":speech_balloon:", "이슈별 코멘트", ai.get("per_issue_notes", []))
     if sec: blocks.append(sec)
 
