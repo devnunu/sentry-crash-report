@@ -1,57 +1,55 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Sentry 일일 요약(어제/그저께, 한국시간 기준) - REST API 버전 (MCP 미사용)
-필요 항목:
-- 크래시 이벤트 수 (level in {fatal, error})
-- 이슈 개수 (해당일 크래시 이벤트가 속한 유니크 이슈 수)
-- 유니크 이슈 수 (동일)
-- 영향을 받은 유저 수 (유니크 사용자)
-- Crash Free Sessions %
-- Crash Free Users %
-
-.env 예시
-SENTRY_AUTH_TOKEN=
-SENTRY_ORG_SLUG=
-SENTRY_PROJECT_SLUG=
-SLACK_WEBHOOK_URL=
-
-SENTRY_PROJECT_ID=
-DASH_BOARD_ID=
-SENTRY_ENVIRONMENT=
-
-# 일관성 모드(페이징/정렬 등 보수적 옵션 적용 여부)
-CONSISTENCY_MODE=
-# 테스트 모드 (실제 호출 대신 샘플 출력)
-TEST_MODE=false
+Sentry 일일 요약(어제/그저께, 한국시간 기준) - REST API + Slack 포매팅/전송
+- 어제 상위 5개 이슈, 신규 발생 이슈(firstSeen 당일), 고급 급증 이슈(DoD/7일 베이스라인)
+- Slack Webhook으로 리포트 전송 (SLACK_WEBHOOK_URL이 있을 때)
 """
 
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import math
 import requests
 from dotenv import load_dotenv
 
 API_BASE = "https://sentry.io/api/0"
 
-# ---------- 시간대 ----------
+# ====== (상수) 급증 탐지 파라미터 ======
+SURGE_MIN_COUNT = 30               # 서지 판정 최소 당일 이벤트 수
+SURGE_GROWTH_MULTIPLIER = 2.0      # DoD 성장배율 임계치 (예: 2배↑)
+SURGE_Z_THRESHOLD = 2.0            # Z-score 임계치
+SURGE_MAD_THRESHOLD = 3.5          # Robust(MAD) 임계치
+SURGE_MIN_NEW_BURST = 15           # 7일 모두 0일 때 당일 폭발로 간주하는 최소치
+BASELINE_DAYS = 7                  # 베이스라인 일수(그저께 포함)
+CANDIDATE_LIMIT = 100              # Discover per_page(최대 100). 페이지네이션으로 더 가져옴
+SURGE_MAX_RESULTS = 50             # 결과 배열 상한
+SURGE_ABSOLUTE_MIN = SURGE_MIN_COUNT
+
+# =========================
+# Slack 포맷 상수 (한국어)
+# =========================
+SLACK_MAX_NEW = 5
+SLACK_MAX_SURGE = 10
+TITLE_MAX = 90
+EMOJI_TOP = "🏅"
+EMOJI_NEW = "🆕"
+EMOJI_SURGE = "📈"
+
+# ----- 타임존 -----
 try:
     from zoneinfo import ZoneInfo  # py3.9+
-except Exception:  # pragma: no cover
+except Exception:
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
 KST = ZoneInfo("Asia/Seoul")
 UTC = timezone.utc
 
 
-# ---------- 유틸 ----------
+# ----- 공통 유틸 -----
 def kst_day_bounds_utc_iso(day_kst_date: datetime) -> Tuple[str, str]:
-    """
-    KST 기준 특정 날짜(day_kst_date: tz-aware, KST) 하루의 시작/끝을 UTC ISO8601로 반환
-    (start inclusive, end exclusive)
-    """
     start_kst = day_kst_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=KST)
     end_kst = start_kst + timedelta(days=1)
     start_utc = start_kst.astimezone(UTC)
@@ -71,117 +69,314 @@ def ensure_ok(r: requests.Response) -> requests.Response:
     try:
         r.raise_for_status()
     except requests.HTTPError as e:
-        msg = f"HTTP {r.status_code} for {r.request.method} {r.url}\n" \
-              f"Response: {r.text[:500]}"
+        msg = f"HTTP {r.status_code} for {r.request.method} {r.url}\nResponse: {r.text[:800]}"
         raise SystemExit(msg) from e
     return r
 
 
-# ---------- 프로젝트 ID 해석 ----------
-def resolve_project_id(
-    token: str, org: str, project_slug: Optional[str], project_id_env: Optional[str]
-) -> int:
-    """
-    - SENTRY_PROJECT_ID 값이 있으면 그걸 사용
-    - 없으면 /organizations/{org}/projects/ 를 호출해 slug 매칭하여 id 획득
-    """
+# ----- 프로젝트 ID -----
+def resolve_project_id(token: str, org: str, project_slug: Optional[str], project_id_env: Optional[str]) -> int:
     if project_id_env:
-        try:
-            return int(project_id_env)
-        except ValueError as e:
-            raise SystemExit("SENTRY_PROJECT_ID는 정수여야 합니다.") from e
-
+        return int(project_id_env)
     if not project_slug:
         raise SystemExit("SENTRY_PROJECT_SLUG 또는 SENTRY_PROJECT_ID 중 하나는 필요합니다.")
-
     url = f"{API_BASE}/organizations/{org}/projects/"
     r = ensure_ok(requests.get(url, headers=auth_headers(token), timeout=30))
-    projects = r.json()
-    for p in projects:
+    for p in r.json():
         if p.get("slug") == project_slug:
-            pid = p.get("id")
-            if pid is None:
-                break
-            return int(pid)
-    raise SystemExit(f"프로젝트 슬러그 '{project_slug}'에 해당하는 ID를 찾지 못했습니다.")
+            return int(p.get("id"))
+    raise SystemExit(f"'{project_slug}' 프로젝트를 찾을 수 없습니다.")
 
 
-# ---------- Discover(Events) 집계 ----------
+# ----- Discover 집계 (전체 요약) -----
 def discover_aggregates_for_day(
-    token: str,
-    org: str,
-    project_id: int,
-    environment: Optional[str],
-    start_iso_utc: str,
-    end_iso_utc: str,
-    consistency_mode: bool = False,
+    token: str, org: str, project_id: int, environment: Optional[str],
+    start_iso_utc: str, end_iso_utc: str
 ) -> Dict[str, Any]:
-    """
-    해당 일자 구간(UTC)에서 level in {fatal, error}인 이벤트만 대상으로:
-      - count()                        → crash_events
-      - count_unique(issue)           → unique_issues
-      - count_unique(user)            → impacted_users
-    Sentry Discover API: GET /organizations/{org}/events/
-      params:
-        field=count()&field=count_unique(issue)&field=count_unique(user)
-        project=...&start=...&end=...&query=...
-    """
     url = f"{API_BASE}/organizations/{org}/events/"
-    # 쿼리 구성
-    q_parts = ["level:[error,fatal]"]
-    if environment:
-        q_parts.append(f"environment:{environment}")
-    query = " ".join(q_parts)
-
+    query = "level:[error,fatal]" + (f" environment:{environment}" if environment else "")
     params = {
         "field": ["count()", "count_unique(issue)", "count_unique(user)"],
         "project": project_id,
         "start": start_iso_utc,
         "end": end_iso_utc,
         "query": query,
-        "referrer": "api.summaries.daily",  # 관행적으로 referrer를 넣는 게 좋음
+        "referrer": "api.summaries.daily",
     }
-    if consistency_mode:
-        # 보수적으로 page/per_page/interval 등을 명시하고 싶다면 여기에
-        pass
-
     r = ensure_ok(requests.get(url, headers=auth_headers(token), params=params, timeout=60))
-    data = r.json()
-
-    # data는 {"data":[{"count()":123,"count_unique(issue)":13,"count_unique(user)":80}], ...} 형태가 일반적
-    rows = data.get("data") or []
+    rows = (r.json().get("data") or [])
     if not rows:
         return {"crash_events": 0, "unique_issues": 0, "impacted_users": 0}
-
     row0 = rows[0]
-    crash_events = int(row0.get("count()") or 0)
-    unique_issues = int(row0.get("count_unique(issue)") or 0)
-    impacted_users = int(row0.get("count_unique(user)") or 0)
-
     return {
-        "crash_events": crash_events,
-        "unique_issues": unique_issues,
-        "impacted_users": impacted_users,
+        "crash_events": int(row0.get("count()") or 0),
+        "unique_issues": int(row0.get("count_unique(issue)") or 0),
+        "impacted_users": int(row0.get("count_unique(user)") or 0),
     }
 
 
-# ---------- Sessions 메트릭 (Crash Free) ----------
+# ----- Discover: 이슈별 count() 맵 (페이지네이션) -----
+def parse_link_cursor(link_header: str) -> Optional[str]:
+    if 'rel="next"' in link_header and 'results="true"' in link_header:
+        try:
+            start = link_header.index("cursor=") + len("cursor=")
+            end = link_header.index(">", start)
+            return link_header[start:end]
+        except Exception:
+            return None
+    return None
+
+
+def issue_counts_map_for_day(
+    token: str, org: str, project_id: int, environment: Optional[str],
+    start_iso_utc: str, end_iso_utc: str, per_page: int = 100, max_pages: int = 10
+) -> Dict[str, Dict[str, Any]]:
+    """
+    지정 일자의 이슈별 count()를 페이지네이션으로 최대 max_pages까지 수집
+    반환: { issue_id: {"count": int, "title": str} }
+    """
+    url = f"{API_BASE}/organizations/{org}/events/"
+    query = "level:[error,fatal]" + (f" environment:{environment}" if environment else "")
+    headers = auth_headers(token)
+
+    out: Dict[str, Dict[str, Any]] = {}
+    cursor = None
+    page = 0
+    while True:
+        page += 1
+        params = {
+            "field": ["issue", "title", "count()"],
+            "project": project_id,
+            "start": start_iso_utc,
+            "end": end_iso_utc,
+            "query": query,
+            "orderby": "-count()",
+            "per_page": per_page,  # 1~100
+            "referrer": "api.summaries.issue-counts",
+        }
+        if cursor:
+            params["cursor"] = cursor
+        r = ensure_ok(requests.get(url, headers=headers, params=params, timeout=60))
+        rows = (r.json().get("data") or [])
+        for row in rows:
+            iid = row.get("issue")
+            if not iid:
+                continue
+            out[str(iid)] = {
+                "count": int(row.get("count()") or 0),
+                "title": row.get("title"),
+            }
+        link = r.headers.get("link", "")
+        cursor = parse_link_cursor(link)
+        if not cursor or page >= max_pages:
+            break
+    return out
+
+
+# ----- 상위 5개 이슈 -----
+def top_issues_for_day(
+    token: str, org: str, project_id: int, environment: Optional[str],
+    start_iso_utc: str, end_iso_utc: str, limit: int = 5
+) -> List[Dict[str, Any]]:
+    url = f"{API_BASE}/organizations/{org}/events/"
+    query = "level:[error,fatal]" + (f" environment:{environment}" if environment else "")
+    params = {
+        "field": ["issue", "title", "count()"],
+        "project": project_id,
+        "start": start_iso_utc,
+        "end": end_iso_utc,
+        "query": query,
+        "orderby": "-count()",
+        "per_page": limit,
+        "referrer": "api.summaries.top-issues",
+    }
+    r = ensure_ok(requests.get(url, headers=auth_headers(token), params=params, timeout=60))
+    rows = (r.json().get("data") or [])
+    return [
+        {
+            "issue_id": row.get("issue"),
+            "title": row.get("title"),
+            "event_count": row.get("count()"),
+            "link": f"https://sentry.io/organizations/{org}/issues/{row.get('issue')}/" if row.get("issue") else None,
+        }
+        for row in rows[:limit]
+    ]
+
+
+# ----- 신규 발생 이슈 (Issues API: firstSeen) -----
+def new_issues_for_day(
+    token: str, org: str, project_id: int, environment: Optional[str],
+    start_iso_utc: str, end_iso_utc: str
+) -> List[Dict[str, Any]]:
+    url = f"{API_BASE}/organizations/{org}/issues/"
+    q_parts = [f"firstSeen:>={start_iso_utc}", f"firstSeen:<{end_iso_utc}", "level:[error,fatal]"]
+    if environment:
+        q_parts.append(f"environment:{environment}")
+    query = " ".join(q_parts)
+    params = {
+        "project": project_id,
+        "since": start_iso_utc,
+        "until": end_iso_utc,
+        "query": query,
+        "sort": "date",
+        "per_page": 100,
+        "referrer": "api.summaries.new-issues",
+    }
+    headers = auth_headers(token)
+    results: List[Dict[str, Any]] = []
+    cursor: Optional[str] = None
+
+    while True:
+        if cursor:
+            params["cursor"] = cursor
+        r = ensure_ok(requests.get(url, headers=headers, params=params, timeout=60))
+        items = r.json() or []
+        for it in items:
+            iid = it.get("id")
+            permalink = it.get("permalink") or (f"https://sentry.io/organizations/{org}/issues/{iid}/" if iid else None)
+            results.append({
+                "issue_id": iid,
+                "title": it.get("title"),
+                "event_count": int(it.get("count")) if it.get("count") is not None else None,
+                "first_seen": it.get("firstSeen"),
+                "link": permalink,
+            })
+        link = r.headers.get("link", "")
+        cursor = parse_link_cursor(link)
+        if not cursor:
+            break
+
+    return results
+
+
+# ====== 통계 유틸 ======
+def mean_std(values: List[int]) -> Tuple[float, float]:
+    if not values:
+        return 0.0, 0.0
+    m = sum(values) / len(values)
+    var = sum((v - m) ** 2 for v in values) / max(len(values), 1)
+    return m, math.sqrt(var)
+
+
+def median(values: List[int]) -> float:
+    if not values:
+        return 0.0
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    if n % 2 == 1:
+        return float(s[mid])
+    return (s[mid - 1] + s[mid]) / 2.0
+
+
+def mad(values: List[int], med: Optional[float] = None) -> float:
+    if not values:
+        return 0.0
+    m = med if med is not None else median(values)
+    dev = [abs(v - m) for v in values]
+    return median(dev)
+
+
+# ====== 고급 급증 탐지 ======
+def detect_surge_issues_advanced(
+    token: str, org: str, project_id: int, environment: Optional[str],
+    target_start_utc: str, target_end_utc: str,
+    baseline_days: int = BASELINE_DAYS,
+    per_page: int = 100, max_pages: int = 10
+) -> List[Dict[str, Any]]:
+    # 타겟일 이슈별 카운트(페이지네이션)
+    today_map = issue_counts_map_for_day(
+        token, org, project_id, environment,
+        target_start_utc, target_end_utc, per_page, max_pages
+    )
+
+    # 직전 N일 맵들
+    def iso_to_dt(iso_str: str) -> datetime:
+        return datetime.fromisoformat(iso_str.replace("Z", "+00:00")).astimezone(UTC)
+    t_start_dt = iso_to_dt(target_start_utc)
+
+    prev_maps: List[Dict[str, Dict[str, Any]]] = []
+    for i in range(1, baseline_days + 1):
+        day_start_dt = t_start_dt - timedelta(days=i)
+        day_end_dt = day_start_dt + timedelta(days=1)
+        start_iso = day_start_dt.isoformat().replace("+00:00", "Z")
+        end_iso   = day_end_dt.isoformat().replace("+00:00", "Z")
+        prev_maps.append(
+            issue_counts_map_for_day(token, org, project_id, environment, start_iso, end_iso, per_page, max_pages)
+        )
+
+    results: List[Dict[str, Any]] = []
+    eps = 1e-9
+
+    for iid, cur_info in today_map.items():
+        # 방어: 타입 섞임 대비
+        try:
+            cur = int(cur_info.get("count") or 0)
+        except Exception:
+            cur = 0
+
+        # 1차 필터: 절대 최소 건수(어떤 조건이든 이 값 미만이면 제외)
+        if cur < SURGE_ABSOLUTE_MIN:
+            continue
+
+        title = cur_info.get("title")
+        link  = f"https://sentry.io/organizations/{org}/issues/{iid}/"
+
+        # D-1 및 베이스라인
+        dby = int(prev_maps[0].get(iid, {}).get("count") or 0) if prev_maps else 0
+        baseline_counts = [int(pm.get(iid, {}).get("count") or 0) for pm in prev_maps]
+
+        mean_val, std_val = mean_std(baseline_counts)
+        med_val           = median(baseline_counts)
+        mad_val           = mad(baseline_counts, med_val)
+
+        z = (cur - mean_val) / (std_val + eps) if std_val > 0 else (float("inf") if cur > mean_val else 0.0)
+        mad_score = (cur - med_val) / (1.4826 * mad_val + eps) if mad_val > 0 else (float("inf") if cur > med_val else 0.0)
+        growth = cur / max(dby, 1)
+
+        is_all_zero = all(v == 0 for v in baseline_counts)
+        conditions = {
+            "growth":   growth >= SURGE_GROWTH_MULTIPLIER,
+            "zscore":   z >= SURGE_Z_THRESHOLD,
+            "madscore": mad_score >= SURGE_MAD_THRESHOLD,
+            # 완전 신규 폭발: 그래도 cur는 위의 SURGE_ABSOLUTE_MIN을 이미 통과해야 함
+            "new_burst": (is_all_zero and cur >= max(SURGE_MIN_NEW_BURST, SURGE_ABSOLUTE_MIN)),
+        }
+
+        if any(conditions.values()):
+            results.append({
+                "issue_id": iid,
+                "title": title,
+                "event_count": cur,
+                "link": link,
+                "dby_count": dby,
+                "growth_multiplier": round(growth, 2),
+                "zscore": None if math.isinf(z) else round(z, 2),
+                "mad_score": None if math.isinf(mad_score) else round(mad_score, 2),
+                "baseline_mean": round(mean_val, 2),
+                "baseline_std": round(std_val, 2),
+                "baseline_median": round(med_val, 2),
+                "baseline_mad": round(mad_val, 2),
+                "baseline_counts": baseline_counts,
+                "reasons": [k for k, v in conditions.items() if v],
+            })
+
+    # 2차 보정: 혹시라도 계산/타입 이슈로 통과한 항목을 다시 절대 최소건수로 걸러냄
+    results = [r for r in results if int(r.get("event_count") or 0) >= SURGE_ABSOLUTE_MIN]
+
+    # 정렬/상한
+    results.sort(
+        key=lambda x: (x["event_count"], (x["zscore"] or 0), (x["mad_score"] or 0), x["growth_multiplier"]),
+        reverse=True
+    )
+    return results[:SURGE_MAX_RESULTS]
+
+
+# ----- Crash Free 메트릭 -----
 def sessions_crash_free_for_day(
-    token: str,
-    org: str,
-    project_id: int,
-    environment: Optional[str],
-    start_iso_utc: str,
-    end_iso_utc: str,
+    token: str, org: str, project_id: int, environment: Optional[str],
+    start_iso_utc: str, end_iso_utc: str
 ) -> Tuple[Optional[float], Optional[float]]:
-    """
-    Crash Free Sessions %, Crash Free Users %를 Sessions API로 조회
-    GET /organizations/{org}/sessions/
-      - field=crash_free_rate(session)
-      - field=crash_free_rate(user)
-      - start, end, interval=1d, project, (environment)
-    반환: (crash_free_sessions_pct, crash_free_users_pct) 0~100 단위 (소수)
-    """
     url = f"{API_BASE}/organizations/{org}/sessions/"
     params = {
         "project": project_id,
@@ -193,117 +388,257 @@ def sessions_crash_free_for_day(
     }
     if environment:
         params["environment"] = environment
-
     r = ensure_ok(requests.get(url, headers=auth_headers(token), params=params, timeout=60))
     data = r.json()
-
-    # 응답 예시(요지): {"groups":[{"series":{"crash_free_rate(session)":[99.1]}, "by":{...}}, {"series":{"crash_free_rate(user)":[98.7]}}], ...}
-    groups = data.get("groups") or []
-    cf_session = None
-    cf_user = None
-    for g in groups:
-        series = (g.get("series") or {})
-        ses = series.get("crash_free_rate(session)")
-        usr = series.get("crash_free_rate(user)")
-        if isinstance(ses, list) and ses:
-            cf_session = float(ses[-1])
-        if isinstance(usr, list) and usr:
-            cf_user = float(usr[-1])
-
-    return cf_session, cf_user
+    cf_s, cf_u = None, None
+    for g in data.get("groups", []):
+        series = g.get("series", {})
+        if "crash_free_rate(session)" in series and series["crash_free_rate(session)"]:
+            cf_s = float(series["crash_free_rate(session)"][-1])
+        if "crash_free_rate(user)" in series and series["crash_free_rate(user)"]:
+            cf_u = float(series["crash_free_rate(user)"][-1])
+    return cf_s, cf_u
 
 
-# ---------- 메인 ----------
+# ====== Slack 메시지 빌더/전송 ======
+# ---------- 도우미 ----------
+def truncate(s: Optional[str], n: int) -> Optional[str]:
+    if s is None:
+        return None
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+def fmt_pct(v: Optional[float]) -> str:
+    if v is None:
+        return "N/A"
+    pct = v * 100
+    truncated = int(pct * 100) / 100  # 소수점 둘째 자리 절삭
+    return f"{truncated:.2f}%"
+
+def parse_iso_to_kst_label(start_utc_iso: str, end_utc_iso: str) -> str:
+    """UTC ISO 구간을 한국시(KST)로 바꿔 사람이 읽기 좋게 표기"""
+    def to_kst(iso_s: str) -> datetime:
+        return datetime.fromisoformat(iso_s.replace("Z", "+00:00")).astimezone(KST)
+    s = to_kst(start_utc_iso)
+    e = to_kst(end_utc_iso)
+    # 예: 2025-09-01 00:00 ~ 2025-09-01 23:59 (KST)
+    s_txt = s.strftime("%Y-%m-%d %H:%M")
+    e_txt = e.strftime("%Y-%m-%d %H:%M")
+    return f"{s_txt} ~ {e_txt} (KST)"
+
+def diff_str(cur: int, prev: int, suffix: str = "건") -> str:
+    delta = cur - prev
+    if delta > 0:
+        arrow = "🔺"
+    elif delta < 0:
+        arrow = "🔻"
+    else:
+        arrow = "—"
+    ratio = ""
+    if prev > 0:
+        ratio = f" ({(delta/prev)*100:+.1f}%)"
+    return f"{cur}{suffix} {arrow}{abs(delta)}{suffix}{ratio}"
+
+# ---------- 이슈 라인(한국어) ----------
+def issue_line_kr(item: Dict[str, Any]) -> str:
+    """제목에만 링크, 이슈키(#... ) 제거, 개수는 '7건'으로 표기"""
+    title = truncate(item.get("title"), TITLE_MAX) or "(제목 없음)"
+    link = item.get("link")
+    count = item.get("event_count")
+    count_txt = f"{int(count)}건" if isinstance(count, (int, float)) and count is not None else "–"
+    title_link = f"<{link}|{title}>" if link else title
+    return f"• {title_link} · {count_txt}"
+
+# ---------- 급증 이슈 설명(서술형) ----------
+def surge_explanation_kr(item: Dict[str, Any]) -> str:
+    """
+    예시:
+    • Login NPE · 42건
+      ↳ 전일 0건 → 어제 42건으로 급증. 최근 7일 평균 5.3건/중앙값 4건 대비 크게 증가.
+      ↳ 판정 근거: growth/madscore
+    """
+    base = issue_line_kr(item)
+    cur = item.get("event_count") or 0
+    d1 = item.get("dby_count") or 0
+    mean_v = item.get("baseline_mean")
+    med_v = item.get("baseline_median")
+    reasons = item.get("reasons", [])
+    # 서술: 전일 대비, 7일 평균/중앙값 대비
+    parts = []
+    parts.append(f"전일 {d1}건 → 어제 {cur}건으로 급증.")
+    if isinstance(mean_v, (int, float)) and isinstance(med_v, (int, float)):
+        parts.append(f"최근 7일 평균 {mean_v:.1f}건/중앙값 {med_v:.0f}건 대비 크게 증가.")
+    # 규칙명만 간단 표기
+    if reasons:
+        ko = {
+            "growth": "전일 대비 급증",
+            "zscore": "평균 대비 통계적 급증",
+            "madscore": "중앙값 대비 이상치",
+            "new_burst": "최근 기록 거의 없음에서 폭증",
+        }
+        pretty = [ko.get(r, r) for r in reasons]
+        parts.append("판정 근거: " + "/".join(pretty))
+    detail = "  ↳ " + " ".join(parts)
+    return f"{base}\n{detail}"
+
+# ---------- 한국어 블록 빌더 ----------
+def build_slack_blocks_for_day(
+    date_label: str,
+    env_label: Optional[str],
+    day_obj: Dict[str, Any],
+    prev_day_obj: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    # 현재값
+    cf_s = day_obj.get("crash_free_sessions_pct")
+    cf_u = day_obj.get("crash_free_users_pct")
+    events = int(day_obj.get("crash_events", 0))
+    issues = int(day_obj.get("unique_issues", 0))
+    users  = int(day_obj.get("impacted_users", 0))
+
+    # 전일값 (증감은 이벤트/이슈/사용자에만 적용)
+    prev_events = prev_issues = prev_users = 0
+    if prev_day_obj:
+        prev_events = int(prev_day_obj.get("crash_events", 0))
+        prev_issues = int(prev_day_obj.get("unique_issues", 0))
+        prev_users  = int(prev_day_obj.get("impacted_users", 0))
+
+    # Summary: 요청하신 순서로 표기 (이벤트/이슈/사용자 → Crash Free)
+    summary_lines = [
+        "*:memo: Summary*",
+        f"• 💥 *이벤트*: {diff_str(events, prev_events, suffix='건') if prev_day_obj else f'{events}건'}",
+        f"• 🐞 *이슈*: {diff_str(issues, prev_issues, suffix='건') if prev_day_obj else f'{issues}건'}",
+        f"• 👥 *영향 사용자*: {diff_str(users, prev_users, suffix='명') if prev_day_obj else f'{users}명'}",
+        f"• 🛡️ *Crash Free 세션*: {fmt_pct(cf_s)}",
+        f"• 🛡️ *Crash Free 사용자*: {fmt_pct(cf_u)}",
+    ]
+    kpi_text = "\n".join(summary_lines)
+
+    # 집계 구간(KST)
+    win = day_obj.get("window_utc") or {}
+    kst_window = parse_iso_to_kst_label(win.get("start","?"), win.get("end","?"))
+
+    # 헤더
+    title = f"Sentry 일간 리포트 — {date_label}"
+    if env_label:
+        title += f"  ·  {env_label}"
+
+    blocks: List[Dict[str, Any]] = [
+        {"type": "header", "text": {"type": "plain_text", "text": title, "emoji": True}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": kpi_text}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"*집계 구간*: {kst_window}"}]},
+        {"type": "divider"},
+    ]
+
+    # 아래는 기존 섹션: 타이틀은 이모지 + 굵게 유지
+    top = day_obj.get("top_5_issues") or []
+    if top:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*:sports_medal: 상위 5개 이슈*"}})
+        lines = "\n".join(issue_line_kr(x) for x in top)
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": lines}})
+        blocks.append({"type": "divider"})
+
+    new_issues = (day_obj.get("new_issues") or [])[:SLACK_MAX_NEW]
+    if new_issues:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*:new: 신규 발생 이슈*"}})
+        lines = "\n".join(issue_line_kr(x) for x in new_issues)
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": lines}})
+        blocks.append({"type": "divider"})
+
+    surge = [x for x in (day_obj.get("surge_issues") or []) if int(x.get("event_count") or 0) >= SURGE_ABSOLUTE_MIN]
+    surge = surge[:SLACK_MAX_SURGE]
+    if surge:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*:chart_with_upwards_trend: 급증(서지) 이슈*"}})
+        lines = "\n".join(surge_explanation_kr(x) for x in surge)
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": lines}})
+        blocks.append({"type": "divider"})
+
+    return blocks
+
+# ---------- Slack 전송 ----------
+def post_to_slack(webhook_url: str, blocks: List[Dict[str, Any]]) -> None:
+    payload = {"blocks": blocks}
+    r = requests.post(webhook_url, headers={"Content-Type": "application/json"}, data=json.dumps(payload), timeout=30)
+    try:
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        print(f"[Slack] Post failed {r.status_code}: {r.text[:300]}")
+        raise
+
+
+# ====== 메인 ======
 def main():
     load_dotenv()
-
     token = os.getenv("SENTRY_AUTH_TOKEN") or ""
     org = os.getenv("SENTRY_ORG_SLUG") or ""
-    project_slug = os.getenv("SENTRY_PROJECT_SLUG") or None
-    project_id_env = os.getenv("SENTRY_PROJECT_ID") or None
-    environment = os.getenv("SENTRY_ENVIRONMENT") or None
-
-    test_mode = (os.getenv("TEST_MODE") or "").lower() == "true"
-    consistency_mode = (os.getenv("CONSISTENCY_MODE") or "").lower() == "true"
+    project_slug = os.getenv("SENTRY_PROJECT_SLUG")
+    project_id_env = os.getenv("SENTRY_PROJECT_ID")
+    environment = os.getenv("SENTRY_ENVIRONMENT")
+    slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
 
     if not token or not org:
-        raise SystemExit("SENTRY_AUTH_TOKEN, SENTRY_ORG_SLUG 은 필수입니다.")
+        raise SystemExit("SENTRY_AUTH_TOKEN, SENTRY_ORG_SLUG 필수")
 
-    # 오늘 기준 어제/그저께 (KST)
+    # 날짜 범위(어제/그저께, KST → UTC)
     now_kst = datetime.now(KST)
     y_kst = (now_kst - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     dby_kst = (now_kst - timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
+    y_start, y_end = kst_day_bounds_utc_iso(y_kst)
+    dby_start, dby_end = kst_day_bounds_utc_iso(dby_kst)
 
-    y_start_utc, y_end_utc = kst_day_bounds_utc_iso(y_kst)
-    dby_start_utc, dby_end_utc = kst_day_bounds_utc_iso(dby_kst)
-
-    if test_mode:
-        result = {
-            "timezone": "Asia/Seoul (KST)",
-            pretty_kst_date(y_kst): {
-                "crash_events": 120,
-                "issues_count": 13,
-                "unique_issues_in_events": 13,
-                "impacted_users": 80,
-                "crash_free_sessions_pct": 99.12,
-                "crash_free_users_pct": 98.76,
-                "window_utc": {"start": y_start_utc, "end": y_end_utc},
-            },
-            pretty_kst_date(dby_kst): {
-                "crash_events": 95,
-                "issues_count": 10,
-                "unique_issues_in_events": 10,
-                "impacted_users": 72,
-                "crash_free_sessions_pct": 98.50,
-                "crash_free_users_pct": 97.90,
-                "window_utc": {"start": dby_start_utc, "end": dby_end_utc},
-            },
-        }
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        return
-
-    # 프로젝트 ID 확보
+    # 프로젝트 ID
     project_id = resolve_project_id(token, org, project_slug, project_id_env)
 
-    # --- 어제 ---
-    y_ev = discover_aggregates_for_day(
-        token, org, project_id, environment, y_start_utc, y_end_utc, consistency_mode
-    )
-    y_cf_s, y_cf_u = sessions_crash_free_for_day(
-        token, org, project_id, environment, y_start_utc, y_end_utc
-    )
+    # --- 어제 데이터 ---
+    y_summary = discover_aggregates_for_day(token, org, project_id, environment, y_start, y_end)
+    y_cf_s, y_cf_u = sessions_crash_free_for_day(token, org, project_id, environment, y_start, y_end)
+    y_top = top_issues_for_day(token, org, project_id, environment, y_start, y_end)
+    y_new = new_issues_for_day(token, org, project_id, environment, y_start, y_end)
+    y_surge_adv = detect_surge_issues_advanced(token, org, project_id, environment, y_start, y_end)
 
-    # --- 그저께 ---
-    dby_ev = discover_aggregates_for_day(
-        token, org, project_id, environment, dby_start_utc, dby_end_utc, consistency_mode
-    )
-    dby_cf_s, dby_cf_u = sessions_crash_free_for_day(
-        token, org, project_id, environment, dby_start_utc, dby_end_utc
-    )
+    # --- 그저께 데이터 (비교용/출력 포함) ---
+    dby_summary = discover_aggregates_for_day(token, org, project_id, environment, dby_start, dby_end)
+    dby_cf_s, dby_cf_u = sessions_crash_free_for_day(token, org, project_id, environment, dby_start, dby_end)
 
     result = {
         "timezone": "Asia/Seoul (KST)",
         pretty_kst_date(y_kst): {
-            "crash_events": y_ev["crash_events"],
-            "issues_count": y_ev["unique_issues"],             # 이벤트 기준 유니크 이슈 수
-            "unique_issues_in_events": y_ev["unique_issues"],  # 동일 의미로 중복 표기
-            "impacted_users": y_ev["impacted_users"],
+            **y_summary,
+            "issues_count": y_summary["unique_issues"],
+            "unique_issues_in_events": y_summary["unique_issues"],
             "crash_free_sessions_pct": y_cf_s,
             "crash_free_users_pct": y_cf_u,
-            "window_utc": {"start": y_start_utc, "end": y_end_utc},
+            "top_5_issues": y_top,
+            "new_issues": y_new,
+            "surge_issues": y_surge_adv,
+            "window_utc": {"start": y_start, "end": y_end},
         },
         pretty_kst_date(dby_kst): {
-            "crash_events": dby_ev["crash_events"],
-            "issues_count": dby_ev["unique_issues"],
-            "unique_issues_in_events": dby_ev["unique_issues"],
-            "impacted_users": dby_ev["impacted_users"],
+            **dby_summary,
+            "issues_count": dby_summary["unique_issues"],
+            "unique_issues_in_events": dby_summary["unique_issues"],
             "crash_free_sessions_pct": dby_cf_s,
             "crash_free_users_pct": dby_cf_u,
-            "window_utc": {"start": dby_start_utc, "end": dby_end_utc},
+            "window_utc": {"start": dby_start, "end": dby_end},
         },
     }
 
+    # 콘솔 출력
     print(json.dumps(result, ensure_ascii=False, indent=2))
+
+    if slack_webhook:
+        y_key = pretty_kst_date(y_kst)
+        dby_key = pretty_kst_date(dby_kst)
+        # 어제 블록: 그저께와 비교치 포함
+        y_blocks = build_slack_blocks_for_day(
+            date_label=y_key,
+            env_label=environment,
+            day_obj=result[y_key],
+            prev_day_obj=result.get(dby_key),
+        )
+        try:
+            post_to_slack(slack_webhook, y_blocks)
+            print("[Slack] 어제 리포트 전송 완료.")
+        except Exception as e:
+            print(f"[Slack] 전송 실패: {e}")
 
 
 if __name__ == "__main__":
