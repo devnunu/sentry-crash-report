@@ -400,6 +400,86 @@ def sessions_crash_free_for_day(
     return cf_s, cf_u
 
 
+# =========================
+# AI 조언 생성 (OpenAI)
+# =========================
+def generate_ai_advice(summary_payload: Dict[str, Any], y_key: str, dby_key: Optional[str], environment: Optional[str]) -> Dict[str, Any]:
+    """
+    summary_payload: main()에서 만든 result 전체(dict)
+    y_key: 어제 날짜 키 ("YYYY-MM-DD")
+    dby_key: 그저께 날짜 키 또는 None
+    environment: 환경명 (예: Production)
+    반환: 구조화된 dict (모델이 JSON 문자를 반환하면 파싱)
+    실패 시: {"fallback_text": "..."} 형태
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {"fallback_text": "AI 조언을 생성하려면 OPENAI_API_KEY가 필요합니다."}
+
+    try:
+        from openai import OpenAI
+    except Exception:
+        return {"fallback_text": "openai 패키지가 필요합니다. pip install openai"}
+
+    client = OpenAI(api_key=api_key)
+
+    # 프롬프트: 한국어 + 행동지향 + 우리 요약 JSON 그대로 제공
+    prompt = {
+        "role": "user",
+        "content": (
+            "당신은 모바일/백엔드 크래시 품질 코치입니다. 다음 Sentry 일간 요약(JSON)을 바탕으로 팀에 실질적인 도움을 주는 조언을 한국어로 작성하세요.\n"
+            "- 오늘 당장 실행할 액션 1~3개(담당 역할/이유 포함)\n"
+            "- 추가 모니터링 항목(지표/필터/릴리즈/OS/디바이스 등)\n"
+            "- 원인 추정 및 점검 체크리스트\n"
+            "- 로그·계측(추가 수집) 제안\n"
+            "- 상위 이슈별 코멘트(필요 시만, 1~2줄)\n"
+            "- 과장 표현 없이 근거 지표를 간단히 써 주세요.\n"
+            "출력은 반드시 JSON으로:\n"
+            "{\n"
+            "  \"today_actions\": [ {\"title\":\"\", \"why\":\"\", \"owner_role\":\"\", \"suggestion\":\"\"} ],\n"
+            "  \"monitoring\": [\"\"],\n"
+            "  \"root_cause\": [\"\"],\n"
+            "  \"logging\": [\"\"],\n"
+            "  \"per_issue_notes\": [ {\"issue_title\":\"\", \"note\":\"\"} ]\n"
+            "}\n\n"
+            f"환경: {environment or 'N/A'}\n"
+            f"요약(JSON):\n{json.dumps(summary_payload, ensure_ascii=False)}\n"
+            f"어제 키: {y_key}\n그저께 키: {dby_key or '없음'}\n"
+        )
+    }
+
+    try:
+        # 최신 SDK: Responses API 사용 (필요시 gpt-4o-mini 등 변경 가능)
+        resp = client.responses.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            max_output_tokens=800,
+            input=[prompt],
+        )
+        text = resp.output_text  # SDK가 제공하는 편의 접근자
+        # JSON 파싱 시도
+        data = json.loads(text)
+        # 최소 키 보정
+        for k in ["today_actions", "monitoring", "root_cause", "logging", "per_issue_notes"]:
+            data.setdefault(k, [])
+        return data
+    except Exception as e:
+        # 실패 시 텍스트로라도 반환
+        fallback = str(e)
+        try:
+            # 혹시 모델이 JSON 비슷한 걸 줬다면 느슨하게 재시도
+            import re
+            m = re.search(r"\{.*\}", text, re.DOTALL)  # type: ignore
+            if m:
+                data = json.loads(m.group(0))
+                for k in ["today_actions", "monitoring", "root_cause", "logging", "per_issue_notes"]:
+                    data.setdefault(k, [])
+                return data
+        except Exception:
+            pass
+        return {"fallback_text": f"AI 조언 생성 실패: {fallback[:200]}"}  # 200자 제한
+
+
 # ====== Slack 메시지 빌더/전송 ======
 # ---------- 도우미 ----------
 def truncate(s: Optional[str], n: int) -> Optional[str]:
@@ -481,11 +561,63 @@ def surge_explanation_kr(item: Dict[str, Any]) -> str:
     return f"{base}\n{detail}"
 
 # ---------- 한국어 블록 빌더 ----------
+def build_ai_advice_blocks(ai: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    AI 결과 dict → Slack Blocks
+    타이틀: ":brain: AI 분석 코멘트"
+    '추가 모니터링', '로그·계측 제안' 섹션은 제외
+    """
+    blocks: List[Dict[str, Any]] = []
+    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*:brain: AI 분석 코멘트*"}})
+
+    # 실패/폴백 텍스트
+    if "fallback_text" in ai:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": ai["fallback_text"]}})
+        blocks.append({"type": "divider"})
+        return blocks
+
+    def bullets(label_emoji: str, title: str, items: List[Any]) -> Optional[Dict[str, Any]]:
+        if not items:
+            return None
+        if isinstance(items[0], str):
+            lines = "\n".join(f"• {x}" for x in items)
+        else:
+            if title == "오늘의 액션":
+                lines = "\n".join(
+                    f"• *{x.get('title','(제목 없음)')}* — {x.get('suggestion','')}"
+                    f"{' _(담당: ' + x.get('owner_role','') + ', 이유: ' + x.get('why','') + ')_' if (x.get('owner_role') or x.get('why')) else ''}"
+                    for x in items
+                )
+            elif title == "이슈별 코멘트":
+                lines = "\n".join(
+                    f"• *{x.get('issue_title','(제목 없음)')}* — {x.get('note','')}"
+                    for x in items
+                )
+            else:
+                lines = "\n".join(f"• {x}" for x in items)
+        return {"type": "section", "text": {"type": "mrkdwn", "text": f"*{label_emoji} {title}*\n{lines}"}}
+
+    # 오늘의 액션
+    sec = bullets(":memo:", "오늘의 액션", ai.get("today_actions", []))
+    if sec: blocks.append(sec)
+
+    # 원인 추정·점검
+    sec = bullets(":toolbox:", "원인 추정·점검", ai.get("root_cause", []))
+    if sec: blocks.append(sec)
+
+    # 이슈별 코멘트
+    sec = bullets(":speech_balloon:", "이슈별 코멘트", ai.get("per_issue_notes", []))
+    if sec: blocks.append(sec)
+
+    blocks.append({"type": "divider"})
+    return blocks
+
 def build_slack_blocks_for_day(
     date_label: str,
     env_label: Optional[str],
     day_obj: Dict[str, Any],
     prev_day_obj: Optional[Dict[str, Any]] = None,
+    ai_blocks: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     # 현재값
     cf_s = day_obj.get("crash_free_sessions_pct")
@@ -527,6 +659,10 @@ def build_slack_blocks_for_day(
         {"type": "context", "elements": [{"type": "mrkdwn", "text": f"*집계 구간*: {kst_window}"}]},
         {"type": "divider"},
     ]
+
+    # === 여기서 AI 섹션 삽입 ===
+    if ai_blocks:
+        blocks.extend(ai_blocks)
 
     # 아래는 기존 섹션: 타이틀은 이모지 + 굵게 유지
     top = day_obj.get("top_5_issues") or []
@@ -627,16 +763,23 @@ def main():
     if slack_webhook:
         y_key = pretty_kst_date(y_kst)
         dby_key = pretty_kst_date(dby_kst)
-        # 어제 블록: 그저께와 비교치 포함
+
+        # === AI 조언 생성 ===
+        ai_data = generate_ai_advice(result, y_key=y_key, dby_key=dby_key, environment=environment)
+        ai_blocks = build_ai_advice_blocks(ai_data)
+
+        # 어제 블록 생성 (AI 블록 삽입)
         y_blocks = build_slack_blocks_for_day(
             date_label=y_key,
             env_label=environment,
             day_obj=result[y_key],
             prev_day_obj=result.get(dby_key),
+            ai_blocks=ai_blocks,  # ← 여기!
         )
+
         try:
             post_to_slack(slack_webhook, y_blocks)
-            print("[Slack] 어제 리포트 전송 완료.")
+            print("[Slack] 어제 리포트 전송 완료 (AI 포함).")
         except Exception as e:
             print(f"[Slack] 전송 실패: {e}")
 
