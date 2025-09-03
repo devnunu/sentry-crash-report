@@ -1,0 +1,54 @@
+name: Sentry Weekly Report
+
+on:
+  schedule:
+    # 9am KST == 00:00 UTC, Monday
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "android | ios | both"
+        required: false
+        default: "both"
+
+jobs:
+  weekly:
+    name: Weekly (${{ matrix.target.name }})
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.target.key }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { key: "android", name: "Android", project_id: "${{ vars.ANDROID_PROJECT_ID }}", project_slug: "${{ vars.ANDROID_PROJECT_SLUG }}", dashboard_url: "${{ vars.ANDROID_DASHBOARD_URL }}" }
+          - { key: "ios",     name: "iOS",     project_id: "${{ vars.IOS_PROJECT_ID }}",     project_slug: "${{ vars.IOS_PROJECT_SLUG }}",     dashboard_url: "${{ vars.IOS_DASHBOARD_URL }}" }
+
+    env:
+      # 공통
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG_SLUG:   ${{ vars.SENTRY_ORG_SLUG }}
+      SENTRY_ENVIRONMENT: ${{ vars.SENTRY_ENVIRONMENT }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      # 플랫폼별 (matrix에서 주입)
+      SENTRY_PROJECT_ID:   ${{ matrix.target.project_id }}
+      SENTRY_PROJECT_SLUG: ${{ matrix.target.project_slug }}
+      SENTRY_DASHBOARD_URL: ${{ matrix.target.dashboard_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install python-dotenv requests packaging; fi
+
+      - name: Run weekly report (matrix per platform)
+        run: |
+          echo "Running weekly report for ${{ matrix.target.name }}..."
+          python sentry_weekly_crash_report.py
