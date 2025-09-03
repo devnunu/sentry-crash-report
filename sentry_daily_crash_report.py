@@ -862,21 +862,26 @@ def post_to_slack(webhook_url: str, blocks: List[Dict[str, Any]]) -> None:
         print(f"[Slack] Post failed {r.status_code}: {r.text[:300]}")
         raise
 
+def getenv_clean(name: str, default: str = "") -> str:
+    """환경변수에서 앞뒤 공백/줄바꿈 제거하여 반환"""
+    return (os.getenv(name) or default).strip()
 
 # ====== 메인 ======
 def main():
     step_total = 14
     log(f"[1/{step_total}] 환경 변수 로드…")
     load_dotenv()
-    token = os.getenv("SENTRY_AUTH_TOKEN") or ""
-    org = os.getenv("SENTRY_ORG_SLUG") or ""
-    project_slug = os.getenv("SENTRY_PROJECT_SLUG")
-    project_id_env = os.getenv("SENTRY_PROJECT_ID")
-    environment = os.getenv("SENTRY_ENVIRONMENT")
-    slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
+    token = getenv_clean("SENTRY_AUTH_TOKEN")
+    org = getenv_clean("SENTRY_ORG_SLUG")
+    project_slug = getenv_clean("SENTRY_PROJECT_SLUG") or None
+    project_id_env = getenv_clean("SENTRY_PROJECT_ID") or None
+    environment = getenv_clean("SENTRY_ENVIRONMENT") or None
+    slack_webhook = getenv_clean("SLACK_WEBHOOK_URL") or None
 
     if not token or not org:
         raise SystemExit("SENTRY_AUTH_TOKEN, SENTRY_ORG_SLUG 필수")
+
+    print(f"[Daily] [3/14] 프로젝트 확인/해결(org='{org}', slug='{project_slug}', id_env='{project_id_env}')…")
 
     log(f"[2/{step_total}] 날짜 계산(KST 기준 어제/그저께)…")
     now_kst = datetime.now(KST)
