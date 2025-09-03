@@ -88,7 +88,7 @@ jobs:
           # secrets
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ matrix.platform == 'android' && secrets.ANDROID_SLACK_WEBHOOK_URL || secrets.IOS_SLACK_WEBHOOK_URL }}
           # vars / matrix
           SENTRY_ORG_SLUG: ${{ env.SENTRY_ORG_SLUG }}
           SENTRY_PROJECT_ID: ${{ matrix.SENTRY_PROJECT_ID }}
