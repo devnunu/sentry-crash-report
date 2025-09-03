@@ -70,6 +70,10 @@ SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:\+\d+)?$")
 # Discover 공통
 LEVEL_QUERY = "level:[error,fatal]"
 
+# =============== 로그 유틸 ===============
+def wlog(msg: str) -> None:
+    print(f"[Weekly] {msg}")
+
 # =============== 유틸 ===============
 def bold(s: str) -> str:
     return f"*{s}*"
@@ -104,10 +108,8 @@ def kst_week_bounds_for_last_week(today_kst: datetime) -> Tuple[datetime, dateti
     today_kst 기준 '지난주 월 00:00:00' ~ '지난주 일 23:59:59.999' 경계를 반환
     - 월요일 실행을 가정하지만, 어떤 요일에 실행해도 '완료된 지난 주'를 고정 반환
     """
-    # 이번 주 월요일 00:00
     dow = today_kst.weekday()  # Mon=0
     this_mon = today_kst.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=dow)
-    # 지난주 월~일
     last_mon = this_mon - timedelta(days=7)
     last_sun_end = this_mon - timedelta(microseconds=1)
     return last_mon, last_sun_end
@@ -129,9 +131,9 @@ def pretty_kst_range(start_kst: datetime, end_kst: datetime) -> str:
 def diff_line(cur: int, prev: int, unit: str="건") -> str:
     delta = cur - prev
     if delta > 0:
-        arrow = ":small_red_triangle:"     # 증가
+        arrow = ":small_red_triangle:"
     elif delta < 0:
-        arrow = ":small_red_triangle_down:"  # 감소
+        arrow = ":small_red_triangle_down:"
     else:
         arrow = "—"
     ratio = f" ({(delta/prev)*100:+.1f}%)" if prev > 0 else ""
@@ -170,18 +172,18 @@ def resolve_project_id(token: str, org: str, project_slug: Optional[str], projec
         return int(project_id_env)
     if not project_slug:
         raise SystemExit("SENTRY_PROJECT_SLUG 또는 SENTRY_PROJECT_ID 중 하나는 필요합니다.")
-    print("[03/13] 프로젝트 ID 확인 중…")
+    wlog("[3/13] 프로젝트 ID 확인 중…")
     url = f"{API_BASE}/organizations/{org}/projects/"
     r = ensure_ok(requests.get(url, headers=auth_headers(token), timeout=30))
     for p in r.json():
         if p.get("slug") == project_slug:
             pid = int(p.get("id"))
-            print(f"[03/13] 프로젝트 '{project_slug}' → ID={pid}")
+            wlog(f"[3/13] 프로젝트 '{project_slug}' → ID={pid}")
             return pid
     raise SystemExit(f"'{project_slug}' 프로젝트를 찾을 수 없습니다.")
 
 def list_releases_paginated(token: str, org: str, project_id: int, per_page: int=100, max_pages: int=20) -> List[Dict[str, Any]]:
-    print("[10/13] 릴리즈 목록 수집 시작…")
+    wlog("[10/13] 릴리즈 목록 수집 시작…")
     url = f"{API_BASE}/organizations/{org}/releases/"
     headers = auth_headers(token)
     out: List[Dict[str, Any]] = []
@@ -195,15 +197,15 @@ def list_releases_paginated(token: str, org: str, project_id: int, per_page: int
         r = ensure_ok(requests.get(url, headers=headers, params=params, timeout=60))
         data = r.json() or []
         out.extend(data)
-        print(f"[10/13] 릴리즈 페이지 {pages}: {len(data)}개")
+        wlog(f"[10/13] 릴리즈 페이지 {pages}: {len(data)}개")
         cursor = parse_next_cursor(r.headers.get("link",""))
         if not cursor or pages >= max_pages or not data:
             break
-    print(f"[10/13] 릴리즈 총 {len(out)}개 수집 완료")
+    wlog(f"[10/13] 릴리즈 총 {len(out)}개 수집 완료")
     return out
 
 def latest_release_version(token: str, org: str, project_id: int) -> Optional[str]:
-    print("[11/13] 최신 릴리즈(semver) 선택 시작…")
+    wlog("[11/13] 최신 릴리즈(semver) 선택 시작…")
     rels = list_releases_paginated(token, org, project_id)
     cands: List[Tuple[Version,str]] = []
     for r in rels:
@@ -216,16 +218,16 @@ def latest_release_version(token: str, org: str, project_id: int) -> Optional[st
         except InvalidVersion:
             continue
     if not cands:
-        print("[11/13] 정규 semver 릴리즈 없음")
+        wlog("[11/13] 정규 semver 릴리즈 없음")
         return None
     cands.sort(key=lambda x: x[0], reverse=True)
     best = cands[0][1]
-    print(f"[11/13] 최신 릴리즈: {best}")
+    wlog(f"[11/13] 최신 릴리즈: {best}")
     return best
 
 # =========== Discover/Issues 집계 ===========
 def discover_aggregates(token: str, org: str, project_id: int, environment: Optional[str], start_iso: str, end_iso: str) -> Dict[str, int]:
-    print("[04/13] 주간 합계 집계(이벤트/이슈/사용자)…")
+    wlog("[4/13] 주간 합계 집계(이벤트/이슈/사용자)…")
     url = f"{API_BASE}/organizations/{org}/events/"
     query = f"{LEVEL_QUERY}" + (f" environment:{environment}" if environment else "")
     params = {
@@ -239,16 +241,19 @@ def discover_aggregates(token: str, org: str, project_id: int, environment: Opti
     r = ensure_ok(requests.get(url, headers=auth_headers(token), params=params, timeout=60))
     rows = (r.json().get("data") or [])
     if not rows:
+        wlog("  - 집계 없음 (0,0,0)")
         return {"events": 0, "issues": 0, "users": 0}
     row0 = rows[0]
-    return {
+    out = {
         "events": int(row0.get("count()") or 0),
         "issues": int(row0.get("count_unique(issue)") or 0),
         "users": int(row0.get("count_unique(user)") or 0),
     }
+    wlog(f"  - events={out['events']} / issues={out['issues']} / users={out['users']}")
+    return out
 
 def sessions_crash_free_weekly_avg(token: str, org: str, project_id: int, environment: Optional[str], start_iso: str, end_iso: str) -> Tuple[Optional[float], Optional[float]]:
-    print("[05/13] Crash Free(주간 평균) 집계…")
+    wlog("[5/13] Crash Free(주간 평균) 집계…")
     url = f"{API_BASE}/organizations/{org}/sessions/"
     params = {
         "project": project_id,
@@ -279,6 +284,7 @@ def sessions_crash_free_weekly_avg(token: str, org: str, project_id: int, enviro
                 days = max(days, len(arr))
     avg_s = (sum_s / days) if days > 0 else None
     avg_u = (sum_u / days) if days > 0 else None
+    wlog(f"  - crash_free(session)={fmt_pct_trunc2(avg_s)} / crash_free(user)={fmt_pct_trunc2(avg_u)}")
     return avg_s, avg_u
 
 def discover_issue_table(token: str, org: str, project_id: int, environment: Optional[str],
@@ -286,7 +292,6 @@ def discover_issue_table(token: str, org: str, project_id: int, environment: Opt
     url = f"{API_BASE}/organizations/{org}/events/"
     query = f"{LEVEL_QUERY}" + (f" environment:{environment}" if environment else "")
     params = {
-        # 👇 숫자형 ID까지 같이 조회
         "field": ["issue.id", "issue", "title", "count()", "count_unique(user)"],
         "project": project_id,
         "start": start_iso,
@@ -300,15 +305,15 @@ def discover_issue_table(token: str, org: str, project_id: int, environment: Opt
     rows = r.json().get("data") or []
     out = []
     for row in rows[:limit]:
-        iid_num = str(row.get("issue.id") or "")  # ✅ 숫자형 group ID
-        short = row.get("issue")  # shortId (예: FINDA-ANDROID-5XX)
+        iid_num = str(row.get("issue.id") or "")
+        short = row.get("issue")
         out.append({
-            "issue_id": iid_num,  # ✅ 내부 키는 숫자형 ID로
+            "issue_id": iid_num,
             "short_id": short,
             "title": row.get("title"),
             "events": int(row.get("count()") or 0),
             "users": int(row.get("count_unique(user)") or 0),
-            "link": f"https://sentry.io/organizations/{org}/issues/{iid_num}/" if iid_num else None,  # ✅ 숫자형으로 링크
+            "link": f"https://sentry.io/organizations/{org}/issues/{iid_num}/" if iid_num else None,
         })
     return out
 
@@ -349,7 +354,6 @@ def count_for_issues_in_window(token: str, org: str, project_id: int, environmen
         "project": project_id,
         "start": start_iso,
         "end": end_iso,
-        # 👇 숫자형 ID 필드로 필터링
         "query": query + f" issue.id:[{','.join(issue_ids)}]",
         "orderby": "-count()",
         "per_page": 100,
@@ -393,7 +397,7 @@ def mad(values: List[float], med: Optional[float]=None) -> float:
 
 # =========== 주간 기능: 신규/급증/해결/묵은 ===========
 def new_issues_in_week(token: str, org: str, project_id: int, environment: Optional[str], start_iso: str, end_iso: str, limit: int=WEEKLY_NEW_LIMIT) -> List[Dict[str, Any]]:
-    print("[07/13] 주간 신규 발생 이슈 수집…")
+    wlog("[7/13] 주간 신규 발생 이슈 수집…")
     q = [LEVEL_QUERY, f"firstSeen:>={start_iso}", f"firstSeen:<{end_iso}"]
     if environment:
         q.append(f"environment:{environment}")
@@ -408,7 +412,7 @@ def new_issues_in_week(token: str, org: str, project_id: int, environment: Optio
             "first_seen": it.get("firstSeen"),
             "link": it.get("permalink") or (f"https://sentry.io/organizations/{org}/issues/{iid}/" if iid else None)
         })
-    print(f"[07/13] 신규 이슈 {len(out)}개")
+    wlog(f"[7/13] 신규 이슈 {len(out)}개")
     return out
 
 def detect_weekly_surge(token: str, org: str, project_id: int, environment: Optional[str],
@@ -416,7 +420,7 @@ def detect_weekly_surge(token: str, org: str, project_id: int, environment: Opti
     """
     간단 주간 서지: 이번주 vs 전주, + 지난 4주(전주 포함) 베이스라인으로 Z/MAD 체크
     """
-    print("[07/13] 주간 급증(서지) 이슈 탐지…")
+    wlog("[7/13] 주간 급증(서지) 이슈 탐지…")
     this_top = discover_issue_table(token, org, project_id, environment, this_start_iso, this_end_iso, "-count()", 100)
     prev_top = discover_issue_table(token, org, project_id, environment, prev_start_iso, prev_end_iso, "-count()", 100)
 
@@ -471,23 +475,21 @@ def detect_weekly_surge(token: str, org: str, project_id: int, environment: Opti
                 "reasons": [k for k,v in conds.items() if v]
             })
     out.sort(key=lambda x: (x["event_count"], (x["zscore"] or 0), (x["mad_score"] or 0), x["growth_multiplier"]), reverse=True)
-    print(f"[07/13] 급증 이슈 {len(out)}개")
+    wlog(f"[7/13] 급증 이슈 {len(out)}개")
     return out[:WEEKLY_SURGE_LIMIT]
 
 def fetch_issue_detail(token: str, org: str, issue_key: str) -> Dict[str, Any]:
     """
-        issue_key가 숫자형이면 바로 /issues/{id}/
-        숫자가 아니면 shortId로 검색해서 숫자형 id로 재조회
-        """
+    issue_key가 숫자형이면 바로 /issues/{id}/
+    숫자가 아니면 shortId로 검색해서 숫자형 id로 재조회
+    """
     headers = auth_headers(token)
 
-    # 숫자형 group id인 경우
     if issue_key.isdigit():
         url = f"{API_BASE}/issues/{issue_key}/"
         r = ensure_ok(requests.get(url, headers=headers, timeout=30))
         return r.json() or {}
 
-    # shortId인 경우(예: FINDA-ANDROID-5XX): Issues 검색으로 변환
     search_url = f"{API_BASE}/organizations/{org}/issues/"
     params = {
         "query": f"shortId:{issue_key}",
@@ -513,21 +515,20 @@ def release_fixes_in_week(token: str, org: str, project_id: int, environment: Op
       - 사라진 이슈: post 7일 0건 AND 현재 status=resolved
       - 많이 감소한 이슈: post>0 AND 전후 -80%p 이상 감소
     """
-    print("[12/13] 최신 릴리즈 개선 감지 시작…")
+    wlog("[12/13] 최신 릴리즈 개선 감지 시작…")
     best_rel = latest_release_version(token, org, project_id)
     if not best_rel:
-        print("[12/13] 최신 릴리즈 없음")
+        wlog("[12/13] 최신 릴리즈 없음")
         return []
 
-    print("[12/13] 전후 비교 대상(이벤트 Top50) 수집…")
+    wlog("[12/13] 전후 비교 대상(이벤트 Top50) 수집…")
     top_e = discover_issue_table(token, org, project_id, environment, week_start_iso, week_end_iso, "-count()", 50)
-    pool = {it["issue_id"]: it for it in top_e if it.get("issue_id")}  # ✅ 숫자형 키
-    ids = list(pool.keys())  # ✅ 숫자형 리스트
+    pool = {it["issue_id"]: it for it in top_e if it.get("issue_id")}
+    ids = list(pool.keys())
     if not pool:
-        print("[12/13] 비교 대상 없음")
+        wlog("[12/13] 비교 대상 없음")
         return [{"release": best_rel, "disappeared": [], "decreased": []}]
 
-    # 기준 시점: 이번 주 종료 직전
     week_end_dt = parse_iso(week_end_iso)
     pivot = week_end_dt - timedelta(days=1)
     pre_start = to_utc_iso(pivot - timedelta(days=7))
@@ -535,22 +536,20 @@ def release_fixes_in_week(token: str, org: str, project_id: int, environment: Op
     post_start= to_utc_iso(pivot + timedelta(seconds=1))
     post_end  = to_utc_iso(pivot + timedelta(days=7))
 
-    ids = list(pool.keys())
-    print("[12/13] 전기간 집계…")
+    wlog("[12/13] 전기간 집계…")
     pre_map  = count_for_issues_in_window(token, org, project_id, environment, ids, pre_start, pre_end)
-    print("[12/13] 후기간 집계…")
+    wlog("[12/13] 후기간 집계…")
     post_map = count_for_issues_in_window(token, org, project_id, environment, ids, post_start, post_end)
 
     disappeared: List[Dict[str, Any]] = []
     decreased:   List[Dict[str, Any]] = []
 
-    print("[12/13] 전/후 비교 판정…")
+    wlog("[12/13] 전/후 비교 판정…")
     for iid in ids:
         pre_ev  = int(pre_map.get(iid, {}).get("events", 0))
         post_ev = int(post_map.get(iid, {}).get("events", 0))
         if pre_ev < RELEASE_FIXES_MIN_BASE_EVENTS:
             continue
-        # 현재 상태
         status = None
         try:
             status = (fetch_issue_detail(token, iid).get("status") or "").lower()
@@ -580,7 +579,7 @@ def release_fixes_in_week(token: str, org: str, project_id: int, environment: Op
 
     disappeared.sort(key=lambda x: x["pre_7d_events"], reverse=True)
     decreased.sort(key=lambda x: (x["delta_pct"], -x["post_7d_events"]), reverse=True)
-    print(f"[12/13] 최신 '{best_rel}' → 사라진:{len(disappeared)} / 감소:{len(decreased)}")
+    wlog(f"[12/13] 최신 '{best_rel}' → 사라진:{len(disappeared)} / 감소:{len(decreased)}")
     return [{
         "release": best_rel,
         "disappeared": disappeared[:WEEKLY_RELEASE_FIXES_PER_RELEASE_LIMIT],
@@ -592,21 +591,16 @@ def fmt_pct_trunc2(v: Optional[float]) -> str:
     if v is None:
         return "N/A"
     pct = v*100.0
-    truncated = int(pct*100)/100  # 소수점 둘째 자리 절삭
+    truncated = int(pct*100)/100
     return f"{truncated:.2f}%"
 
 def issue_line_with_prev(item: Dict[str, Any], prev_map: Dict[str, Any]) -> str:
-    """
-    "제목 · 16건 · 15명 -> 전주 대비: :small_red_triangle_down:13건 (-44.8%)"
-    """
     title = truncate(item.get("title"), TITLE_MAX)
     link  = item.get("link")
     ev    = int(item.get("events", 0))
     us    = int(item.get("users", 0))
     head  = f"• <{link}|{title}> · {ev}건 · {us}명" if link else f"• {title} · {ev}건 · {us}명"
-
     prev_ev = int(prev_map.get(str(item.get("issue_id")), {}).get("events", 0))
-    # 전주 대비 같은 줄로
     tail = f" -> 전주 대비: {diff_line(ev, prev_ev, '건')}"
     return head + " " + tail
 
@@ -621,10 +615,8 @@ def surge_reason_ko(reasons: List[str]) -> str:
 
 def build_weekly_blocks(payload: Dict[str, Any], slack_title: str, env_label: Optional[str]) -> List[Dict[str, Any]]:
     blocks: List[Dict[str, Any]] = []
-    # 헤더
     blocks.append({"type":"header","text":{"type":"plain_text","text": slack_title, "emoji": True}})
 
-    # Summary
     sum_this = payload.get("this_week", {})
     sum_prev = payload.get("prev_week", {})
 
@@ -647,13 +639,11 @@ def build_weekly_blocks(payload: Dict[str, Any], slack_title: str, env_label: Op
     ]
     blocks.append({"type":"section","text":{"type":"mrkdwn","text":"\n".join(summary_lines)}})
 
-    # 집계 구간(KST)
     blocks.append({"type":"context","elements":[{"type":"mrkdwn","text": f"*집계 구간*: {payload.get('this_week_range_kst','?')}"}]})
     if env_label:
         blocks.append({"type":"context","elements":[{"type":"mrkdwn","text": f"*환경*: {env_label}"}]})
     blocks.append({"type":"divider"})
 
-    # 상위 5 이슈 (이벤트 기준)
     top_this = payload.get("top5_events", [])
     prev_map = { str(x.get("issue_id")): x for x in payload.get("prev_top_events", []) }
     if top_this:
@@ -662,7 +652,6 @@ def build_weekly_blocks(payload: Dict[str, Any], slack_title: str, env_label: Op
         blocks.append({"type":"section","text":{"type":"mrkdwn","text":"\n".join(lines)}})
         blocks.append({"type":"divider"})
 
-    # 신규 이슈
     new_items = payload.get("new_issues", [])
     if new_items:
         blocks.append({"type":"section","text":{"type":"mrkdwn","text": bold(":new: 주간 신규 발생 이슈")}})
@@ -670,7 +659,6 @@ def build_weekly_blocks(payload: Dict[str, Any], slack_title: str, env_label: Op
         blocks.append({"type":"section","text":{"type":"mrkdwn","text":"\n".join(lines)}})
         blocks.append({"type":"divider"})
 
-    # 급증(서지) 이슈
     surges = payload.get("surge_issues", [])
     if surges:
         blocks.append({"type":"section","text":{"type":"mrkdwn","text": bold(":chart_with_upwards_trend: 급증(서지) 이슈")}})
@@ -682,7 +670,6 @@ def build_weekly_blocks(payload: Dict[str, Any], slack_title: str, env_label: Op
         blocks.append({"type":"section","text":{"type":"mrkdwn","text":"\n".join(lines)}})
         blocks.append({"type":"divider"})
 
-    # 최신 릴리즈에서 해소된 이슈
     rfix = payload.get("this_week_release_fixes") or []
     if rfix:
         grp = rfix[0]
@@ -713,14 +700,15 @@ def post_to_slack(webhook_url: str, blocks: List[Dict[str, Any]]) -> None:
     r = requests.post(webhook_url, headers={"Content-Type":"application/json"}, data=json.dumps(payload), timeout=30)
     try:
         r.raise_for_status()
-        print("[13/13] Slack 전송 완료.")
+        wlog("[13/13] Slack 전송 완료.")
     except requests.HTTPError as e:
         print(f"[Slack] Post failed {r.status_code}: {r.text[:300]}")
         raise
 
 # =========== 메인 ===========
 def main():
-    print("[01/13] 환경 로드…")
+    step_total = 13
+    wlog(f"[1/{step_total}] 환경 로드…")
     load_dotenv()
     token = os.getenv("SENTRY_AUTH_TOKEN") or ""
     org = os.getenv("SENTRY_ORG_SLUG") or ""
@@ -733,9 +721,9 @@ def main():
         raise SystemExit("SENTRY_AUTH_TOKEN, SENTRY_ORG_SLUG 필수")
 
     now_kst = datetime.now(KST)
-    print("[02/13] 주간 범위 계산…")
-    this_start_kst, this_end_kst = kst_week_bounds_for_last_week(now_kst)       # 지난주
-    prev_start_kst, prev_end_kst = kst_week_bounds_for_prev_prev_week(now_kst)  # 지지난주
+    wlog(f"[2/{step_total}] 주간 범위 계산…")
+    this_start_kst, this_end_kst = kst_week_bounds_for_last_week(now_kst)
+    prev_start_kst, prev_end_kst = kst_week_bounds_for_prev_prev_week(now_kst)
 
     this_start_iso = to_utc_iso(this_start_kst)
     this_end_iso   = to_utc_iso(this_end_kst)
@@ -744,9 +732,10 @@ def main():
 
     this_range_label = pretty_kst_range(this_start_kst, this_end_kst)
     prev_range_label = pretty_kst_range(prev_start_kst, prev_end_kst)
-    print(f"[02/13] 지난주: {this_range_label} / 지지난주: {prev_range_label}")
+    wlog(f"  - 지난주: {this_range_label}")
+    wlog(f"  - 지지난주: {prev_range_label}")
 
-    print("[03/13] 프로젝트 ID 확인…")
+    wlog(f"[3/{step_total}] 프로젝트 ID 확인…")
     project_id = resolve_project_id(token, org, project_slug, project_id_env)
 
     # 주간 합계
@@ -757,9 +746,10 @@ def main():
     cf_s, cf_u = sessions_crash_free_weekly_avg(token, org, project_id, environment, this_start_iso, this_end_iso)
 
     # 상위 이슈 (이벤트 기준)
-    print("[06/13] 상위 이슈(이벤트 Top5)…")
+    wlog(f"[6/{step_total}] 상위 이슈(이벤트 Top5) 수집…")
     top_events_this = discover_issue_table(token, org, project_id, environment, this_start_iso, this_end_iso, "-count()", 50)
     top_events_prev = discover_issue_table(token, org, project_id, environment, prev_start_iso, prev_end_iso, "-count()", 50)
+    wlog(f"  - 이번 주 Top 후보 {len(top_events_this)}개 / 전주 {len(top_events_prev)}개")
 
     # 신규 이슈
     new_items = new_issues_in_week(token, org, project_id, environment, this_start_iso, this_end_iso)
@@ -788,18 +778,16 @@ def main():
         "this_week_release_fixes": rfix,
     }
 
-    # 콘솔에도 JSON 출력
-    print("[12/13] 결과 JSON 미리보기:")
+    wlog(f"[12/{step_total}] 결과 JSON 미리보기:")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
-    # Slack 전송
     if slack_webhook:
         title = f"Sentry 주간 리포트 — {this_range_label}"
         blocks = build_weekly_blocks(payload, title, environment)
-        print("[13/13] Slack 전송…")
+        wlog(f"[13/{step_total}] Slack 전송…")
         post_to_slack(slack_webhook, blocks)
     else:
-        print("[13/13] SLACK_WEBHOOK_URL 미설정: Slack 전송 생략.")
+        wlog(f"[13/{step_total}] SLACK_WEBHOOK_URL 미설정: Slack 전송 생략.")
 
 if __name__ == "__main__":
     main()

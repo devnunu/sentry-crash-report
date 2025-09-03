@@ -6,6 +6,7 @@ Sentry 일일 요약(어제/그저께, 한국시간 기준) - REST API + Slack �
 - Slack Webhook으로 리포트 전송 (SLACK_WEBHOOK_URL이 있을 때)
 """
 
+import json
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -46,6 +47,9 @@ except Exception:
 KST = ZoneInfo("Asia/Seoul")
 UTC = timezone.utc
 
+# ----- 로그 유틸 -----
+def log(msg: str) -> None:
+    print(f"[Daily] {msg}")
 
 # ----- 공통 유틸 -----
 def kst_day_bounds_utc_iso(day_kst_date: datetime) -> Tuple[str, str]:
@@ -403,8 +407,7 @@ def sessions_crash_free_for_day(
 # AI 조언 생성 (OpenAI)
 # =========================
 from openai import OpenAI
-import json, re
-from typing import Any, Dict, Optional
+import re
 
 def generate_ai_advice(summary_payload: Dict[str, Any], y_key: str, dby_key: Optional[str], environment: Optional[str]) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
@@ -778,6 +781,8 @@ def post_to_slack(webhook_url: str, blocks: List[Dict[str, Any]]) -> None:
 
 # ====== 메인 ======
 def main():
+    step_total = 14
+    log(f"[1/{step_total}] 환경 변수 로드…")
     load_dotenv()
     token = os.getenv("SENTRY_AUTH_TOKEN") or ""
     org = os.getenv("SENTRY_ORG_SLUG") or ""
@@ -789,26 +794,48 @@ def main():
     if not token or not org:
         raise SystemExit("SENTRY_AUTH_TOKEN, SENTRY_ORG_SLUG 필수")
 
-    # 날짜 범위(어제/그저께, KST → UTC)
+    log(f"[2/{step_total}] 날짜 계산(KST 기준 어제/그저께)…")
     now_kst = datetime.now(KST)
     y_kst = (now_kst - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     dby_kst = (now_kst - timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
     y_start, y_end = kst_day_bounds_utc_iso(y_kst)
     dby_start, dby_end = kst_day_bounds_utc_iso(dby_kst)
+    log(f"  - 어제(KST): {pretty_kst_date(y_kst)} / UTC: {y_start} ~ {y_end}")
+    log(f"  - 그저께(KST): {pretty_kst_date(dby_kst)} / UTC: {dby_start} ~ {dby_end}")
 
-    # 프로젝트 ID
+    log(f"[3/{step_total}] 프로젝트 확인/해결(org={org}, slug={project_slug}, id_env={project_id_env})…")
     project_id = resolve_project_id(token, org, project_slug, project_id_env)
+    log(f"  - project_id={project_id}")
 
     # --- 어제 데이터 ---
+    log(f"[4/{step_total}] 어제 집계 수집(count/unique issue/user)…")
     y_summary = discover_aggregates_for_day(token, org, project_id, environment, y_start, y_end)
+    log(f"  - events={y_summary.get('crash_events')} / issues={y_summary.get('unique_issues')} / users={y_summary.get('impacted_users')}")
+
+    log(f"[5/{step_total}] 어제 Crash Free(session/user) 수집…")
     y_cf_s, y_cf_u = sessions_crash_free_for_day(token, org, project_id, environment, y_start, y_end)
+    log(f"  - crash_free(session)={fmt_pct(y_cf_s)} / crash_free(user)={fmt_pct(y_cf_u)}")
+
+    log(f"[6/{step_total}] 어제 상위 5개 이슈 수집…")
     y_top = top_issues_for_day(token, org, project_id, environment, y_start, y_end)
+    log(f"  - top5 count={len(y_top)}")
+
+    log(f"[7/{step_total}] 어제 신규 발생 이슈(firstSeen 당일) 수집…")
     y_new = new_issues_for_day(token, org, project_id, environment, y_start, y_end)
+    log(f"  - new issues count={len(y_new)}")
+
+    log(f"[8/{step_total}] 어제 급증(서지) 이슈 탐지(베이스라인 {BASELINE_DAYS}일)…")
     y_surge_adv = detect_surge_issues_advanced(token, org, project_id, environment, y_start, y_end)
+    log(f"  - surge detected={len(y_surge_adv)} (min_count={SURGE_MIN_COUNT})")
 
     # --- 그저께 데이터 (비교용/출력 포함) ---
+    log(f"[9/{step_total}] 그저께 집계 수집…")
     dby_summary = discover_aggregates_for_day(token, org, project_id, environment, dby_start, dby_end)
+    log(f"  - events={dby_summary.get('crash_events')} / issues={dby_summary.get('unique_issues')} / users={dby_summary.get('impacted_users')}")
+
+    log(f"[10/{step_total}] 그저께 Crash Free(session/user) 수집…")
     dby_cf_s, dby_cf_u = sessions_crash_free_for_day(token, org, project_id, environment, dby_start, dby_end)
+    log(f"  - crash_free(session)={fmt_pct(dby_cf_s)} / crash_free(user)={fmt_pct(dby_cf_u)}")
 
     result = {
         "timezone": "Asia/Seoul (KST)",
@@ -833,18 +860,22 @@ def main():
         },
     }
 
-    # 콘솔 출력
+    log(f"[11/{step_total}] 콘솔 출력(JSON)…")
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
     if slack_webhook:
         y_key = pretty_kst_date(y_kst)
         dby_key = pretty_kst_date(dby_kst)
 
-        # === AI 조언 생성 ===
+        log(f"[12/{step_total}] AI 코멘트 생성 시도(gpt-4o-mini)…")
         ai_data = generate_ai_advice(result, y_key=y_key, dby_key=dby_key, environment=environment)
+        if "fallback_text" in ai_data:
+            log(f"  - AI 생성 실패: {ai_data['fallback_text']}")
+        else:
+            log("  - AI 코멘트 생성 완료")
         ai_blocks = build_ai_advice_blocks(ai_data)
 
-        # 어제 블록 생성 (AI 블록 삽입)
+        log(f"[13/{step_total}] Slack Blocks 구축…")
         y_blocks = build_slack_blocks_for_day(
             date_label=y_key,
             env_label=environment,
@@ -854,12 +885,14 @@ def main():
             ai_data=ai_data,
         )
 
+        log(f"[14/{step_total}] Slack 전송 시도…")
         try:
             post_to_slack(slack_webhook, y_blocks)
-            print("[Slack] 어제 리포트 전송 완료 (AI 포함).")
+            log("  - 전송 완료 ✅")
         except Exception as e:
-            print(f"[Slack] 전송 실패: {e}")
-
+            log(f"  - 전송 실패 ❌: {e}")
+    else:
+        log("Slack Webhook 미설정 — 전송 스킵")
 
 if __name__ == "__main__":
     main()
