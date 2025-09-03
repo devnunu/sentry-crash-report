@@ -1,0 +1,139 @@
+name: Sentry Reports (Daily & Weekly)
+
+on:
+  # ⏰ 스케줄 (GitHub Actions cron은 UTC 기준)
+  schedule:
+    # 월요일 09:00 KST == 00:00 UTC
+    - cron: "0 0 * * 1"
+    # 화~금 09:00 KST == 00:00 UTC
+    - cron: "0 0 * * 2-5"
+  # ▶️ 수동 실행 (플랫폼/리포트 종류 선택 가능)
+  workflow_dispatch:
+    inputs:
+      which:
+        description: "리포트 종류"
+        type: choice
+        default: both
+        options: [weekly, daily, both]
+        required: true
+      platform:
+        description: "플랫폼"
+        type: choice
+        default: both
+        options: [android, ios, both]
+        required: true
+
+env:
+  # 공통(variables)
+  SENTRY_ORG_SLUG: ${{ vars.SENTRY_ORG_SLUG }}
+
+jobs:
+  weekly:
+    name: Weekly (${{ matrix.platform }})
+    # 월요일 스케줄이거나, 수동 실행에서 weekly/both 선택 + 플랫폼 매칭일 때만 실행
+    if: >
+      (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 1')
+      || (github.event_name == 'workflow_dispatch'
+          && (github.event.inputs.which == 'weekly' || github.event.inputs.which == 'both')
+          && (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        platform: [android, ios]
+        include:
+          - platform: android
+            SENTRY_PROJECT_ID: ${{ vars.ANDROID_PROJECT_ID }}
+            SENTRY_PROJECT_SLUG: ${{ vars.ANDROID_PROJECT_SLUG }}
+            SENTRY_DASHBOARD_URL: ${{ vars.ANDROID_DASHBOARD_URL }}
+            SENTRY_ENVIRONMENT: "Production" # 안드로이드만 사용
+          - platform: ios
+            SENTRY_PROJECT_ID: ${{ vars.IOS_PROJECT_ID }}
+            SENTRY_PROJECT_SLUG: ${{ vars.IOS_PROJECT_SLUG }}
+            SENTRY_DASHBOARD_URL: ${{ vars.IOS_DASHBOARD_URL }}
+            SENTRY_ENVIRONMENT: ""           # iOS는 비움(또는 키 생략해도 무방)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run weekly report
+        env:
+          # secrets
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+          # vars / matrix
+          SENTRY_ORG_SLUG: ${{ env.SENTRY_ORG_SLUG }}
+          SENTRY_PROJECT_ID: ${{ matrix.SENTRY_PROJECT_ID }}
+          SENTRY_PROJECT_SLUG: ${{ matrix.SENTRY_PROJECT_SLUG }}
+          SENTRY_DASHBOARD_URL: ${{ matrix.SENTRY_DASHBOARD_URL }}
+          SENTRY_ENVIRONMENT: ${{ matrix.SENTRY_ENVIRONMENT }}
+        run: |
+          python sentry_weekly_crash_report.py
+
+  daily:
+    name: Daily (${{ matrix.platform }})
+    # 화~금 스케줄이거나, 수동 실행에서 daily/both 선택 + 플랫폼 매칭일 때만 실행
+    if: >
+      (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 2-5')
+      || (github.event_name == 'workflow_dispatch'
+          && (github.event.inputs.which == 'daily' || github.event.inputs.which == 'both')
+          && (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        platform: [android, ios]
+        include:
+          - platform: android
+            SENTRY_PROJECT_ID: ${{ vars.ANDROID_PROJECT_ID }}
+            SENTRY_PROJECT_SLUG: ${{ vars.ANDROID_PROJECT_SLUG }}
+            SENTRY_DASHBOARD_URL: ${{ vars.ANDROID_DASHBOARD_URL }}
+            SENTRY_ENVIRONMENT: "Production" # 안드로이드만 사용
+          - platform: ios
+            SENTRY_PROJECT_ID: ${{ vars.IOS_PROJECT_ID }}
+            SENTRY_PROJECT_SLUG: ${{ vars.IOS_PROJECT_SLUG }}
+            SENTRY_DASHBOARD_URL: ${{ vars.IOS_DASHBOARD_URL }}
+            SENTRY_ENVIRONMENT: ""           # iOS는 비움(또는 키 생략해도 무방)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run daily report
+        env:
+          # secrets
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+          # vars / matrix
+          SENTRY_ORG_SLUG: ${{ env.SENTRY_ORG_SLUG }}
+          SENTRY_PROJECT_ID: ${{ matrix.SENTRY_PROJECT_ID }}
+          SENTRY_PROJECT_SLUG: ${{ matrix.SENTRY_PROJECT_SLUG }}
+          SENTRY_DASHBOARD_URL: ${{ matrix.SENTRY_DASHBOARD_URL }}
+          SENTRY_ENVIRONMENT: ${{ matrix.SENTRY_ENVIRONMENT }}
+        run: |
+          python sentry_daily_crash_report.py
