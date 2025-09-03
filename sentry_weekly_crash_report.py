@@ -139,6 +139,19 @@ def diff_line(cur: int, prev: int, unit: str="건") -> str:
     ratio = f" ({(delta/prev)*100:+.1f}%)" if prev > 0 else ""
     return f"{cur}{unit} -> 전주 대비: {arrow}{abs(delta)}{unit}{ratio}"
 
+# 추가: 컴팩트 전주대비 포맷 (현재값 + 중간점 + 증감/퍼센트)
+def diff_compact(cur: int, prev: int, unit: str="건") -> str:
+    delta = cur - prev
+    if delta > 0:
+        arrow = ":small_red_triangle:"
+    elif delta < 0:
+        arrow = ":small_red_triangle_down:"
+    else:
+        arrow = "—"
+    ratio = f" ({(delta/prev)*100:+.1f}%)" if prev > 0 else ""
+    # '  · ' 사이에 공백 두 칸 + 중간점 유지 (요청 포맷)
+    return f"{cur}{unit}  · {arrow}{abs(delta)}{unit}{ratio}"
+
 # =========== HTTP 페이징 유틸 ===========
 def parse_next_cursor(link_header: str) -> Optional[str]:
     """
@@ -594,15 +607,32 @@ def fmt_pct_trunc2(v: Optional[float]) -> str:
     truncated = int(pct*100)/100
     return f"{truncated:.2f}%"
 
+# 기존 함수 수정
 def issue_line_with_prev(item: Dict[str, Any], prev_map: Dict[str, Any]) -> str:
+    """
+    예)
+    • 제목 · 24건 · 12명  -> 전주 대비: :small_red_triangle_down:6건 (-20.0%)
+    """
     title = truncate(item.get("title"), TITLE_MAX)
     link  = item.get("link")
     ev    = int(item.get("events", 0))
     us    = int(item.get("users", 0))
     head  = f"• <{link}|{title}> · {ev}건 · {us}명" if link else f"• {title} · {ev}건 · {us}명"
+
     prev_ev = int(prev_map.get(str(item.get("issue_id")), {}).get("events", 0))
-    tail = f" -> 전주 대비: {diff_line(ev, prev_ev, '건')}"
+    tail = f" -> 전주 대비: {diff_delta_only(ev, prev_ev, '건')}"
     return head + " " + tail
+
+def diff_delta_only(cur: int, prev: int, unit: str="건") -> str:
+    delta = cur - prev
+    if delta > 0:
+        arrow = ":small_red_triangle:"
+    elif delta < 0:
+        arrow = ":small_red_triangle_down:"
+    else:
+        arrow = "—"
+    ratio = f" ({(delta/prev)*100:+.1f}%)" if prev > 0 else ""
+    return f"{arrow}{abs(delta)}{unit}{ratio}"
 
 def surge_reason_ko(reasons: List[str]) -> str:
     ko = {
