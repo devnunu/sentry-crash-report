@@ -596,6 +596,45 @@ def surge_explanation_kr(item: Dict[str, Any]) -> str:
     detail = "  ↳ " + " ".join(parts)
     return f"{base}\n{detail}"
 
+def build_sentry_action_urls(
+    org: str,
+    project_id: int,
+    environment: Optional[str],
+    start_iso_utc: str,
+    end_iso_utc: str,
+) -> Dict[str, str]:
+    """
+    - dashboard_url: 환경변수 SENTRY_DASHBOARD_URL 우선, 없으면 org+dashboard id 또는 프로젝트 리스트로 폴백
+    - issues_filtered_url: 분석 구간(start/end) + level(error,fatal) + environment 쿼리가 적용된 이슈 목록
+    """
+    # 1) 대시보드 URL (우선순위: SENTRY_DASHBOARD_URL > DASH_BOARD_ID 기반 > 폴백)
+    env_dash = os.getenv("SENTRY_DASHBOARD_URL")
+    dash_id  = os.getenv("DASH_BOARD_ID")
+    if env_dash:
+        dashboard_url = env_dash
+    elif dash_id:
+        # org 서브도메인 스타일이 선호되면 이렇게도 가능: f"https://{org}.sentry.io/dashboard/{dash_id}/?project={project_id}"
+        dashboard_url = f"https://sentry.io/organizations/{org}/dashboard/{dash_id}/?project={project_id}"
+    else:
+        # 폴백: 조직 프로젝트 리스트
+        dashboard_url = f"https://sentry.io/organizations/{org}/projects/"
+
+    # 2) 이슈 목록 URL (organizations 경로 + query + start/end)
+    base = f"https://sentry.io/organizations/{org}/issues/"
+    q_parts = ["level:[error,fatal]"]
+    if environment:
+        # 쿼리에 environment 필터를 포함 (이 방식이 사용처에서 잘 동작했다고 하셨던 버전)
+        q_parts.append(f"environment:{environment}")
+    q = quote_plus(" ".join(q_parts))
+    s = quote_plus(start_iso_utc)
+    e = quote_plus(end_iso_utc)
+    issues_filtered_url = f"{base}?project={project_id}&query={q}&start={s}&end={e}"
+
+    return {
+        "dashboard_url": dashboard_url,
+        "issues_filtered_url": issues_filtered_url,
+    }
+
 # ---------- 한국어 블록 빌더 ----------
 def build_ai_advice_blocks(ai: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
@@ -632,6 +671,39 @@ def build_ai_advice_blocks(ai: Dict[str, Any]) -> List[Dict[str, Any]]:
     blocks.append({"type": "divider"})
     return blocks
 
+from urllib.parse import quote_plus
+
+def build_footer_actions_block(
+    org: str,
+    project_id: int,
+    env_label: Optional[str],
+    win: Dict[str, str],
+) -> Dict[str, Any]:
+    """
+    Slack 하단 버튼 2개:
+    - 📊 대시보드
+    - 🔍 해당 기간 이슈 보기 (level:error,fatal + environment + start/end)
+    """
+    start_iso = win.get("start", "")
+    end_iso   = win.get("end", "")
+    urls = build_sentry_action_urls(org, project_id, env_label, start_iso, end_iso)
+
+    return {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "📊 대시보드"},
+                "url": urls["dashboard_url"],
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "🔍 해당 기간 이슈 보기"},
+                "url": urls["issues_filtered_url"],
+            },
+        ],
+    }
+
 def build_slack_blocks_for_day(
     date_label: str,
     env_label: Optional[str],
@@ -639,6 +711,8 @@ def build_slack_blocks_for_day(
     prev_day_obj: Optional[Dict[str, Any]] = None,
     ai_blocks: Optional[List[Dict[str, Any]]] = None,
     ai_data: Optional[Dict[str, Any]] = None,
+    org: Optional[str] = None,
+    project_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     # 현재값
     cf_s = day_obj.get("crash_free_sessions_pct")
@@ -657,10 +731,10 @@ def build_slack_blocks_for_day(
     # Summary: 요청하신 순서로 표기 (이벤트/이슈/사용자 → Crash Free)
     summary_lines = [
         "*:memo: Summary*",
-        f"• 💥 *이벤트*: {diff_str(events, prev_events, suffix='건') if prev_day_obj else f'{events}건'}",
-        f"• 🐞 *이슈*: {diff_str(issues, prev_issues, suffix='건') if prev_day_obj else f'{issues}건'}",
-        f"• 👥 *영향 사용자*: {diff_str(users, prev_users, suffix='명') if prev_day_obj else f'{users}명'}",
-        f"• 🛡️ *Crash Free 세션*: {fmt_pct(cf_s)} / *Crash Free 사용자*: {fmt_pct(cf_u)}",
+        f"• 💥 *총 이벤트 발생 건수*: {diff_str(events, prev_events, suffix='건') if prev_day_obj else f'{events}건'}",
+        f"• 🐞 *유니크 이슈 개수*: {diff_str(issues, prev_issues, suffix='개') if prev_day_obj else f'{issues}개'}",
+        f"• 👥 *영향받은 사용자 수*: {diff_str(users, prev_users, suffix='명') if prev_day_obj else f'{users}명'}",
+        f"• 🛡️ *Crash-Free 세션 비율*: {fmt_pct(cf_s)} / *Crash-Free 사용자 비율*: {fmt_pct(cf_u)}",
     ]
     kpi_text = "\n".join(summary_lines)
 
@@ -706,6 +780,16 @@ def build_slack_blocks_for_day(
         lines = "\n".join(surge_explanation_kr(x) for x in surge)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": lines}})
         blocks.append({"type": "divider"})
+
+    # === 하단 액션 버튼(대시보드 / 분석구간 이슈목록) ===
+    if org and project_id:
+        win = day_obj.get("window_utc") or {}
+        try:
+            actions_block = build_footer_actions_block(org, int(project_id), env_label, win)
+            blocks.append(actions_block)
+        except Exception:
+            # 액션 블록 생성 실패는 보고만 생략 (메시지 전송은 계속)
+            pass
 
     return blocks
 
@@ -883,6 +967,8 @@ def main():
             prev_day_obj=result.get(dby_key),
             ai_blocks=ai_blocks,
             ai_data=ai_data,
+            org=org,
+            project_id=project_id,
         )
 
         log(f"[14/{step_total}] Slack 전송 시도…")

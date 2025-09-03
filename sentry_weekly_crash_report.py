@@ -662,8 +662,8 @@ def build_weekly_blocks(payload: Dict[str, Any], slack_title: str, env_label: Op
 
     summary_lines = [
         bold(":memo: Summary"),
-        f"• 💥 *이벤트*: {diff_line(events, prev_events, '건')}",
-        f"• 🐞 *이슈*: {diff_line(issues, prev_issues, '건')}",
+        f"• 💥 *총 이벤트 발생 건수*: {diff_line(events, prev_events, '건')}",
+        f"• 🐞 *유니크 이슈 개수*: {diff_line(issues, prev_issues, '개')}",
         f"• 👥 *영향 사용자*: {diff_line(users, prev_users, '명')}",
         f"• 🛡️ *Crash Free 세션(주간 평균)*: {fmt_pct_trunc2(cf_s)} / *Crash Free 사용자*: {fmt_pct_trunc2(cf_u)}",
     ]
