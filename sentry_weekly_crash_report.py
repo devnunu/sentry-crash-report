@@ -20,6 +20,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote_plus
 
 import math
 import requests
@@ -599,6 +600,43 @@ def release_fixes_in_week(token: str, org: str, project_id: int, environment: Op
         "decreased":   decreased[:WEEKLY_RELEASE_FIXES_PER_RELEASE_LIMIT],
     }]
 
+def build_sentry_action_urls(
+    org: str,
+    project_id: int,
+    environment: Optional[str],
+    start_iso_utc: str,
+    end_iso_utc: str,
+) -> Dict[str, str]:
+    """
+    - dashboard_url: SENTRY_DASHBOARD_URL > DASH_BOARD_ID > 조직 프로젝트 목록 순으로 선택
+    - issues_filtered_url: 분석 구간(start/end) + level(error,fatal) + environment 쿼리가 적용된 이슈 목록
+    """
+    # 1) 대시보드 URL
+    env_dash = os.getenv("SENTRY_DASHBOARD_URL")
+    dash_id  = os.getenv("DASH_BOARD_ID")
+    if env_dash:
+        dashboard_url = env_dash
+    elif dash_id:
+        dashboard_url = f"https://sentry.io/organizations/{org}/dashboard/{dash_id}/?project={project_id}"
+        # (원하시면 서브도메인 스타일도 가능: f"https://{org}.sentry.io/dashboard/{dash_id}/?project={project_id}")
+    else:
+        dashboard_url = f"https://sentry.io/organizations/{org}/projects/"
+
+    # 2) 이슈 목록 URL (organizations 경로 + query + start/end)
+    base = f"https://sentry.io/organizations/{org}/issues/"
+    q_parts = ["level:[error,fatal]"]
+    if environment:
+        q_parts.append(f"environment:{environment}")
+    q = quote_plus(" ".join(q_parts))
+    s = quote_plus(start_iso_utc)
+    e = quote_plus(end_iso_utc)
+    issues_filtered_url = f"{base}?project={project_id}&query={q}&start={s}&end={e}"
+
+    return {
+        "dashboard_url": dashboard_url,
+        "issues_filtered_url": issues_filtered_url,
+    }
+
 # =========== Slack 렌더링 ===========
 def fmt_pct_trunc2(v: Optional[float]) -> str:
     if v is None:
@@ -643,7 +681,14 @@ def surge_reason_ko(reasons: List[str]) -> str:
     labeled = [ko.get(x, x) for x in reasons]
     return "/".join(labeled)
 
-def build_weekly_blocks(payload: Dict[str, Any], slack_title: str, env_label: Optional[str]) -> List[Dict[str, Any]]:
+def build_weekly_blocks(
+    payload: Dict[str, Any],
+    slack_title: str,
+    env_label: Optional[str],
+    org: str,
+    project_id: int,
+    week_window_utc: Dict[str, str],
+) -> List[Dict[str, Any]]:
     blocks: List[Dict[str, Any]] = []
     blocks.append({"type":"header","text":{"type":"plain_text","text": slack_title, "emoji": True}})
 
@@ -723,7 +768,45 @@ def build_weekly_blocks(payload: Dict[str, Any], slack_title: str, env_label: Op
 
         blocks.append({"type":"divider"})
 
+    try:
+        actions_block = build_footer_actions_block(org, int(project_id), env_label, week_window_utc)
+        blocks.append(actions_block)
+    except Exception:
+        # 액션 블록 실패는 무시하고 계속 진행
+        pass
+
     return blocks
+
+def build_footer_actions_block(
+    org: str,
+    project_id: int,
+    env_label: Optional[str],
+    win: Dict[str, str],
+) -> Dict[str, Any]:
+    """
+    Slack 하단 버튼 2개:
+    - 📊 대시보드
+    - 🔍 해당 기간 이슈 보기 (level:error,fatal + environment + start/end)
+    """
+    start_iso = win.get("start", "")
+    end_iso   = win.get("end", "")
+    urls = build_sentry_action_urls(org, project_id, env_label, start_iso, end_iso)
+
+    return {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "📊 대시보드"},
+                "url": urls["dashboard_url"],
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "🔍 해당 기간 이슈 보기"},
+                "url": urls["issues_filtered_url"],
+            },
+        ],
+    }
 
 def post_to_slack(webhook_url: str, blocks: List[Dict[str, Any]]) -> None:
     payload = {"blocks": blocks}
@@ -813,7 +896,14 @@ def main():
 
     if slack_webhook:
         title = f"Sentry 주간 리포트 — {this_range_label}"
-        blocks = build_weekly_blocks(payload, title, environment)
+        blocks = build_weekly_blocks(
+            payload,
+            title,
+            environment,
+            org,
+            int(project_id),
+            {"start": this_start_iso, "end": this_end_iso},
+        )
         wlog(f"[13/{step_total}] Slack 전송…")
         post_to_slack(slack_webhook, blocks)
     else:
