@@ -1,166 +1,177 @@
-name: Sentry Reports (Daily & Weekly)
+name: Sentry Daily & Weekly Reports
 
 on:
-  # ⏰ 스케줄 (UTC 기준)
   schedule:
-    # 월요일 09:00 KST == 00:00 UTC
-    - cron: "0 0 * * 1"
-    # 화~금 09:00 KST == 00:00 UTC
-    - cron: "0 0 * * 2-5"
-  # ▶️ 수동 실행
+    # 09:00 KST = 00:00 UTC
+    - cron: "0 0 * * 1"     # Monday weekly
+    - cron: "0 0 * * 2-5"   # Tue-Fri daily
   workflow_dispatch:
     inputs:
       which:
-        description: "리포트 종류"
         type: choice
+        description: "Run which report?"
+        options: [daily, weekly, both]
         default: both
-        options: [weekly, daily, both]
         required: true
       platform:
-        description: "플랫폼"
         type: choice
-        default: both
+        description: "Run for which platform?"
         options: [android, ios, both]
+        default: both
         required: true
 
-env:
-  # 공통 org (Repository → Settings → Variables)
-  SENTRY_ORG_SLUG: ${{ vars.SENTRY_ORG_SLUG }}
+permissions:
+  contents: read
 
 jobs:
   weekly:
     name: Weekly (${{ matrix.platform }})
-    # 스케줄 또는 수동 실행일 때만 (세부 필터는 스텝 if에서)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-
     strategy:
+      fail-fast: false
       matrix:
         platform: [android, ios]
-        include:
-          - platform: android
-            SENTRY_PROJECT_ID: ${{ vars.ANDROID_PROJECT_ID }}
-            SENTRY_PROJECT_SLUG: ${{ vars.ANDROID_PROJECT_SLUG }}
-            SENTRY_DASHBOARD_URL: ${{ vars.ANDROID_DASHBOARD_URL }}
-            SENTRY_ENVIRONMENT: "Production" # 안드로이드만 사용
-          - platform: ios
-            SENTRY_PROJECT_ID: ${{ vars.IOS_PROJECT_ID }}
-            SENTRY_PROJECT_SLUG: ${{ vars.IOS_PROJECT_SLUG }}
-            SENTRY_DASHBOARD_URL: ${{ vars.IOS_DASHBOARD_URL }}
-            SENTRY_ENVIRONMENT: ""           # iOS는 비움(또는 변수 생략)
 
     steps:
-      - name: Checkout
-        if: |
-          (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 1') ||
-          (github.event_name == 'workflow_dispatch' &&
-            (github.event.inputs.which == 'weekly' || github.event.inputs.which == 'both') &&
-            (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
+      - name: Check-out repo
         uses: actions/checkout@v4
 
+      # ---- 디스패치 필터(weekly 전용) ----
+      - name: Dispatch filter for weekly
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          WHICH="${{ github.event.inputs.which }}"
+          PLATFORM="${{ github.event.inputs.platform }}"
+          if [ "$WHICH" != "weekly" ] && [ "$WHICH" != "both" ]; then
+            echo "Dispatch says WHICH=$WHICH (not weekly/both). Exiting."; exit 78;
+          fi
+          if [ "$PLATFORM" != "both" ] && [ "$PLATFORM" != "${{ matrix.platform }}" ]; then
+            echo "Dispatch platform filter excludes this matrix (${{ matrix.platform }}). Exiting."; exit 78;
+          fi
+
       - name: Set up Python
-        if: |
-          (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 1') ||
-          (github.event_name == 'workflow_dispatch' &&
-            (github.event.inputs.which == 'weekly' || github.event.inputs.which == 'both') &&
-            (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Install dependencies
-        if: |
-          (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 1') ||
-          (github.event_name == 'workflow_dispatch' &&
-            (github.event.inputs.which == 'weekly' || github.event.inputs.which == 'both') &&
-            (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      # ---- 공통 ENV 주입(개행/공백 제거) ----
+      - name: Prepare base ENV
+        run: |
+          # 기본 공통 값들(Repository Variables 권장)
+          echo "SENTRY_ORG_SLUG=$(printf '%s' "${{ vars.SENTRY_ORG_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          echo "SENTRY_AUTH_TOKEN=$(printf '%s' "${{ secrets.SENTRY_AUTH_TOKEN }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+
+          # 플랫폼별 프로젝트/대시보드 값 분기
+          if [ "${{ matrix.platform }}" = "android" ]; then
+            echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.ANDROID_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.ANDROID_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.ANDROID_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_ENVIRONMENT=Production" >> "$GITHUB_ENV"   # Android만 사용
+          else
+            echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.IOS_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.IOS_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.IOS_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"             # iOS는 비움
+          fi
+
+      # ---- 플랫폼별 Slack Webhook 설정 ----
+      - name: Set platform-specific Slack webhook
+        run: |
+          if [ "${{ matrix.platform }}" = "android" ]; then
+            echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.ANDROID_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          else
+            echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.IOS_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check webhook presence
+        run: |
+          if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+            echo "SLACK_WEBHOOK_URL is empty"; exit 1
+          fi
+          echo "SLACK_WEBHOOK_URL length: ${#SLACK_WEBHOOK_URL}"
+
       - name: Run weekly report
-        if: |
-          (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 1') ||
-          (github.event_name == 'workflow_dispatch' &&
-            (github.event.inputs.which == 'weekly' || github.event.inputs.which == 'both') &&
-            (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
         env:
-          # secrets
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ matrix.platform == 'android' && secrets.ANDROID_SLACK_WEBHOOK_URL || secrets.IOS_SLACK_WEBHOOK_URL }}
-          # vars / matrix
-          SENTRY_ORG_SLUG: ${{ env.SENTRY_ORG_SLUG }}
-          SENTRY_PROJECT_ID: ${{ matrix.SENTRY_PROJECT_ID }}
-          SENTRY_PROJECT_SLUG: ${{ matrix.SENTRY_PROJECT_SLUG }}
-          SENTRY_DASHBOARD_URL: ${{ matrix.SENTRY_DASHBOARD_URL }}
-          SENTRY_ENVIRONMENT: ${{ matrix.SENTRY_ENVIRONMENT }}
-        run: python sentry_weekly_crash_report.py
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python sentry_weekly_crash_report.py
 
   daily:
     name: Daily (${{ matrix.platform }})
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-
     strategy:
+      fail-fast: false
       matrix:
         platform: [android, ios]
-        include:
-          - platform: android
-            SENTRY_PROJECT_ID: ${{ vars.ANDROID_PROJECT_ID }}
-            SENTRY_PROJECT_SLUG: ${{ vars.ANDROID_PROJECT_SLUG }}
-            SENTRY_DASHBOARD_URL: ${{ vars.ANDROID_DASHBOARD_URL }}
-            SENTRY_ENVIRONMENT: "Production"
-          - platform: ios
-            SENTRY_PROJECT_ID: ${{ vars.IOS_PROJECT_ID }}
-            SENTRY_PROJECT_SLUG: ${{ vars.IOS_PROJECT_SLUG }}
-            SENTRY_DASHBOARD_URL: ${{ vars.IOS_DASHBOARD_URL }}
-            SENTRY_ENVIRONMENT: ""
 
     steps:
-      - name: Checkout
-        if: |
-          (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 2-5') ||
-          (github.event_name == 'workflow_dispatch' &&
-            (github.event.inputs.which == 'daily' || github.event.inputs.which == 'both') &&
-            (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
+      - name: Check-out repo
         uses: actions/checkout@v4
 
+      # ---- 디스패치 필터(daily 전용) ----
+      - name: Dispatch filter for daily
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          WHICH="${{ github.event.inputs.which }}"
+          PLATFORM="${{ github.event.inputs.platform }}"
+          if [ "$WHICH" != "daily" ] && [ "$WHICH" != "both" ]; then
+            echo "Dispatch says WHICH=$WHICH (not daily/both). Exiting."; exit 78;
+          fi
+          if [ "$PLATFORM" != "both" ] && [ "$PLATFORM" != "${{ matrix.platform }}" ]; then
+            echo "Dispatch platform filter excludes this matrix (${{ matrix.platform }}). Exiting."; exit 78;
+          fi
+
       - name: Set up Python
-        if: |
-          (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 2-5') ||
-          (github.event_name == 'workflow_dispatch' &&
-            (github.event.inputs.which == 'daily' || github.event.inputs.which == 'both') &&
-            (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Install dependencies
-        if: |
-          (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 2-5') ||
-          (github.event_name == 'workflow_dispatch' &&
-            (github.event.inputs.which == 'daily' || github.event.inputs.which == 'both') &&
-            (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      # ---- 공통 ENV 주입(개행/공백 제거) ----
+      - name: Prepare base ENV
+        run: |
+          echo "SENTRY_ORG_SLUG=$(printf '%s' "${{ vars.SENTRY_ORG_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          echo "SENTRY_AUTH_TOKEN=$(printf '%s' "${{ secrets.SENTRY_AUTH_TOKEN }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+
+          if [ "${{ matrix.platform }}" = "android" ]; then
+            echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.ANDROID_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.ANDROID_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.ANDROID_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_ENVIRONMENT=Production" >> "$GITHUB_ENV"
+          else
+            echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.IOS_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.IOS_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.IOS_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"
+          fi
+
+      # ---- 플랫폼별 Slack Webhook 설정 ----
+      - name: Set platform-specific Slack webhook
+        run: |
+          if [ "${{ matrix.platform }}" = "android" ]; then
+            echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.ANDROID_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          else
+            echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.IOS_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check webhook presence
+        run: |
+          if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+            echo "SLACK_WEBHOOK_URL is empty"; exit 1
+          fi
+          echo "SLACK_WEBHOOK_URL length: ${#SLACK_WEBHOOK_URL}"
+
       - name: Run daily report
-        if: |
-          (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 2-5') ||
-          (github.event_name == 'workflow_dispatch' &&
-            (github.event.inputs.which == 'daily' || github.event.inputs.which == 'both') &&
-            (github.event.inputs.platform == 'both' || github.event.inputs.platform == matrix.platform))
         env:
-          # secrets
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          # vars / matrix
-          SENTRY_ORG_SLUG: ${{ env.SENTRY_ORG_SLUG }}
-          SENTRY_PROJECT_ID: ${{ matrix.SENTRY_PROJECT_ID }}
-          SENTRY_PROJECT_SLUG: ${{ matrix.SENTRY_PROJECT_SLUG }}
-          SENTRY_DASHBOARD_URL: ${{ matrix.SENTRY_DASHBOARD_URL }}
-          SENTRY_ENVIRONMENT: ${{ matrix.SENTRY_ENVIRONMENT }}
-        run: python sentry_daily_crash_report.py
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python sentry_daily_crash_report.py
