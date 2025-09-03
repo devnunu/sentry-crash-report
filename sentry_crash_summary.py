@@ -6,7 +6,6 @@ Sentry 일일 요약(어제/그저께, 한국시간 기준) - REST API + Slack �
 - Slack Webhook으로 리포트 전송 (SLACK_WEBHOOK_URL이 있을 때)
 """
 
-import json
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -404,65 +403,69 @@ def sessions_crash_free_for_day(
 # AI 조언 생성 (OpenAI)
 # =========================
 from openai import OpenAI
+import json, re
+from typing import Any, Dict, Optional
 
 def generate_ai_advice(summary_payload: Dict[str, Any], y_key: str, dby_key: Optional[str], environment: Optional[str]) -> Dict[str, Any]:
-    """
-    출력 스키마:
-    {
-      "newsletter_summary": "<string>",
-      "today_actions": [ { "title": "", "why": "", "owner_role": "", "suggestion": "" } ],
-      "root_cause": ["..."],
-      "per_issue_notes": [ { "issue_title": "", "note": "" } ]
-    }
-    """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return {"fallback_text": "AI 조언을 생성하려면 OPENAI_API_KEY가 필요합니다."}
 
     client = OpenAI(api_key=api_key)
 
+    # 어제 상위 5 이슈(간단 버전)를 별도로 제공 → per_issue_notes 매칭 정확도 ↑
+    top5 = (summary_payload.get(y_key, {}) or {}).get("top_5_issues", []) or []
+    top5_compact = [
+        {"issue_id": t.get("issue_id"), "title": t.get("title"), "event_count": t.get("event_count")}
+        for t in top5
+    ]
+
+    # ✅ 맥락/정의 설명 + 요약 데이터(JSON) 그대로 전달 (간단하지만 충분한 컨텍스트)
     prompt = (
-        "당신은 한국인 모바일/백엔드 크래시 품질 코치입니다. 아래 Sentry 일간 요약(JSON)을 분석해 "
-        "다음 항목을 **순수 JSON**으로만 반환하세요(코드블록 금지). "
-        "‘오늘의 액션’은 우선순위/효용이 충분할 때만 채우고, 의미 없으면 비워두세요. "
-        "원인 추정이나 이슈별 코멘트는 한국어로 작성되어야합니다.\n\n"
-        "JSON 스키마:\n"
+        "당신은 Sentry 오류 리포트를 분석하는 친근한 AI 코치입니다. "
+        "친근하고 자연스러운 말투로, 개발자에게 도움이 될 인사이트를 주세요. "
+        "데이터를 그냥 나열하지 말고 의미 있는 포인트만 뽑아주세요. 인사이트가 없다면 간단히 넘어가도 됩니다. "
+        "마지막엔 오늘 상황을 한두 문장으로 친근하게 요약(가벼운 농담/격려 허용, 중요한 경고는 분명히)하세요.\n\n"
+        "=== 분석 맥락 ===\n"
+        f"- 이 리포트는 '어제({y_key})' 기준 Summary 데이터입니다. 비교 대상은 '그저께({dby_key or 'N/A'})'입니다.\n"
+        "- 이벤트(crash_events): level이 fatal, error인 이벤트 발생 건수입니다.\n"
+        "- 이슈(unique_issues): 위 이벤트가 속한 고유 이슈 개수입니다.\n"
+        "- 영향 사용자(impacted_users): 해당 이슈로 영향을 받은 사용자 수입니다.\n"
+        "- Crash Free: 'crash_free_rate(session/user)'로, 높은 값일수록 안정적입니다.\n\n"
+        "=== 출력 형식 ===\n"
+        "반드시 **순수 JSON만** 출력하세요. 코드블록(````json`)로 감싸지 마세요.\n"
         "{\n"
-        "  \"newsletter_summary\": \"\",        // 뉴스레터 스타일 1~2문장 요약 (필수)\n"
-        "  \"today_actions\": [                 // 의미 있을 때만 작성(옵션)\n"
-        "    {\"title\":\"\", \"why\":\"\", \"owner_role\":\"\", \"suggestion\":\"\"}\n"
-        "  ],\n"
-        "  \"root_cause\": [],                  // 원인 추정/점검 포인트(옵션)\n"
-        "  \"per_issue_notes\": [               // 이슈별 코멘트(옵션)\n"
-        "    {\"issue_title\":\"\", \"note\":\"\"}\n"
-        "  ]\n"
+        "  \"newsletter_summary\": \"\",   \n"
+        "  \"today_actions\": [ {\"title\":\"\", \"why\":\"\", \"owner_role\":\"\", \"suggestion\":\"\"} ],\n"
+        "  \"root_cause\": [],\n"
+        "  \"per_issue_notes\": [ {\"issue_title\":\"\", \"note\":\"\"} ]\n"
         "}\n\n"
-        f"환경: {environment or 'N/A'}\n"
-        f"요약(JSON):\n{json.dumps(summary_payload, ensure_ascii=False)}\n"
-        f"어제 키: {y_key}\n그저께 키: {dby_key or '없음'}\n"
+        "=== per_issue_notes 작성 규칙 ===\n"
+        "- 아래 상위 5개 이슈 중 **의미 있는 항목만** 코멘트를 남기세요(불필요하면 생략 가능).\n"
+        "- `issue_title`은 반드시 아래 title 문자열을 그대로 사용하세요(변형 금지).\n\n"
+        f"[상위 5개 이슈 (요약)]\n{json.dumps(top5_compact, ensure_ascii=False)}\n\n"
+        "=== 전체 Summary JSON ===\n"
+        f"{json.dumps(summary_payload, ensure_ascii=False)}\n"
     )
 
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            temperature=0.2,
+            temperature=0.7,
             max_tokens=900,
             messages=[{"role": "user", "content": prompt}],
         )
         text = resp.choices[0].message.content.strip()
 
-        # 모델이 ```json ...```으로 감싸면 본문만 추출
+        # 모델이 혹시 코드블록으로 감싸면 JSON만 추출
         if text.startswith("```"):
-            import re
             m = re.search(r"\{.*\}", text, re.DOTALL)
-            text = m.group(0) if m else text
+            if m:
+                text = m.group(0)
 
         data = json.loads(text)
 
         # 기본 키/타입 보정
-        if not isinstance(data, dict):
-            raise ValueError("Model returned non-dict JSON.")
-
         data.setdefault("newsletter_summary", "")
         data.setdefault("today_actions", [])
         data.setdefault("root_cause", [])
@@ -470,33 +473,38 @@ def generate_ai_advice(summary_payload: Dict[str, Any], y_key: str, dby_key: Opt
 
         if not isinstance(data["newsletter_summary"], str):
             data["newsletter_summary"] = str(data["newsletter_summary"])
-        if not isinstance(data["today_actions"], list):
-            data["today_actions"] = []
-        if not isinstance(data["root_cause"], list):
-            data["root_cause"] = []
-        if not isinstance(data["per_issue_notes"], list):
-            data["per_issue_notes"] = []
+        for k in ["today_actions", "root_cause", "per_issue_notes"]:
+            if not isinstance(data[k], list):
+                data[k] = []
 
-        # 액션 항목 필드 보정 + 전부 빈 값인 항목 제거
+        # 액션 항목 정규화
         norm_actions = []
         for x in data["today_actions"]:
-            if not isinstance(x, dict):
-                continue
-            a = {
-                "title": x.get("title", "").strip(),
-                "why": x.get("why", "").strip(),
-                "owner_role": x.get("owner_role", "").strip(),
-                "suggestion": x.get("suggestion", "").strip(),
-            }
-            if any(a.values()):
-                norm_actions.append(a)
+            if isinstance(x, dict):
+                a = {
+                    "title": (x.get("title") or "").strip(),
+                    "why": (x.get("why") or "").strip(),
+                    "owner_role": (x.get("owner_role") or "").strip(),
+                    "suggestion": (x.get("suggestion") or "").strip(),
+                }
+                if any(a.values()):
+                    norm_actions.append(a)
         data["today_actions"] = norm_actions
 
-        # per_issue_notes도 문자열 안전화
+        # per_issue_notes 문자열 정규화
         data["per_issue_notes"] = [
             {"issue_title": str(i.get("issue_title", "")).strip(), "note": str(i.get("note", "")).strip()}
             for i in data["per_issue_notes"] if isinstance(i, dict)
         ]
+
+        # (옵션) 최소 폴백: per_issue_notes가 비었고 root_cause가 있으면 top1에 한 줄 붙여줌
+        if not data["per_issue_notes"]:
+            root_causes = data.get("root_cause") or []
+            if top5 and root_causes:
+                data["per_issue_notes"] = [{
+                    "issue_title": top5[0].get("title") or "(제목 없음)",
+                    "note": str(root_causes[0]).strip()
+                }]
 
         return data
 
@@ -590,54 +598,33 @@ def build_ai_advice_blocks(ai: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     AI 결과 dict → Slack Blocks
     - 타이틀: ":brain: AI 분석 코멘트"
-    - 뉴스레터 요약(필수) + 기존 섹션(오늘의 액션 / 원인 추정·점검 / 이슈별 코멘트)
+    - 내용: 뉴스레터 요약(필수) + 오늘의 액션(옵션)
+    - 원인 추정·점검 / 이슈별 코멘트는 top5 섹션에 병합되므로 여기서는 출력하지 않음
     """
     blocks: List[Dict[str, Any]] = []
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*:brain: AI 분석 코멘트*"}})
 
-    # 실패/폴백
     if "fallback_text" in ai:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": ai["fallback_text"]}})
         blocks.append({"type": "divider"})
         return blocks
 
-    # 뉴스레터 요약(있으면 한두 문장)
     summary_text = (ai.get("newsletter_summary") or "").strip()
     if summary_text:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"> {summary_text}"}})
 
-    def bullets(label_emoji: str, title: str, items: List[Any]) -> Optional[Dict[str, Any]]:
-        if not items:
-            return None
-        if isinstance(items[0], str):
-            lines = "\n".join(f"• {x}" for x in items)
-        else:
-            if title == "오늘의 액션":
-                lines = "\n".join(
-                    f"• *{x.get('title','(제목 없음)')}* — {x.get('suggestion','')}"
-                    f"{' _(담당: ' + x.get('owner_role','') + ', 이유: ' + x.get('why','') + ')_' if (x.get('owner_role') or x.get('why')) else ''}"
-                    for x in items
-                )
-            elif title == "이슈별 코멘트":
-                lines = "\n".join(
-                    f"• *{x.get('issue_title','(제목 없음)')}* — {x.get('note','')}"
-                    for x in items
-                )
-            else:
-                lines = "\n".join(f"• {x}" for x in items)
-        return {"type": "section", "text": {"type": "mrkdwn", "text": f"*{label_emoji} {title}*\n{lines}"}}
-
-    # 오늘의 액션 (옵션)
-    sec = bullets(":memo:", "오늘의 액션", ai.get("today_actions", []))
-    if sec: blocks.append(sec)
-
-    # 원인 추정·점검 (옵션)
-    sec = bullets(":toolbox:", "원인 추정·점검", ai.get("root_cause", []))
-    if sec: blocks.append(sec)
-
-    # 이슈별 코멘트 (옵션)
-    sec = bullets(":speech_balloon:", "이슈별 코멘트", ai.get("per_issue_notes", []))
-    if sec: blocks.append(sec)
+    actions = ai.get("today_actions", []) or []
+    if actions:
+        lines = []
+        for x in actions:
+            t = x.get("title", "").strip() or "(제목 없음)"
+            s = x.get("suggestion", "").strip()
+            extra = []
+            if x.get("owner_role"): extra.append(f"담당: {x['owner_role']}")
+            if x.get("why"):        extra.append(f"이유: {x['why']}")
+            suffix = f" _({', '.join(extra)})_" if extra else ""
+            lines.append(f"• *{t}* — {s}{suffix}")
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*오늘의 액션*\n" + "\n".join(lines)}})
 
     blocks.append({"type": "divider"})
     return blocks
@@ -648,6 +635,7 @@ def build_slack_blocks_for_day(
     day_obj: Dict[str, Any],
     prev_day_obj: Optional[Dict[str, Any]] = None,
     ai_blocks: Optional[List[Dict[str, Any]]] = None,
+    ai_data: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     # 현재값
     cf_s = day_obj.get("crash_free_sessions_pct")
@@ -669,8 +657,7 @@ def build_slack_blocks_for_day(
         f"• 💥 *이벤트*: {diff_str(events, prev_events, suffix='건') if prev_day_obj else f'{events}건'}",
         f"• 🐞 *이슈*: {diff_str(issues, prev_issues, suffix='건') if prev_day_obj else f'{issues}건'}",
         f"• 👥 *영향 사용자*: {diff_str(users, prev_users, suffix='명') if prev_day_obj else f'{users}명'}",
-        f"• 🛡️ *Crash Free 세션*: {fmt_pct(cf_s)}",
-        f"• 🛡️ *Crash Free 사용자*: {fmt_pct(cf_u)}",
+        f"• 🛡️ *Crash Free 세션*: {fmt_pct(cf_s)} / *Crash Free 사용자*: {fmt_pct(cf_u)}",
     ]
     kpi_text = "\n".join(summary_lines)
 
@@ -698,8 +685,8 @@ def build_slack_blocks_for_day(
     top = day_obj.get("top_5_issues") or []
     if top:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*:sports_medal: 상위 5개 이슈*"}})
-        lines = "\n".join(issue_line_kr(x) for x in top)
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": lines}})
+        merged_lines = render_top5_with_ai(top, ai_data) if ai_data else "\n".join(issue_line_kr(x) for x in top)
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": merged_lines}})
         blocks.append({"type": "divider"})
 
     new_issues = (day_obj.get("new_issues") or [])[:SLACK_MAX_NEW]
@@ -718,6 +705,65 @@ def build_slack_blocks_for_day(
         blocks.append({"type": "divider"})
 
     return blocks
+
+def _norm_title(s: str) -> str:
+    return " ".join((s or "").lower().strip().replace("…", "").split())
+
+def render_top5_with_ai(top5: List[Dict[str, Any]], ai: Dict[str, Any]) -> str:
+    """
+    상위 5개 이슈 라인에 AI의 per_issue_notes를 들여쓴 불릿으로 결합.
+    우선순위: issue_id 매칭 > 제목 정규화 매칭(startswith 포함)
+    출력은 mrkdwn 문자열.
+    """
+    notes = ai.get("per_issue_notes") or []
+    # 인덱스: issue_id → [notes], title_norm → [notes]
+    by_id: Dict[str, List[Dict[str, Any]]] = {}
+    by_tn: Dict[str, List[Dict[str, Any]]] = {}
+    for n in notes:
+        if not isinstance(n, dict): continue
+        iid = str(n.get("issue_id") or "").strip()
+        ititle = n.get("issue_title") or ""
+        tn = _norm_title(ititle)
+        by_id.setdefault(iid, []).append(n) if iid else None
+        if tn:
+            by_tn.setdefault(tn, []).append(n)
+
+    lines: List[str] = []
+    for it in top5:
+        title = truncate(it.get("title"), TITLE_MAX) or "(제목 없음)"
+        link  = it.get("link")
+        cnt   = it.get("event_count")
+        cnt_t = f"{int(cnt)}건" if isinstance(cnt, (int, float)) and cnt is not None else "–"
+        head  = f"• <{link}|{title}> · {cnt_t}" if link else f"• {title} · {cnt_t}"
+        lines.append(head)
+
+        # 매칭 노트 수집
+        matched: List[Dict[str, Any]] = []
+        iid = str(it.get("issue_id") or "").strip()
+        if iid and iid in by_id:
+            matched.extend(by_id[iid])
+        else:
+            tn = _norm_title(title)
+            # exact 우선, 없으면 startswith 유사 매칭
+            if tn in by_tn:
+                matched.extend(by_tn[tn])
+            else:
+                # 느슨한 startswith
+                for k, v in by_tn.items():
+                    if tn.startswith(k) or k.startswith(tn):
+                        matched.extend(v)
+                        break
+
+        # 들여쓴 불릿(있을 때만)
+        for n in matched:
+            note = (n.get("note") or "").strip()
+            cause = (n.get("why") or n.get("root_cause") or "").strip()  # 혹시 why/root_cause 필드가 온 경우 대비
+            if cause:
+                lines.append(f"  ◦ 원인/점검: {cause}")
+            if note:
+                lines.append(f"  ◦ 코멘트: {note}")
+
+    return "\n".join(lines)
 
 # ---------- Slack 전송 ----------
 def post_to_slack(webhook_url: str, blocks: List[Dict[str, Any]]) -> None:
@@ -804,7 +850,8 @@ def main():
             env_label=environment,
             day_obj=result[y_key],
             prev_day_obj=result.get(dby_key),
-            ai_blocks=ai_blocks,  # ← 여기!
+            ai_blocks=ai_blocks,
+            ai_data=ai_data,
         )
 
         try:
