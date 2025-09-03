@@ -1,29 +1,36 @@
 name: Sentry Daily & Weekly Reports
 
 on:
+  # 매주 월요일 09:00 KST (00:00 UTC) → 주간 리포트
   schedule:
-    # 09:00 KST = 00:00 UTC
-    - cron: "0 0 * * 1"     # Monday weekly
-    - cron: "0 0 * * 2-5"   # Tue-Fri daily
+    - cron: "0 0 * * 1"
+    # 화~금 09:00 KST (00:00 UTC) → 일간 리포트
+    - cron: "0 0 * * 2-5"
+
+  # 수동 실행(필터 선택 가능)
   workflow_dispatch:
     inputs:
       which:
-        type: choice
         description: "Run which report?"
-        options: [daily, weekly, both]
-        default: both
-        required: true
-      platform:
         type: choice
-        description: "Run for which platform?"
-        options: [android, ios, both]
-        default: both
         required: true
+        default: both
+        options: [both, weekly, daily]
+      platform:
+        description: "Target platform"
+        type: choice
+        required: true
+        default: both
+        options: [both, android, ios]
 
-permissions:
-  contents: read
+env:
+  # 공통(조직 토큰/슬러그는 Secrets/Vars로 관리)
+  PYTHON_VERSION: "3.11"
 
 jobs:
+  # ===========================
+  #          WEEKLY
+  # ===========================
   weekly:
     name: Weekly (${{ matrix.platform }})
     runs-on: ubuntu-latest
@@ -33,43 +40,55 @@ jobs:
         platform: [android, ios]
 
     steps:
+      - name: Set WHICH for schedule
+        # 스케줄로 트리거되면 WHICH=weekly 로 고정
+        if: github.event_name == 'schedule'
+        run: echo "WHICH=weekly" >> "$GITHUB_ENV"
+
+      - name: Set WHICH/PLATFORM for dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "WHICH=${{ github.event.inputs.which }}" >> "$GITHUB_ENV"
+          echo "DISPATCH_PLATFORM=${{ github.event.inputs.platform }}" >> "$GITHUB_ENV"
+
+      - name: Dispatch filter for weekly
+        shell: bash
+        run: |
+          WHICH="${WHICH:-weekly}"
+          PLAT="${DISPATCH_PLATFORM:-both}"
+          if [ "$WHICH" = "daily" ]; then
+            echo "Weekly job: WHICH=daily → skip."
+            echo "SKIP_JOB=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if [ "$PLAT" != "both" ] && [ "$PLAT" != "${{ matrix.platform }}" ]; then
+            echo "Weekly job: platform filter excludes ${{ matrix.platform }} → skip."
+            echo "SKIP_JOB=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "Proceed weekly for ${{ matrix.platform }}"
+
       - name: Check-out repo
+        if: env.SKIP_JOB != '1'
         uses: actions/checkout@v4
 
-      # ---- 디스패치 필터(weekly) : 스킵만 표시, 실패 처리 안함 ----
-      - name: Plan (weekly dispatch filter)
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            WHICH="${{ github.event.inputs.which }}"
-            PLATFORM="${{ github.event.inputs.platform }}"
-            if [ "$WHICH" != "weekly" ] && [ "$WHICH" != "both" ]; then
-              echo "SKIP_WEEKLY=1" >> $GITHUB_ENV
-              echo "Skip weekly: which=$WHICH"; fi
-            if [ "$PLATFORM" != "both" ] && [ "$PLATFORM" != "${{ matrix.platform }}" ]; then
-              echo "SKIP_WEEKLY=1" >> $GITHUB_ENV
-              echo "Skip weekly: platform=$PLATFORM (matrix=${{ matrix.platform }})"; fi
-          fi
-
-      - name: Mark skipped (weekly)
-        if: env.SKIP_WEEKLY == '1'
-        run: echo "Weekly(${{ matrix.platform }}) skipped by dispatch filters."
-
-      - name: Set up Python
-        if: env.SKIP_WEEKLY != '1'
+      - name: Setup Python
+        if: env.SKIP_JOB != '1'
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+            python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        if: env.SKIP_WEEKLY != '1'
+      - name: Install deps
+        if: env.SKIP_JOB != '1'
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # ---- 공통 ENV 주입(개행/공백 제거) ----
-      - name: Prepare base ENV
-        if: env.SKIP_WEEKLY != '1'
+      - name: Prepare ENV (weekly)
+        if: env.SKIP_JOB != '1'
+        shell: bash
         run: |
+          # 공통
           echo "SENTRY_ORG_SLUG=$(printf '%s' "${{ vars.SENTRY_ORG_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           echo "SENTRY_AUTH_TOKEN=$(printf '%s' "${{ secrets.SENTRY_AUTH_TOKEN }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           echo "OPENAI_API_KEY=$(printf '%s' "${{ secrets.OPENAI_API_KEY }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
@@ -79,34 +98,22 @@ jobs:
             echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.ANDROID_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.ANDROID_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_ENVIRONMENT=Production" >> "$GITHUB_ENV"
+            echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.ANDROID_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           else
             echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.IOS_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.IOS_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.IOS_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
-            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"
-          fi
-
-      - name: Set platform-specific Slack webhook
-        if: env.SKIP_WEEKLY != '1'
-        run: |
-          if [ "${{ matrix.platform }}" = "android" ]; then
-            echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.ANDROID_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
-          else
+            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"   # iOS는 env 미사용
             echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.IOS_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           fi
 
-      - name: Check webhook presence
-        if: env.SKIP_WEEKLY != '1'
-        run: |
-          [ -n "${SLACK_WEBHOOK_URL}" ] || { echo "SLACK_WEBHOOK_URL is empty"; exit 1; }
-          echo "SLACK_WEBHOOK_URL length: ${#SLACK_WEBHOOK_URL}"
-
       - name: Run weekly report
-        if: env.SKIP_WEEKLY != '1'
-        env:
-          PYTHONUNBUFFERED: "1"
+        if: env.SKIP_JOB != '1'
         run: python sentry_weekly_crash_report.py
 
+  # ===========================
+  #           DAILY
+  # ===========================
   daily:
     name: Daily (${{ matrix.platform }})
     runs-on: ubuntu-latest
@@ -116,74 +123,72 @@ jobs:
         platform: [android, ios]
 
     steps:
+      - name: Set WHICH for schedule
+        if: github.event_name == 'schedule'
+        run: echo "WHICH=daily" >> "$GITHUB_ENV"
+
+      - name: Set WHICH/PLATFORM for dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "WHICH=${{ github.event.inputs.which }}" >> "$GITHUB_ENV"
+          echo "DISPATCH_PLATFORM=${{ github.event.inputs.platform }}" >> "$GITHUB_ENV"
+
+      - name: Dispatch filter for daily
+        shell: bash
+        run: |
+          WHICH="${WHICH:-daily}"
+          PLAT="${DISPATCH_PLATFORM:-both}"
+          if [ "$WHICH" = "weekly" ]; then
+            echo "Daily job: WHICH=weekly → skip."
+            echo "SKIP_JOB=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if [ "$PLAT" != "both" ] && [ "$PLAT" != "${{ matrix.platform }}" ]; then
+            echo "Daily job: platform filter excludes ${{ matrix.platform }} → skip."
+            echo "SKIP_JOB=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "Proceed daily for ${{ matrix.platform }}"
+
       - name: Check-out repo
+        if: env.SKIP_JOB != '1'
         uses: actions/checkout@v4
 
-      # ---- 디스패치 필터(daily) : 스킵만 표시, 실패 처리 안함 ----
-      - name: Plan (daily dispatch filter)
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            WHICH="${{ github.event.inputs.which }}"
-            PLATFORM="${{ github.event.inputs.platform }}"
-            if [ "$WHICH" != "daily" ] && [ "$WHICH" != "both" ]; then
-              echo "SKIP_DAILY=1" >> $GITHUB_ENV
-              echo "Skip daily: which=$WHICH"; fi
-            if [ "$PLATFORM" != "both" ] && [ "$PLATFORM" != "${{ matrix.platform }}" ]; then
-              echo "SKIP_DAILY=1" >> $GITHUB_ENV
-              echo "Skip daily: platform=$PLATFORM (matrix=${{ matrix.platform }})"; fi
-          fi
-
-      - name: Mark skipped (daily)
-        if: env.SKIP_DAILY == '1'
-        run: echo "Daily(${{ matrix.platform }}) skipped by dispatch filters."
-
-      - name: Set up Python
-        if: env.SKIP_DAILY != '1'
+      - name: Setup Python
+        if: env.SKIP_JOB != '1'
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+            python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        if: env.SKIP_DAILY != '1'
+      - name: Install deps
+        if: env.SKIP_JOB != '1'
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Prepare base ENV
-        if: env.SKIP_DAILY != '1'
+      - name: Prepare ENV (daily)
+        if: env.SKIP_JOB != '1'
+        shell: bash
         run: |
+          # 공통
           echo "SENTRY_ORG_SLUG=$(printf '%s' "${{ vars.SENTRY_ORG_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           echo "SENTRY_AUTH_TOKEN=$(printf '%s' "${{ secrets.SENTRY_AUTH_TOKEN }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          echo "OPENAI_API_KEY=$(printf '%s' "${{ secrets.OPENAI_API_KEY }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
 
           if [ "${{ matrix.platform }}" = "android" ]; then
             echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.ANDROID_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.ANDROID_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.ANDROID_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_ENVIRONMENT=Production" >> "$GITHUB_ENV"
+            echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.ANDROID_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           else
             echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.IOS_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.IOS_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.IOS_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
-            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"
-          fi
-
-      - name: Set platform-specific Slack webhook
-        if: env.SKIP_DAILY != '1'
-        run: |
-          if [ "${{ matrix.platform }}" = "android" ]; then
-            echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.ANDROID_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
-          else
+            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"   # iOS는 env 미사용
             echo "SLACK_WEBHOOK_URL=$(printf '%s' "${{ secrets.IOS_SLACK_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           fi
 
-      - name: Check webhook presence
-        if: env.SKIP_DAILY != '1'
-        run: |
-          [ -n "${SLACK_WEBHOOK_URL}" ] || { echo "SLACK_WEBHOOK_URL is empty"; exit 1; }
-          echo "SLACK_WEBHOOK_URL length: ${#SLACK_WEBHOOK_URL}"
-
       - name: Run daily report
-        if: env.SKIP_DAILY != '1'
-        env:
-          PYTHONUNBUFFERED: "1"
+        if: env.SKIP_JOB != '1'
         run: python sentry_daily_crash_report.py
