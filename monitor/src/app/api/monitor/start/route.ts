@@ -59,7 +59,8 @@ export async function POST(req: Request) {
     const id60 = await createSchedule('0 * * * *');    // 60분
 
     return NextResponse.json({ ok: true, monitorId: '(local-state)', scheduleIds: [id30, id60] });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
