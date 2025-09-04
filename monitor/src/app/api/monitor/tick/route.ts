@@ -2,11 +2,6 @@
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
-  // QStash 서명 검증(Optional) + 추가 토큰 검증
-  const token = req.headers.get("x-monitor-token");
-  if (token !== process.env.MONITOR_SHARED_TOKEN) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
 
   const { monitorId, mode, platform, baseRelease, expiresAt } = await req.json();
   // const rec = await db.get(monitorId)
