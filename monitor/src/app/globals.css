@@ -1,42 +1,96 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #0b0e14;
+  --panel: #121826;
+  --text: #e6e6e6;
+  --muted: #9aa4b2;
+  --primary: #4f8cff;
+  --primary-pressed: #3a6ed6;
+  --border: #1e2636;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html,
+* { box-sizing: border-box; }
+html, body { height: 100%; }
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
   margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* 레이아웃 유틸 */
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+/* 카드 */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  margin: 18px 0;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.25);
 }
+
+/* 타이포 */
+.h1 {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  margin: 8px 0 16px;
+  display: flex; align-items: center; gap: 10px;
+}
+.h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.muted { color: var(--muted); }
+
+/* 폼 */
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 10px 0 16px; }
+label { min-width: 90px; color: var(--muted); }
+input[type="text"], input[type="number"], select {
+  background: #0f1524;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 220px;
+  outline: none;
+}
+input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,140,255,0.15); }
+
+/* 버튼 */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--primary);
+  color: white; border: 0; border-radius: 10px;
+  padding: 10px 14px; font-weight: 600; cursor: pointer;
+  transition: transform .02s ease, background .15s ease, box-shadow .15s ease;
+  box-shadow: 0 6px 18px rgba(79,140,255,0.25);
+}
+.btn:hover { background: var(--primary-pressed); }
+.btn:active { transform: translateY(1px); }
+.btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); box-shadow: none; }
+.btn.ok { background: var(--ok); box-shadow: 0 6px 18px rgba(34,197,94,.25); }
+.btn.warn { background: var(--warn); box-shadow: 0 6px 18px rgba(245,158,11,.25); }
+.btn.danger { background: var(--danger); box-shadow: 0 6px 18px rgba(239,68,68,.25); }
+
+/* 코드/모노 */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+/* 리스트 */
+.kv { display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; }
+.kv .k { color: var(--muted); }
+.kv .v { color: var(--text); word-break: break-all; }
+
+/* 링크 */
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }

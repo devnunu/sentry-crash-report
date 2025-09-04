@@ -1,177 +1,128 @@
-'use client';
+"use client";
 
-import { useCallback, useMemo, useState } from 'react';
+import { useState } from "react";
 
-type StartResp = {
-  ok?: boolean;
-  monitorId?: string;
-  scheduleIds?: (string | null)[];
-  error?: string;
-};
+type Platform = "android" | "ios";
+type ApiResult = { ok?: boolean; error?: string; monitorId?: string };
 
-type StopResp = {
-  ok?: boolean;
-  cancelled?: string[];
-  error?: string;
-};
+export const dynamic = "force-dynamic";
 
 export default function MonitorPage() {
-  const [platform, setPlatform] = useState<'android' | 'ios'>('android');
-  const [baseRelease, setBaseRelease] = useState<string>('');
+  const [platform, setPlatform] = useState<Platform>("android");
+  const [baseRelease, setBaseRelease] = useState("");
   const [days, setDays] = useState<number>(7);
+  const [startResp, setStartResp] = useState<ApiResult | null>(null);
+  const [stopId, setStopId] = useState("");
+  const [stopResp, setStopResp] = useState<ApiResult | null>(null);
+  const [statusJson, setStatusJson] = useState<string>("");
 
-  const [starting, setStarting] = useState(false);
-  const [startResult, setStartResult] = useState<StartResp | null>(null);
+  const call = async (url: string, body?: object) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return res.json() as Promise<ApiResult>;
+  };
 
-  const [monitorId, setMonitorId] = useState<string>('');
-  const [stopping, setStopping] = useState(false);
-  const [stopResult, setStopResult] = useState<StopResp | null>(null);
+  const onStart = async () => {
+    setStartResp(null);
+    const data = await call("/api/monitor/start", { platform, baseRelease, days });
+    setStartResp(data);
+    if (data.monitorId) setStopId(data.monitorId);
+  };
 
-  // Vercel 보호 우회 토큰이 있으면 붙여줌
-  const bypass = useMemo(() => {
-    if (typeof window === 'undefined') return '';
-    const url = new URL(window.location.href);
-    const token = url.searchParams.get('x-vercel-protection-bypass');
-    return token ? `?x-vercel-protection-bypass=${encodeURIComponent(token)}` : '';
-  }, []);
+  const onStop = async () => {
+    setStopResp(null);
+    const data = await call("/api/monitor/stop", { monitorId: stopId });
+    setStopResp(data);
+  };
 
-  const apiStart = useCallback(async () => {
-    setStarting(true);
-    setStartResult(null);
-    try {
-      const res = await fetch(`/api/monitor/start${bypass}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform, baseRelease, days }),
-      });
-      const json = (await res.json()) as StartResp;
-      setStartResult(json);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setStartResult({ ok: false, error: err.message });
-      } else {
-        setStartResult({ ok: false, error: 'unknown error' });
-      }
-    } finally {
-      setStarting(false);
-    }
-  }, [platform, baseRelease, days, bypass]);
-
-  const apiStop = useCallback(async () => {
-    setStopping(true);
-    setStopResult(null);
-    try {
-      const res = await fetch(`/api/monitor/stop${bypass}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ monitorId }),
-      });
-      const json = (await res.json()) as StopResp;
-      setStopResult(json);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setStopResult({ ok: false, error: err.message });
-      } else {
-        setStopResult({ ok: false, error: 'unknown error' });
-      }
-    } finally {
-      setStopping(false);
-    }
-  }, [monitorId, bypass]);
-
-  const disableStart = !baseRelease || starting;
-  const disableStop = !monitorId || stopping;
+  const onStatus = async () => {
+    const res = await fetch("/api/monitor/status", { cache: "no-store" });
+    const j = await res.json();
+    setStatusJson(JSON.stringify(j, null, 2));
+  };
 
   return (
-    <main className="mx-auto max-w-3xl p-6 space-y-10">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-bold">🚀 릴리즈 모니터링 컨트롤</h1>
-        <p className="text-sm text-gray-600">
-          특정 릴리즈(예: <code>4.69.0</code>)를 기준으로 7일간 자동 모니터링합니다.
-        </p>
-      </header>
+    <div className="container">
+      <h1 className="h1">🚀 릴리즈 모니터링 컨트롤</h1>
+      <p className="muted">특정 릴리즈(예: <span className="mono">4.69.0</span>)를 기준으로 7일간 자동 모니터링합니다.</p>
 
-      {/* Start */}
-      <section className="rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4">
-        <h2 className="text-lg font-semibold">▶️ 모니터링 시작</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium">플랫폼</span>
-            <select
-              className="rounded-lg border px-3 py-2"
-              value={platform}
-              onChange={(e) => setPlatform(e.target.value as 'android' | 'ios')}
-            >
-              <option value="android">android</option>
-              <option value="ios">ios</option>
-            </select>
-          </label>
+      {/* 시작 */}
+      <div className="card">
+        <h2 className="h2">▶️ 모니터링 시작</h2>
+        <div className="row">
+          <label>플랫폼</label>
+          <select value={platform} onChange={(e) => setPlatform(e.target.value as Platform)}>
+            <option value="android">android</option>
+            <option value="ios">ios</option>
+          </select>
 
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium">베이스 릴리즈</span>
-            <input
-              className="rounded-lg border px-3 py-2"
-              placeholder="예: 4.69.0"
-              value={baseRelease}
-              onChange={(e) => setBaseRelease(e.target.value)}
-            />
-          </label>
+          <label>베이스 릴리즈</label>
+          <input
+            type="text"
+            placeholder="예: 4.69.0"
+            value={baseRelease}
+            onChange={(e) => setBaseRelease(e.target.value)}
+          />
 
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium">기간(일)</span>
-            <input
-              type="number"
-              min={1}
-              max={14}
-              className="rounded-lg border px-3 py-2"
-              value={days}
-              onChange={(e) => setDays(Number(e.target.value || 7))}
-            />
-          </label>
+          <label>기간(일)</label>
+          <input
+            type="number"
+            min={1}
+            max={14}
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value || 7))}
+            style={{ width: 90 }}
+          />
         </div>
 
-        <button
-          onClick={apiStart}
-          disabled={disableStart}
-          className={`rounded-xl px-4 py-2 text-white ${disableStart ? 'bg-gray-400' : 'bg-black hover:bg-gray-800'} transition`}
-        >
-          {starting ? '시작 중…' : '모니터링 시작'}
-        </button>
+        <div className="row">
+          <button className="btn ok" onClick={onStart}>모니터링 시작</button>
+          {startResp?.ok && (
+            <div className="kv" style={{ marginLeft: 8 }}>
+              <div className="k">모니터 ID</div>
+              <div className="v mono">{startResp.monitorId}</div>
+            </div>
+          )}
+          {startResp?.error && <span className="muted">에러: {startResp.error}</span>}
+        </div>
+      </div>
 
-        {startResult && (
-          <pre className="whitespace-pre-wrap break-words text-sm mt-3">
-            {JSON.stringify(startResult, null, 2)}
-          </pre>
-        )}
-      </section>
-
-      {/* Stop */}
-      <section className="rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4">
-        <h2 className="text-lg font-semibold">⏹️ 모니터링 종료</h2>
-        <label className="flex flex-col gap-2">
-          <span className="text-sm font-medium">모니터 ID</span>
+      {/* 종료 */}
+      <div className="card">
+        <h2 className="h2">⏹️ 모니터링 종료</h2>
+        <div className="row">
+          <label>모니터 ID</label>
           <input
-            className="rounded-lg border px-3 py-2"
+            type="text"
             placeholder="start 응답의 monitorId"
-            value={monitorId}
-            onChange={(e) => setMonitorId(e.target.value)}
+            value={stopId}
+            onChange={(e) => setStopId(e.target.value)}
+            className="mono"
+            style={{ minWidth: 380 }}
           />
-        </label>
+          <button className="btn danger" onClick={onStop}>모니터링 종료</button>
+          {stopResp?.ok && <span className="muted">종료됨</span>}
+          {stopResp?.error && <span className="muted">에러: {stopResp.error}</span>}
+        </div>
+      </div>
 
-        <button
-          onClick={apiStop}
-          disabled={disableStop}
-          className={`rounded-xl px-4 py-2 text-white ${disableStop ? 'bg-gray-400' : 'bg-red-600 hover:bg-red-700'} transition`}
-        >
-          {stopping ? '종료 중…' : '모니터링 종료'}
-        </button>
+      {/* 상태 */}
+      <div className="card">
+        <h2 className="h2">📡 현재 상태</h2>
+        <div className="row">
+          <button className="btn ghost" onClick={onStatus}>새로고침</button>
+        </div>
+        <pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+{statusJson || "버튼을 눌러 상태를 조회하세요."}
+        </pre>
+      </div>
 
-        {stopResult && (
-          <pre className="whitespace-pre-wrap break-words text-sm mt-3">
-            {JSON.stringify(stopResult, null, 2)}
-          </pre>
-        )}
-      </section>
-    </main>
+      <div className="muted" style={{ marginTop: 16 }}>
+        * 보호 활성화 배포에서는 최초 진입 시 <span className="mono">x-vercel-protection-bypass</span> 토큰이 필요할 수 있어요.
+      </div>
+    </div>
   );
 }
