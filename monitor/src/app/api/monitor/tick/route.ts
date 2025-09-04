@@ -1,21 +1,19 @@
 // app/api/monitor/tick/route.ts
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
 
-export async function POST(req: Request) {
+export async function POST() {
+  try {
+    // 바로 파이썬 tick 실행
+    const { spawn } = await import('node:child_process');
+    await new Promise<void>((resolve, reject) => {
+      const p = spawn('python', ['sentry_release_monitor.py', 'tick'], { env: process.env });
+      p.stdout.on('data', (d) => process.stdout.write(d));
+      p.stderr.on('data', (d) => process.stderr.write(d));
+      p.on('close', (code) => (code === 0 ? resolve() : reject(new Error('tick failed'))));
+    });
 
-  const { monitorId, mode, platform, baseRelease, expiresAt } = await req.json();
-  // const rec = await db.get(monitorId)
-  const now = Date.now();
-
-  if (!monitorId /*|| rec.status!=="running"*/ || now > /*rec.expiresAt*/ expiresAt) {
-    // 만료/중지 시 스케줄 삭제(청소)
-    // await cleanupSchedules(rec.scheduleIds)
-    // await db.update(monitorId, { status: "stopped" })
-    return NextResponse.json({ ok: true, skipped: "expired_or_stopped" });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
-
-  // 여기서 Python/TS 로직으로 실제 집계 + Slack 전송
-  // await runReleaseTick(platform, baseRelease, mode)
-
-  return NextResponse.json({ ok: true });
 }
