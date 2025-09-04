@@ -31,9 +31,7 @@ jobs:
   #          WEEKLY
   # ===========================
   weekly:
-    name: Weekly (${{
-      matrix.platform
-    }})
+    name: "Weekly (${{ matrix.platform }})"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -41,14 +39,18 @@ jobs:
         platform: [android, ios]
 
     steps:
-      - name: Set WHICH for schedule
+      - name: Set WHICH for schedule (UTC DOW)
         if: github.event_name == 'schedule'
+        shell: bash
         run: |
-          if [ "${{ github.event.schedule }}" = "0 0 * * 1" ]; then
+          # 월=1, 화=2 ... 일=7 (UTC 기준)
+          DOW=$(date -u +%u)
+          if [ "$DOW" -eq 1 ]; then
             echo "WHICH=weekly" >> "$GITHUB_ENV"
           else
             echo "WHICH=daily" >> "$GITHUB_ENV"
           fi
+          echo "Detected DOW=$DOW, WHICH=$WHICH"
 
       - name: Set WHICH/PLATFORM for dispatch
         if: github.event_name == 'workflow_dispatch'
@@ -61,18 +63,21 @@ jobs:
         run: |
           WHICH="${WHICH:-weekly}"
           PLAT="${DISPATCH_PLATFORM:-both}"
-          # 주간 잡은 WHICH가 weekly가 아닐 때 스킵
+
+          # 주간 잡은 WHICH가 weekly가 아닐 때 스킵(성공 처리)
           if [ "$WHICH" != "weekly" ]; then
             echo "Weekly job: WHICH=$WHICH → skip."
             echo "SKIP_JOB=1" >> "$GITHUB_ENV"
             exit 0
           fi
+
           # 플랫폼 필터
           if [ "$PLAT" != "both" ] && [ "$PLAT" != "${{ matrix.platform }}" ]; then
             echo "Weekly job: platform filter excludes ${{ matrix.platform }} → skip."
             echo "SKIP_JOB=1" >> "$GITHUB_ENV"
             exit 0
           fi
+
           echo "Proceed weekly for ${{ matrix.platform }}"
 
       - name: Check out repo
@@ -122,9 +127,7 @@ jobs:
   #           DAILY
   # ===========================
   daily:
-    name: Daily (${{
-      matrix.platform
-    }})
+    name: "Daily (${{ matrix.platform }})"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -132,14 +135,18 @@ jobs:
         platform: [android, ios]
 
     steps:
-      - name: Set WHICH for schedule
+      - name: Set WHICH for schedule (UTC DOW)
         if: github.event_name == 'schedule'
+        shell: bash
         run: |
-          if [ "${{ github.event.schedule }}" = "0 0 * * 1" ]; then
+          # 월=1, 화=2 ... 일=7 (UTC 기준)
+          DOW=$(date -u +%u)
+          if [ "$DOW" -eq 1 ]; then
             echo "WHICH=weekly" >> "$GITHUB_ENV"
           else
             echo "WHICH=daily" >> "$GITHUB_ENV"
           fi
+          echo "Detected DOW=$DOW, WHICH=$WHICH"
 
       - name: Set WHICH/PLATFORM for dispatch
         if: github.event_name == 'workflow_dispatch'
@@ -152,18 +159,21 @@ jobs:
         run: |
           WHICH="${WHICH:-daily}"
           PLAT="${DISPATCH_PLATFORM:-both}"
-          # 일간 잡은 WHICH가 daily가 아닐 때 스킵
+
+          # 일간 잡은 WHICH가 daily가 아닐 때 스킵(성공 처리)
           if [ "$WHICH" != "daily" ]; then
             echo "Daily job: WHICH=$WHICH → skip."
             echo "SKIP_JOB=1" >> "$GITHUB_ENV"
             exit 0
           fi
+
           # 플랫폼 필터
           if [ "$PLAT" != "both" ] && [ "$PLAT" != "${{ matrix.platform }}" ]; then
             echo "Daily job: platform filter excludes ${{ matrix.platform }} → skip."
             echo "SKIP_JOB=1" >> "$GITHUB_ENV"
             exit 0
           fi
+
           echo "Proceed daily for ${{ matrix.platform }}"
 
       - name: Check out repo
