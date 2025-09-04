@@ -1,23 +1,46 @@
 // app/api/monitor/start/route.ts
 import { NextResponse } from "next/server";
 
-function required(name: string, v?: string) {
-  if (!v) throw new Error(`${name} is required`);
-  return v;
-}
-
 export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const platform = required("platform", body.platform); // "android" | "ios"
-    const baseRelease = required("baseRelease", body.baseRelease); // "4.69.0" 형식
-    const days = Number(body.days ?? 7);
+  const { platform, baseRelease, days = 7 } = await req.json();
+  // 1) monitor 레코드 생성 (id, expiresAt 등) → DB 저장
+  const monitorId = crypto.randomUUID();
+  const expiresAt = Date.now() + days*24*60*60*1000;
 
-    // TODO: 여기서 KV/Supabase 등에 상태 저장 (id, startedAt, expiresAt 등)
-    // 예: await kv.hset(`monitor:${id}`, {...})
+  // 2) QStash 스케줄 2개 생성
+  const target = `${process.env.APP_URL}/api/monitor/tick`;
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${process.env.UPSTASH_QSTASH_TOKEN!}`,
+  };
 
-    return NextResponse.json({ ok: true, msg: "monitor started", platform, baseRelease, days });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 400 });
-  }
+  const bodyBase = { monitorId, platform, baseRelease, expiresAt };
+
+  // 30분(빠른) 주기
+  const fast = await fetch("https://qstash.upstash.io/v2/schedules", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      destination: target,
+      cron: "*/30 * * * *",
+      body: JSON.stringify({ ...bodyBase, mode: "fast" }),
+      // 필요시 "retries" 등 추가
+    }),
+  }).then(r => r.json());
+
+  // 60분(느린) 주기
+  const slow = await fetch("https://qstash.upstash.io/v2/schedules", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      destination: target,
+      cron: "0 * * * *",
+      body: JSON.stringify({ ...bodyBase, mode: "slow" }),
+    }),
+  }).then(r => r.json());
+
+  // 3) 스케줄 id 저장
+  // await db.save(monitorId, { scheduleIds: [fast.scheduleId, slow.scheduleId], expiresAt, status:"running" })
+
+  return NextResponse.json({ ok: true, monitorId, scheduleIds: [fast.scheduleId, slow.scheduleId] });
 }
