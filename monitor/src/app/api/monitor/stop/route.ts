@@ -1,18 +1,21 @@
-// app/api/monitor/stop/route.ts
+// src/app/api/monitor/stop/route.ts
 import { NextResponse } from "next/server";
+import { cancelJob } from "@/lib/qstash";
+
+type StopBody = {
+  scheduleId?: string;
+};
 
 export async function POST(req: Request) {
-  const { monitorId } = await req.json();
-  // const { scheduleIds } = await db.get(monitorId)
-
-  const headers = {
-    Authorization: `Bearer ${process.env.UPSTASH_QSTASH_TOKEN!}`,
-  };
-
-  for (const id of /*scheduleIds*/ []) {
-    await fetch(`https://qstash.upstash.io/v2/schedules/${id}`, { method: "DELETE", headers });
+  try {
+    const body = (await req.json().catch(() => ({}))) as StopBody;
+    if (body.scheduleId) {
+      await cancelJob(body.scheduleId);
+      return NextResponse.json({ ok: true, canceled: body.scheduleId });
+    }
+    // no-op
+    return NextResponse.json({ ok: true, note: "nothing to cancel (single-shot scheduling)" });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error).message ?? "stop failed" }, { status: 500 });
   }
-
-  // await db.update(monitorId, { status: "stopped" })
-  return NextResponse.json({ ok: true });
 }

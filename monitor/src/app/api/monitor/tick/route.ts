@@ -1,20 +1,31 @@
-// app/api/monitor/tick/route.ts
-import { NextResponse } from 'next/server';
+// src/app/api/monitor/tick/route.ts
+import { NextResponse } from "next/server";
+import { runTick } from "@/lib/releaseMonitor";
 
-export async function POST() {
+function okAuth(req: Request): boolean {
+  const shared = process.env.MONITOR_SHARED_TOKEN || "";
+  if (!shared) return false;
+
+  // 1) Authorization 헤더
+  const auth = req.headers.get("authorization") || "";
+  if (auth === `Bearer ${shared}`) return true;
+
+  // 2) ?token= 쿼리 (수동 테스트 용)
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token");
+  if (token && token === shared) return true;
+
+  return false;
+}
+
+export async function POST(req: Request) {
   try {
-    // 바로 파이썬 tick 실행
-    const { spawn } = await import('node:child_process');
-    await new Promise<void>((resolve, reject) => {
-      const p = spawn('python', ['sentry_release_monitor.py', 'tick'], { env: process.env });
-      p.stdout.on('data', (d) => process.stdout.write(d));
-      p.stderr.on('data', (d) => process.stderr.write(d));
-      p.on('close', (code) => (code === 0 ? resolve() : reject(new Error('tick failed'))));
-    });
+    if (!okAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-    return NextResponse.json({ ok: true });
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const result = await runTick(body);
+    return NextResponse.json({ ok: result.ok, log: result.log ?? "" });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    return NextResponse.json({ error: (e as Error).message ?? "tick failed" }, { status: 500 });
   }
 }
