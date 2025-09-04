@@ -1,29 +1,108 @@
-name: Sentry Release Monitor
+name: Release Monitor (Start & Tick)
 
 on:
-  # 수동 실행 (필수 입력: 베이스 버전)
+  # ⏱ Tick runner (every 30 min, UTC) — script decides 30m/60m cadence internally
+  schedule:
+    - cron: "*/30 * * * *"
+
+  # ▶️ Manual run
   workflow_dispatch:
     inputs:
-      platform:
-        description: "Target platform"
+      mode:
+        description: "Choose: start (create monitor) or tick (run reports)"
         type: choice
+        options: [start, tick]
         required: true
-        default: both
-        options: [both, android, ios]
-      base_version:
-        description: "Semver base (e.g. 4.69.0)"
+        default: start
+      platform:
+        description: "Target platform (start: android/ios, tick: android/ios/both)"
+        type: choice
+        options: [android, ios, both]
         required: true
-      hours:
-        description: "Monitoring hours (default 168=7days)"
+        default: android
+      base_release:
+        description: "(start only) Semver core, e.g. 4.69.0"
         required: false
-        default: "168"
+      days:
+        description: "(start only) Monitor duration in days"
+        required: false
+        default: "7"
 
 env:
   PYTHON_VERSION: "3.11"
 
 jobs:
-  monitor:
-    name: Monitor (${{ matrix.platform }})
+  # ===========================
+  #           START
+  # ===========================
+  start:
+    name: Start Monitor (${{ github.event.inputs.platform || 'n/a' }})
+    # Run only when manually dispatched with mode=start
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'start' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate inputs for start
+        shell: bash
+        run: |
+          if [ "${{ github.event.inputs.platform }}" = "both" ]; then
+            echo "::error::For mode=start, platform must be android or ios (not both)."
+            exit 1
+          fi
+          if [ -z "${{ github.event.inputs.base_release }}" ]; then
+            echo "::error::base_release is required for mode=start (e.g., 4.69.0)."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Export ENV (platform-specific)
+        shell: bash
+        run: |
+          # Common
+          echo "SENTRY_ORG_SLUG=$(printf '%s' "${{ vars.SENTRY_ORG_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          echo "SENTRY_AUTH_TOKEN=$(printf '%s' "${{ secrets.SENTRY_AUTH_TOKEN }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+
+          # Monitoring webhooks (platform-specific)
+          if [ "${{ github.event.inputs.platform }}" = "android" ]; then
+            echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.ANDROID_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.ANDROID_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.ANDROID_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_ENVIRONMENT=Production" >> "$GITHUB_ENV"
+            echo "SLACK_MONITORING_WEBHOOK_URL=$(printf '%s' "${{ secrets.ANDROID_SLACK_MONITORING_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          else
+            echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.IOS_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.IOS_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.IOS_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"   # iOS는 env 미사용
+            echo "SLACK_MONITORING_WEBHOOK_URL=$(printf '%s' "${{ secrets.IOS_SLACK_MONITORING_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Start monitor
+        run: |
+          python sentry_release_monitor.py start \
+            --platform "${{ github.event.inputs.platform }}" \
+            --base-release "${{ github.event.inputs.base_release }}" \
+            --days "${{ github.event.inputs.days }}"
+
+  # ===========================
+  #            TICK
+  # ===========================
+  tick:
+    name: Tick Monitors (${{ matrix.platform }})
+    # Run on schedule, or when manually dispatched with mode=tick
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'tick') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,64 +110,54 @@ jobs:
         platform: [android, ios]
 
     steps:
-      - name: Filter by dispatch platform
-        shell: bash
-        run: |
-          PLAT="${{ github.event.inputs.platform }}"
-          if [ "$PLAT" != "both" ] && [ "$PLAT" != "${{ matrix.platform }}" ]; then
-            echo "Skip ${{ matrix.platform }} (dispatch platform = $PLAT)"
-            echo "SKIP=1" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          echo "Proceed for ${{ matrix.platform }}"
-
-      - name: Check out repo
-        if: env.SKIP != '1'
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
-        if: env.SKIP != '1'
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install deps
-        if: env.SKIP != '1'
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Prepare ENV
+      - name: Dispatch platform filter (only for manual tick)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          REQ="${{ github.event.inputs.platform }}"
+          if [ "$REQ" != "both" ] && [ "$REQ" != "${{ matrix.platform }}" ]; then
+            echo "This matrix (${{ matrix.platform }}) is filtered out → skip."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Export ENV (matrix platform)
         if: env.SKIP != '1'
         shell: bash
         run: |
-          # 공통(개행/공백 방지용으로 printf | tr -d '\r' | xargs 사용)
+          # Common
           echo "SENTRY_ORG_SLUG=$(printf '%s' "${{ vars.SENTRY_ORG_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           echo "SENTRY_AUTH_TOKEN=$(printf '%s' "${{ secrets.SENTRY_AUTH_TOKEN }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
-          echo "OPENAI_API_KEY=$(printf '%s' "${{ secrets.OPENAI_API_KEY }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
 
-          echo "MONITOR_BASE_VERSION=$(printf '%s' "${{ github.event.inputs.base_version }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
-          echo "MONITOR_HOURS=$(printf '%s' "${{ github.event.inputs.hours }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
-
+          # Monitoring webhooks (platform-specific)
           if [ "${{ matrix.platform }}" = "android" ]; then
             echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.ANDROID_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.ANDROID_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.ANDROID_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_ENVIRONMENT=Production" >> "$GITHUB_ENV"
-            # 모니터링 전용 Slack 웹훅(iOS/Android 분리) → 공통 키로 매핑
             echo "SLACK_MONITORING_WEBHOOK_URL=$(printf '%s' "${{ secrets.ANDROID_SLACK_MONITORING_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           else
             echo "SENTRY_PROJECT_ID=$(printf '%s' "${{ vars.IOS_PROJECT_ID }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
             echo "SENTRY_PROJECT_SLUG=$(printf '%s' "${{ vars.IOS_PROJECT_SLUG }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
-            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"   # iOS는 environment 미사용
+            echo "SENTRY_DASHBOARD_URL=$(printf '%s' "${{ vars.IOS_DASHBOARD_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
+            echo "SENTRY_ENVIRONMENT=" >> "$GITHUB_ENV"   # iOS는 env 미사용
             echo "SLACK_MONITORING_WEBHOOK_URL=$(printf '%s' "${{ secrets.IOS_SLACK_MONITORING_WEBHOOK_URL }}" | tr -d '\r' | xargs)" >> "$GITHUB_ENV"
           fi
 
-      - name: Run release monitor (one-shot start)
+      - name: Run tick
         if: env.SKIP != '1'
         run: |
-          # sentry_release_monitor.py가 SLACK_MONITORING_WEBHOOK_URL 우선 사용(없으면 SLACK_WEBHOOK_URL 폴백)
-          python sentry_release_monitor.py \
-            --org "$SENTRY_ORG_SLUG" \
-            --project-id "$SENTRY_PROJECT_ID" \
-            --base-version "$MONITOR_BASE_VERSION" \
-            --hours "$MONITOR_HOURS"
+          # Must call with 'tick' subcommand
+          python sentry_release_monitor.py tick
