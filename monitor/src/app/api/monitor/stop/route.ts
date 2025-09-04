@@ -1,21 +1,22 @@
-// src/app/api/monitor/stop/route.ts
 import { NextResponse } from "next/server";
-import { cancelJob } from "@/lib/qstash";
+import { stopMonitorById } from "@/lib/releaseMonitor"; // 상태 삭제 + 예약 취소까지 내부에서 수행
 
-type StopBody = {
-  scheduleId?: string;
-};
+type StopBody = { monitorId: string };
+type StopResp =
+  | { ok: true; monitorId: string }
+  | { error: string };
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => ({}))) as StopBody;
-    if (body.scheduleId) {
-      await cancelJob(body.scheduleId);
-      return NextResponse.json({ ok: true, canceled: body.scheduleId });
+    const body = (await req.json()) as StopBody;
+    if (!body?.monitorId) {
+      return NextResponse.json<StopResp>({ error: "monitorId required" }, { status: 400 });
     }
-    // no-op
-    return NextResponse.json({ ok: true, note: "nothing to cancel (single-shot scheduling)" });
+
+    await stopMonitorById(body.monitorId);
+    return NextResponse.json<StopResp>({ ok: true, monitorId: body.monitorId });
   } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error).message ?? "stop failed" }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json<StopResp>({ error: msg }, { status: 500 });
   }
 }
