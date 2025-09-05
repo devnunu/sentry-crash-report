@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
 export default function Home() {
-  // 첫 화면 진입 시 /monitor 로 즉시 리다이렉트
+  // 메인 페이지 접근 시 모니터링 페이지로 리다이렉트
   redirect("/monitor");
 }

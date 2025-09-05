@@ -1,41 +1,79 @@
-import { NextResponse } from "next/server";
-import { listMonitors, type MonitorRec } from "@/lib/releaseMonitor";
-
-type MonitorItem = {
-  id: string;
-  platform: "android" | "ios";
-  base_release: string;
-  matched_release?: string | null;
-  started_at: string;
-  expires_at: string;
-  last_run_at?: string | null;
-  last_window_end?: string | null;
-  cumul: { events: number; issues: number; users: number };
-  last_snapshot: { events: number; issues: number; users: number };
-};
-
-type StatusResp =
-  | { monitors: MonitorItem[] }
-  | { error: string };
+import { NextResponse } from 'next/server'
+import { db } from '@/lib/database'
+import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
 
 export async function GET() {
   try {
-    const monitors = await listMonitors();
-    const converted: MonitorItem[] = monitors.map(m => ({
-      id: m.id,
-      platform: m.platform,
-      base_release: m.baseRelease,
-      matched_release: m.matchedRelease || null,
-      started_at: m.startedAt,
-      expires_at: m.expiresAt,
-      last_run_at: m.lastRunAt || null,
-      last_window_end: m.lastWindowEnd || null,
-      cumul: m.cumul,
-      last_snapshot: m.lastSnapshot,
-    }));
-    return NextResponse.json<StatusResp>({ monitors: converted });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json<StatusResp>({ error: msg }, { status: 500 });
+    // 먼저 만료된 모니터들을 정리
+    await db.cleanupExpiredMonitors()
+    
+    // 모든 모니터링 세션 조회 (활성, 중단, 만료 모두 포함)
+    const monitors = await db.getMonitorSessions()
+    
+    // 각 모니터의 최근 히스토리 정보도 함께 조회
+    const monitorsWithHistory = await Promise.all(
+      monitors.map(async (monitor) => {
+        const lastHistory = await db.getLastMonitorHistory(monitor.id)
+        return {
+          ...monitor,
+          lastHistory
+        }
+      })
+    )
+    
+    return NextResponse.json(
+      createApiResponse({
+        monitors: monitorsWithHistory,
+        total: monitors.length,
+        active: monitors.filter(m => m.status === 'active').length,
+        stopped: monitors.filter(m => m.status === 'stopped').length,
+        expired: monitors.filter(m => m.status === 'expired').length
+      })
+    )
+    
+  } catch (error) {
+    return NextResponse.json(
+      createApiError(getErrorMessage(error)),
+      { status: 500 }
+    )
+  }
+}
+
+// 특정 모니터 상세 조회
+export async function POST(request: Request) {
+  try {
+    const { monitorId } = await request.json()
+    
+    if (!monitorId) {
+      return NextResponse.json(
+        createApiError('모니터 ID가 필요합니다.'),
+        { status: 400 }
+      )
+    }
+    
+    const monitor = await db.getMonitorSession(monitorId)
+    
+    if (!monitor) {
+      return NextResponse.json(
+        createApiError('모니터를 찾을 수 없습니다.'),
+        { status: 404 }
+      )
+    }
+    
+    // 해당 모니터의 히스토리 조회
+    const history = await db.getMonitorHistory(monitorId, 100)
+    
+    return NextResponse.json(
+      createApiResponse({
+        monitor,
+        history
+      })
+    )
+    
+  } catch (error) {
+    return NextResponse.json(
+      createApiError(getErrorMessage(error)),
+      { status: 500 }
+    )
   }
 }
