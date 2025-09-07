@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { formatKST, formatRelativeTime } from '@/lib/utils';
 import type { MonitorSession, Platform, MonitorHistory } from '@/lib/types';
 
@@ -201,11 +202,28 @@ export default function MonitorPage() {
 
   return (
     <div className="container">
-      <h1 className="h1">🚀 Sentry 릴리즈 모니터링</h1>
-      <p className="muted">
-        특정 릴리즈 버전의 error/fatal 이슈를 7일간 자동으로 모니터링합니다.
-        첫 24시간은 30분 간격, 이후는 1시간 간격으로 리포트를 제공합니다.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div>
+          <h1 className="h1">🚀 Sentry 릴리즈 모니터링</h1>
+          <p className="muted">
+            특정 릴리즈 버전의 error/fatal 이슈를 7일간 자동으로 모니터링합니다.
+            첫 24시간은 30분 간격, 이후는 1시간 간격으로 리포트를 제공합니다.
+          </p>
+        </div>
+        
+        {/* 페이지 네비게이션 탭 */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <Link href="/monitor" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px', backgroundColor: 'rgba(255, 255, 255, 0.1)' }}>
+            릴리즈 모니터링
+          </Link>
+          <Link href="/monitor/daily" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px' }}>
+            일간 리포트
+          </Link>
+          <Link href="/monitor/weekly" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px' }}>
+            주간 리포트
+          </Link>
+        </div>
+      </div>
 
       {/* 새 모니터링 시작 카드 */}
       <div className="card">

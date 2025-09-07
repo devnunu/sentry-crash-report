@@ -77,3 +77,28 @@ export function createApiError(error: string, success: boolean = false) {
     error
   }
 }
+
+// 실행 시간 포맷팅 (밀리초 -> 사람이 읽기 쉬운 형태)
+export function formatExecutionTime(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return '-'
+  
+  if (ms < 1000) return `${ms}ms`
+  
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 60) return `${seconds}초`
+  
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  
+  if (minutes < 60) {
+    return remainingSeconds > 0 ? `${minutes}분 ${remainingSeconds}초` : `${minutes}분`
+  }
+  
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  
+  if (remainingMinutes > 0) {
+    return `${hours}시간 ${remainingMinutes}분`
+  }
+  return `${hours}시간`
+}

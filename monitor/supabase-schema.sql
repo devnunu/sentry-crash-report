@@ -67,3 +67,62 @@ BEGIN
     AND expires_at < NOW();
 END;
 $$ LANGUAGE plpgsql;
+
+-- 리포트 실행 기록 테이블
+CREATE TABLE IF NOT EXISTS report_executions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  report_type TEXT NOT NULL CHECK (report_type IN ('daily', 'weekly')),
+  status TEXT NOT NULL CHECK (status IN ('success', 'error', 'running')),
+  trigger_type TEXT NOT NULL CHECK (trigger_type IN ('scheduled', 'manual')),
+  target_date DATE NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  result_data JSONB,
+  ai_analysis JSONB,
+  slack_sent BOOLEAN NOT NULL DEFAULT false,
+  error_message TEXT,
+  execution_time_ms INTEGER,
+  execution_logs TEXT[], -- 실행 로그들을 배열로 저장
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 리포트 설정 테이블
+CREATE TABLE IF NOT EXISTS report_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  report_type TEXT NOT NULL CHECK (report_type IN ('daily', 'weekly')),
+  auto_enabled BOOLEAN NOT NULL DEFAULT false,
+  schedule_time TIME NOT NULL DEFAULT '09:00',
+  ai_enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(report_type)
+);
+
+-- 리포트 테이블 인덱스
+CREATE INDEX IF NOT EXISTS idx_report_executions_type_date ON report_executions(report_type, target_date DESC);
+CREATE INDEX IF NOT EXISTS idx_report_executions_status ON report_executions(status);
+CREATE INDEX IF NOT EXISTS idx_report_executions_created_at ON report_executions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_report_settings_type ON report_settings(report_type);
+
+-- RLS 정책 활성화
+ALTER TABLE report_executions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE report_settings ENABLE ROW LEVEL SECURITY;
+
+-- 모든 사용자가 읽기/쓰기 가능한 정책
+CREATE POLICY "Allow all access to report_executions" ON report_executions
+  FOR ALL USING (true);
+
+CREATE POLICY "Allow all access to report_settings" ON report_settings
+  FOR ALL USING (true);
+
+-- report_settings updated_at 트리거
+CREATE TRIGGER update_report_settings_updated_at 
+  BEFORE UPDATE ON report_settings 
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- 기본 리포트 설정 데이터 삽입
+INSERT INTO report_settings (report_type, auto_enabled, schedule_time, ai_enabled) 
+VALUES 
+  ('daily', true, '09:00', true),
+  ('weekly', true, '09:00', true)
+ON CONFLICT (report_type) DO NOTHING;

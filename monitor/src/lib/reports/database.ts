@@ -1,0 +1,222 @@
+import { supabaseAdmin } from '../supabase'
+import type { ReportExecution, ReportSettings } from './types'
+
+export class ReportsDatabaseService {
+  
+  private ensureSupabaseAdmin() {
+    if (!supabaseAdmin) {
+      throw new Error('Supabase admin client is not configured')
+    }
+    return supabaseAdmin
+  }
+  
+  // 리포트 실행 기록 생성
+  async createReportExecution(
+    reportType: 'daily' | 'weekly',
+    triggerType: 'scheduled' | 'manual',
+    targetDate: Date,
+    startDate: Date,
+    endDate: Date
+  ): Promise<ReportExecution> {
+    const { data, error } = await this.ensureSupabaseAdmin()
+      .from('report_executions')
+      .insert({
+        report_type: reportType,
+        status: 'running',
+        trigger_type: triggerType,
+        target_date: targetDate.toISOString().split('T')[0],
+        start_date: startDate.toISOString().split('T')[0],
+        end_date: endDate.toISOString().split('T')[0]
+      })
+      .select()
+      .single()
+    
+    if (error) {
+      throw new Error(`Failed to create report execution: ${error.message}`)
+    }
+    
+    return data as ReportExecution
+  }
+  
+  // 리포트 실행 완료 처리
+  async completeReportExecution(
+    id: string,
+    status: 'success' | 'error',
+    resultData?: unknown,
+    aiAnalysis?: unknown,
+    slackSent: boolean = false,
+    errorMessage?: string,
+    executionTimeMs?: number,
+    executionLogs?: string[]
+  ): Promise<ReportExecution> {
+    const updateData: any = {
+      status,
+      result_data: resultData,
+      ai_analysis: aiAnalysis,
+      slack_sent: slackSent,
+      error_message: errorMessage,
+      execution_time_ms: executionTimeMs
+    }
+
+    if (executionLogs) {
+      updateData.execution_logs = executionLogs
+    }
+
+    const { data, error } = await this.ensureSupabaseAdmin()
+      .from('report_executions')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single()
+    
+    if (error) {
+      throw new Error(`Failed to complete report execution: ${error.message}`)
+    }
+    
+    return data as ReportExecution
+  }
+  
+  // 리포트 실행 기록 조회
+  async getReportExecutions(
+    reportType?: 'daily' | 'weekly',
+    limit: number = 30,
+    offset: number = 0
+  ): Promise<ReportExecution[]> {
+    let query = this.ensureSupabaseAdmin()
+      .from('report_executions')
+      .select('*')
+    
+    if (reportType) {
+      query = query.eq('report_type', reportType)
+    }
+    
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1)
+    
+    if (error) {
+      throw new Error(`Failed to get report executions: ${error.message}`)
+    }
+    
+    return data as ReportExecution[]
+  }
+  
+  // 특정 리포트 실행 조회
+  async getReportExecution(id: string): Promise<ReportExecution | null> {
+    const { data, error } = await this.ensureSupabaseAdmin()
+      .from('report_executions')
+      .select('*')
+      .eq('id', id)
+      .single()
+    
+    if (error) {
+      if (error.code === 'PGRST116') { // No rows returned
+        return null
+      }
+      throw new Error(`Failed to get report execution: ${error.message}`)
+    }
+    
+    return data as ReportExecution
+  }
+  
+  // 리포트 설정 조회
+  async getReportSettings(reportType: 'daily' | 'weekly'): Promise<ReportSettings | null> {
+    const { data, error } = await this.ensureSupabaseAdmin()
+      .from('report_settings')
+      .select('*')
+      .eq('report_type', reportType)
+      .single()
+    
+    if (error) {
+      if (error.code === 'PGRST116') { // No rows returned
+        return null
+      }
+      throw new Error(`Failed to get report settings: ${error.message}`)
+    }
+    
+    return data as ReportSettings
+  }
+  
+  // 리포트 설정 업데이트
+  async updateReportSettings(
+    reportType: 'daily' | 'weekly',
+    updates: Partial<Pick<ReportSettings, 'auto_enabled' | 'schedule_time' | 'ai_enabled'>>
+  ): Promise<ReportSettings> {
+    const { data, error } = await this.ensureSupabaseAdmin()
+      .from('report_settings')
+      .update(updates)
+      .eq('report_type', reportType)
+      .select()
+      .single()
+    
+    if (error) {
+      throw new Error(`Failed to update report settings: ${error.message}`)
+    }
+    
+    return data as ReportSettings
+  }
+  
+  // 모든 활성화된 리포트 설정 조회
+  async getActiveReportSettings(): Promise<ReportSettings[]> {
+    const { data, error } = await this.ensureSupabaseAdmin()
+      .from('report_settings')
+      .select('*')
+      .eq('auto_enabled', true)
+    
+    if (error) {
+      throw new Error(`Failed to get active report settings: ${error.message}`)
+    }
+    
+    return data as ReportSettings[]
+  }
+  
+  // 실행 통계 조회
+  async getReportStats(
+    reportType?: 'daily' | 'weekly',
+    days: number = 30
+  ): Promise<{
+    total: number
+    success: number
+    error: number
+    avgExecutionTime?: number
+  }> {
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - days)
+    
+    let query = this.ensureSupabaseAdmin()
+      .from('report_executions')
+      .select('status, execution_time_ms')
+      .gte('created_at', startDate.toISOString())
+    
+    if (reportType) {
+      query = query.eq('report_type', reportType)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      throw new Error(`Failed to get report stats: ${error.message}`)
+    }
+    
+    const total = data.length
+    const success = data.filter(r => r.status === 'success').length
+    const errorCount = data.filter(r => r.status === 'error').length
+    const executionTimes = data
+      .filter(r => r.execution_time_ms != null)
+      .map(r => r.execution_time_ms as number)
+    
+    const avgExecutionTime = executionTimes.length > 0
+      ? Math.round(executionTimes.reduce((a, b) => a + b, 0) / executionTimes.length)
+      : undefined
+    
+    return {
+      total,
+      success,
+      error: errorCount,
+      avgExecutionTime
+    }
+  }
+}
+
+// 싱글톤 인스턴스
+export const reportsDb = new ReportsDatabaseService()
