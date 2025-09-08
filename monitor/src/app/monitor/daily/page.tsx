@@ -94,6 +94,11 @@ export default function DailyReportPage() {
   // 결과 모달 상태
   const [selectedReport, setSelectedReport] = useState<ReportExecution | null>(null)
   const [showModal, setShowModal] = useState(false)
+  const [expandedSections, setExpandedSections] = useState({
+    logs: false,
+    data: false,
+    slack: false
+  })
 
   // 히스토리 조회
   const fetchReports = useCallback(async () => {
@@ -235,6 +240,118 @@ export default function DailyReportPage() {
   const handleViewReport = (report: ReportExecution) => {
     setSelectedReport(report)
     setShowModal(true)
+    // 모달 열 때마다 섹션 초기화
+    setExpandedSections({
+      logs: false,
+      data: false,
+      slack: false
+    })
+  }
+
+  // 섹션 토글
+  const toggleSection = (section: 'logs' | 'data' | 'slack') => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }))
+  }
+
+  // Slack 메시지 렌더링
+  const renderSlackMessage = (reportData: any) => {
+    if (!reportData) return '리포트 데이터가 없습니다.'
+    
+    try {
+      let message = `📊 *일간 크래시 리포트 - ${selectedReport?.target_date}*\n\n`
+      
+      // 데이터 구조 디버깅을 위한 로그
+      console.log('Report Data Structure:', reportData)
+      
+      // 다양한 데이터 구조에 대응
+      let summary, topIssues, newIssues, resolvedIssues
+      
+      // reportData가 직접 데이터를 가지고 있는 경우
+      if (reportData.summary || reportData.topIssues || reportData.total_events) {
+        summary = reportData.summary || {
+          totalEvents: reportData.total_events,
+          totalIssues: reportData.total_issues,
+          totalUsers: reportData.total_users,
+          newIssues: reportData.new_issues_count,
+          resolvedIssues: reportData.resolved_issues_count
+        }
+        topIssues = reportData.topIssues || reportData.top_issues || []
+        newIssues = reportData.newIssues || reportData.new_issues || []
+        resolvedIssues = reportData.resolvedIssues || reportData.resolved_issues || []
+      }
+      // reportData가 중첩된 구조인 경우 (data 속성 등)
+      else if (reportData.data) {
+        const data = reportData.data
+        summary = data.summary || {
+          totalEvents: data.total_events,
+          totalIssues: data.total_issues,
+          totalUsers: data.total_users,
+          newIssues: data.new_issues_count,
+          resolvedIssues: data.resolved_issues_count
+        }
+        topIssues = data.topIssues || data.top_issues || []
+        newIssues = data.newIssues || data.new_issues || []
+        resolvedIssues = data.resolvedIssues || data.resolved_issues || []
+      }
+      
+      // 요약 섹션
+      if (summary) {
+        message += `🔢 *요약*\n`
+        message += `• 총 이벤트: ${summary.totalEvents || summary.total_events || 0}건\n`
+        message += `• 총 이슈: ${summary.totalIssues || summary.total_issues || 0}개\n`
+        message += `• 영향받은 사용자: ${summary.totalUsers || summary.total_users || 0}명\n`
+        message += `• 신규 이슈: ${summary.newIssues || summary.new_issues_count || 0}개\n`
+        message += `• 해결된 이슈: ${summary.resolvedIssues || summary.resolved_issues_count || 0}개\n\n`
+      }
+      
+      // 주요 이슈 섹션
+      if (topIssues && topIssues.length > 0) {
+        message += `🔥 *주요 이슈 (상위 ${Math.min(5, topIssues.length)}개)*\n`
+        topIssues.slice(0, 5).forEach((issue: any, index: number) => {
+          const title = issue.title || issue.culprit || issue.message || 'Unknown Error'
+          const events = issue.events || issue.event_count || 0
+          const users = issue.users || issue.user_count || 0
+          message += `${index + 1}. ${title}\n`
+          message += `   📈 ${events}건 | 👥 ${users}명\n`
+        })
+        message += '\n'
+      }
+      
+      // 신규 이슈 섹션
+      if (newIssues && newIssues.length > 0) {
+        message += `🆕 *신규 이슈 (${newIssues.length}개)*\n`
+        newIssues.slice(0, 3).forEach((issue: any) => {
+          const title = issue.title || issue.culprit || issue.message || 'Unknown Error'
+          message += `• ${title}\n`
+        })
+        message += '\n'
+      }
+      
+      // 해결된 이슈 섹션
+      if (resolvedIssues && resolvedIssues.length > 0) {
+        message += `✅ *해결된 이슈 (${resolvedIssues.length}개)*\n`
+        resolvedIssues.slice(0, 3).forEach((issue: any) => {
+          const title = issue.title || issue.culprit || issue.message || 'Unknown Error'
+          message += `• ${title}\n`
+        })
+        message += '\n'
+      }
+      
+      // 데이터가 비어있는 경우
+      if (!summary && (!topIssues || topIssues.length === 0) && (!newIssues || newIssues.length === 0)) {
+        message += `📋 *데이터 구조*\n`
+        message += `• 사용 가능한 키: ${Object.keys(reportData).join(', ')}\n\n`
+        message += `⚠️ 표준 데이터 구조와 다릅니다. 실제 Slack 메시지는 다를 수 있습니다.`
+      }
+      
+      return message
+      
+    } catch (error) {
+      return `슬랙 메시지 미리보기 생성 오류: ${error}\n\n원본 데이터:\n${JSON.stringify(reportData, null, 2)}`
+    }
   }
 
   // 요일 토글
@@ -623,39 +740,119 @@ export default function DailyReportPage() {
               </div>
             )}
             
+            {/* 접을 수 있는 실행 로그 섹션 */}
             {selectedReport.execution_logs && selectedReport.execution_logs.length > 0 && (
               <div style={{ marginBottom: '16px' }}>
-                <strong>실행 로그:</strong>
-                <pre style={{
-                  marginTop: '8px',
-                  padding: '12px',
-                  backgroundColor: 'var(--bg-secondary)',
-                  borderRadius: '8px',
-                  fontSize: '11px',
-                  overflow: 'auto',
-                  maxHeight: '400px',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word'
-                }}>
-                  {selectedReport.execution_logs.join('\n')}
-                </pre>
+                <button
+                  onClick={() => toggleSection('logs')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    padding: '4px 0'
+                  }}
+                >
+                  <span>{expandedSections.logs ? '▼' : '▶'}</span>
+                  실행 로그
+                </button>
+                {expandedSections.logs && (
+                  <pre style={{
+                    marginTop: '8px',
+                    padding: '12px',
+                    backgroundColor: 'var(--bg-secondary)',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    overflow: 'auto',
+                    maxHeight: '400px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}>
+                    {selectedReport.execution_logs.join('\n')}
+                  </pre>
+                )}
               </div>
             )}
 
+            {/* 접을 수 있는 리포트 데이터 섹션 */}
             {selectedReport.result_data && (
               <div style={{ marginBottom: '16px' }}>
-                <strong>리포트 데이터:</strong>
-                <pre style={{
-                  marginTop: '8px',
-                  padding: '12px',
-                  backgroundColor: 'var(--bg-secondary)',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  overflow: 'auto',
-                  maxHeight: '300px'
-                }}>
-                  {JSON.stringify(selectedReport.result_data, null, 2)}
-                </pre>
+                <button
+                  onClick={() => toggleSection('data')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    padding: '4px 0'
+                  }}
+                >
+                  <span>{expandedSections.data ? '▼' : '▶'}</span>
+                  리포트 데이터
+                </button>
+                {expandedSections.data && (
+                  <pre style={{
+                    marginTop: '8px',
+                    padding: '12px',
+                    backgroundColor: 'var(--bg-secondary)',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    overflow: 'auto',
+                    maxHeight: '300px'
+                  }}>
+                    {JSON.stringify(selectedReport.result_data, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {/* Slack 메시지 미리보기 섹션 */}
+            {selectedReport.result_data && (
+              <div style={{ marginBottom: '16px' }}>
+                <button
+                  onClick={() => toggleSection('slack')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    padding: '4px 0'
+                  }}
+                >
+                  <span>{expandedSections.slack ? '▼' : '▶'}</span>
+                  Slack 메시지 미리보기
+                </button>
+                {expandedSections.slack && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '16px',
+                    backgroundColor: '#f8f9fa',
+                    border: '1px solid #e9ecef',
+                    borderRadius: '8px',
+                    color: '#212529',
+                    fontSize: '13px',
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    lineHeight: '1.5',
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {renderSlackMessage(selectedReport.result_data)}
+                  </div>
+                )}
               </div>
             )}
           </div>
