@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { formatKST, formatExecutionTime } from '@/lib/utils'
+import { formatKST, formatExecutionTime, validateTimeFormat, formatTimeKorean } from '@/lib/utils'
 import type { 
   ReportExecution, 
   ReportSettings, 
   GenerateWeeklyReportRequest,
   WeeklyReportData,
-  AIAnalysis
+  AIAnalysis,
+  WeekDay
 } from '@/lib/reports/types'
 
 interface ApiResponse<T> {
@@ -39,6 +40,17 @@ const getStatusText = (status: string) => {
     default: return status
   }
 }
+
+// 요일 정보
+const weekDays = [
+  { key: 'mon' as WeekDay, label: '월' },
+  { key: 'tue' as WeekDay, label: '화' },
+  { key: 'wed' as WeekDay, label: '수' },
+  { key: 'thu' as WeekDay, label: '목' },
+  { key: 'fri' as WeekDay, label: '금' },
+  { key: 'sat' as WeekDay, label: '토' },
+  { key: 'sun' as WeekDay, label: '일' },
+]
 
 const tableStyle: React.CSSProperties = {
   width: '100%',
@@ -84,8 +96,11 @@ export default function WeeklyReportPage() {
   
   // 설정 변경 상태
   const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsMessage, setSettingsMessage] = useState('')
   const [autoEnabled, setAutoEnabled] = useState(false)
   const [aiEnabled, setAiEnabled] = useState(true)
+  const [scheduleDays, setScheduleDays] = useState<WeekDay[]>(['mon'])
+  const [scheduleTime, setScheduleTime] = useState('09:00')
   
   // 결과 모달 상태
   const [selectedReport, setSelectedReport] = useState<ReportExecution | null>(null)
@@ -122,6 +137,8 @@ export default function WeeklyReportPage() {
         setSettings(result.data.settings)
         setAutoEnabled(result.data.settings.auto_enabled)
         setAiEnabled(result.data.settings.ai_enabled)
+        setScheduleDays(result.data.settings.schedule_days || ['mon'])
+        setScheduleTime(result.data.settings.schedule_time || '09:00')
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err)
@@ -184,6 +201,15 @@ export default function WeeklyReportPage() {
   // 설정 업데이트
   const handleSettingsUpdate = async () => {
     setSettingsLoading(true)
+    setSettingsMessage('')
+    
+    // 시간 형식 검증
+    if (!validateTimeFormat(scheduleTime)) {
+      setSettingsMessage('❌ 올바른 시간 형식을 입력해주세요 (예: 09:00)')
+      setSettingsLoading(false)
+      setTimeout(() => setSettingsMessage(''), 5000)
+      return
+    }
     
     try {
       const response = await fetch('/api/reports/weekly/settings', {
@@ -191,7 +217,9 @@ export default function WeeklyReportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           auto_enabled: autoEnabled,
-          ai_enabled: aiEnabled
+          ai_enabled: aiEnabled,
+          schedule_days: scheduleDays,
+          schedule_time: scheduleTime
         })
       })
       
@@ -202,9 +230,19 @@ export default function WeeklyReportPage() {
       }
       
       setSettings(result.data!.settings)
+      setSettingsMessage('✅ 설정이 성공적으로 저장되었습니다.')
+      
+      // 3초 후 메시지 자동 삭제
+      setTimeout(() => {
+        setSettingsMessage('')
+      }, 3000)
       
     } catch (err) {
-      alert(`설정 업데이트 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      setSettingsMessage(`❌ 설정 저장 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      // 에러 메시지는 5초 후 삭제
+      setTimeout(() => {
+        setSettingsMessage('')
+      }, 5000)
     } finally {
       setSettingsLoading(false)
     }
@@ -214,6 +252,20 @@ export default function WeeklyReportPage() {
   const handleViewReport = (report: ReportExecution) => {
     setSelectedReport(report)
     setShowModal(true)
+  }
+
+  // 요일 토글
+  const toggleScheduleDay = (day: WeekDay) => {
+    setScheduleDays(prev => {
+      if (prev.includes(day)) {
+        return prev.filter(d => d !== day)
+      } else {
+        return [...prev, day].sort((a, b) => {
+          const order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+          return order.indexOf(a) - order.indexOf(b)
+        })
+      }
+    })
   }
 
   // 지난주 월요일 기본값
@@ -354,32 +406,108 @@ export default function WeeklyReportPage() {
       <div className="card">
         <h2 className="h2">⚙️ 자동 스케줄 설정</h2>
         
-        <div className="row" style={{ alignItems: 'center' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              checked={autoEnabled}
-              onChange={(e) => setAutoEnabled(e.target.checked)}
-            />
-            자동 실행 (매주 월요일 오전 9시)
-          </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="row" style={{ alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                checked={autoEnabled}
+                onChange={(e) => setAutoEnabled(e.target.checked)}
+              />
+              자동 실행 활성화
+            </label>
+            
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                checked={aiEnabled}
+                onChange={(e) => setAiEnabled(e.target.checked)}
+              />
+              AI 분석 포함
+            </label>
+          </div>
+
+          {/* 요일 선택 */}
+          {autoEnabled && (
+            <div>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600' }}>
+                실행 요일 선택 (오전 9시 기준)
+              </label>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {weekDays.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => toggleScheduleDay(key)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '20px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: scheduleDays.includes(key) ? 'var(--ok)' : 'transparent',
+                      color: scheduleDays.includes(key) ? 'white' : 'var(--text)',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {scheduleDays.length === 0 && (
+                <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>
+                  최소 1개 이상의 요일을 선택해주세요.
+                </p>
+              )}
+              
+              {/* 시간 설정 */}
+              <div style={{ marginTop: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600' }}>
+                  실행 시간
+                </label>
+                <input
+                  type="time"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--bg)',
+                    color: 'var(--text)',
+                    fontSize: '15px',
+                    width: '160px',
+                    minWidth: '160px'
+                  }}
+                />
+                <span style={{ fontSize: '12px', color: 'var(--muted)', marginLeft: '8px' }}>
+                  {validateTimeFormat(scheduleTime) ? `${formatTimeKorean(scheduleTime)} (KST)` : '(KST 기준)'}
+                </span>
+              </div>
+            </div>
+          )}
           
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              checked={aiEnabled}
-              onChange={(e) => setAiEnabled(e.target.checked)}
-            />
-            AI 분석 포함
-          </label>
-          
-          <button
-            onClick={handleSettingsUpdate}
-            disabled={settingsLoading}
-            className="btn ghost"
-          >
-            {settingsLoading ? '저장 중...' : '설정 저장'}
-          </button>
+          <div className="row" style={{ alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={handleSettingsUpdate}
+              disabled={settingsLoading || (autoEnabled && scheduleDays.length === 0) || !validateTimeFormat(scheduleTime)}
+              className="btn ghost"
+            >
+              {settingsLoading ? '저장 중...' : '설정 저장'}
+            </button>
+            
+            {settingsMessage && (
+              <span 
+                style={{
+                  fontSize: '13px',
+                  color: settingsMessage.startsWith('✅') ? 'var(--ok)' : 'var(--danger)',
+                  fontWeight: '500'
+                }}
+              >
+                {settingsMessage}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

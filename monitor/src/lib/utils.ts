@@ -102,3 +102,22 @@ export function formatExecutionTime(ms: number | null | undefined): string {
   }
   return `${hours}시간`
 }
+
+// 시간 형식 검증 (HH:MM)
+export function validateTimeFormat(timeString: string): boolean {
+  if (!timeString) return false
+  
+  const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/
+  return timeRegex.test(timeString)
+}
+
+// 시간을 한국어 형식으로 포맷팅
+export function formatTimeKorean(timeString: string): string {
+  if (!validateTimeFormat(timeString)) return timeString
+  
+  const [hours, minutes] = timeString.split(':').map(Number)
+  const period = hours < 12 ? '오전' : '오후'
+  const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours
+  
+  return `${period} ${displayHours}시 ${minutes.toString().padStart(2, '0')}분`
+}

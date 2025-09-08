@@ -140,7 +140,7 @@ export class ReportsDatabaseService {
   // 리포트 설정 업데이트
   async updateReportSettings(
     reportType: 'daily' | 'weekly',
-    updates: Partial<Pick<ReportSettings, 'auto_enabled' | 'schedule_time' | 'ai_enabled'>>
+    updates: Partial<Pick<ReportSettings, 'auto_enabled' | 'schedule_time' | 'schedule_days' | 'ai_enabled'>>
   ): Promise<ReportSettings> {
     const { data, error } = await this.ensureSupabaseAdmin()
       .from('report_settings')

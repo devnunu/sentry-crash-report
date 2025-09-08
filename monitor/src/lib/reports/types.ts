@@ -18,12 +18,16 @@ export interface ReportExecution {
   created_at: string
 }
 
+// 요일 타입 정의
+export type WeekDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
 // 리포트 설정 타입
 export interface ReportSettings {
   id: string
   report_type: 'daily' | 'weekly'
   auto_enabled: boolean
   schedule_time: string
+  schedule_days: WeekDay[]
   ai_enabled: boolean
   created_at: string
   updated_at: string
@@ -181,6 +185,7 @@ export const GenerateWeeklyReportSchema = z.object({
 export const UpdateReportSettingsSchema = z.object({
   auto_enabled: z.boolean().optional(),
   schedule_time: z.string().optional(),
+  schedule_days: z.array(z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])).optional(),
   ai_enabled: z.boolean().optional()
 })
 

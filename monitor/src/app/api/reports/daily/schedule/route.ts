@@ -31,18 +31,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 오늘이 화수목금인지 확인 (1=월, 2=화, 3=수, 4=목, 5=금, 6=토, 0=일)
+    // 오늘이 설정된 요일인지 확인
     const today = new Date()
     const dayOfWeek = today.getDay()
-    const isWeekday = dayOfWeek >= 2 && dayOfWeek <= 5 // 화수목금
     
-    if (!isWeekday) {
-      console.log(`📅 Today is not a weekday (${dayOfWeek}), skipping daily report`)
+    // 요일 매핑: 0=일, 1=월, 2=화, 3=수, 4=목, 5=금, 6=토
+    const dayMapping = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+    const todayKey = dayMapping[dayOfWeek]
+    
+    // 설정된 요일 확인 (기본값: 월화수목금)
+    const scheduleDays = settings.schedule_days || ['mon', 'tue', 'wed', 'thu', 'fri']
+    const shouldRunToday = scheduleDays.includes(todayKey as any)
+    
+    if (!shouldRunToday) {
+      console.log(`📅 Today (${todayKey}) is not in scheduled days [${scheduleDays.join(', ')}], skipping daily report`)
       return NextResponse.json(
         createApiResponse({
-          message: '주말에는 일간 리포트를 생성하지 않습니다.',
+          message: `오늘(${todayKey})은 일간 리포트 실행일이 아닙니다.`,
           skipped: true,
-          dayOfWeek
+          todayKey,
+          scheduleDays
         })
       )
     }

@@ -31,18 +31,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 오늘이 월요일인지 확인 (1=월요일)
+    // 오늘이 설정된 요일인지 확인
     const today = new Date()
     const dayOfWeek = today.getDay()
-    const isMonday = dayOfWeek === 1
     
-    if (!isMonday) {
-      console.log(`📅 Today is not Monday (${dayOfWeek}), skipping weekly report`)
+    // 요일 매핑: 0=일, 1=월, 2=화, 3=수, 4=목, 5=금, 6=토
+    const dayMapping = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+    const todayKey = dayMapping[dayOfWeek]
+    
+    // 설정된 요일 확인 (기본값: 월요일만)
+    const scheduleDays = settings.schedule_days || ['mon']
+    const shouldRunToday = scheduleDays.includes(todayKey as any)
+    
+    if (!shouldRunToday) {
+      console.log(`📅 Today (${todayKey}) is not in scheduled days [${scheduleDays.join(', ')}], skipping weekly report`)
       return NextResponse.json(
         createApiResponse({
-          message: '월요일이 아니므로 주간 리포트를 생성하지 않습니다.',
+          message: `오늘(${todayKey})은 주간 리포트 실행일이 아닙니다.`,
           skipped: true,
-          dayOfWeek
+          todayKey,
+          scheduleDays
         })
       )
     }
