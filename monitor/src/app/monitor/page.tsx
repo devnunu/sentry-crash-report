@@ -46,12 +46,6 @@ const getStatusText = (status: string) => {
   }
 };
 
-const tableStyle: React.CSSProperties = {
-  width: '100%',
-  borderCollapse: 'separate',
-  borderSpacing: 0,
-  minWidth: '900px',
-};
 
 const thStyle: React.CSSProperties = {
   padding: '12px 14px',
@@ -212,7 +206,7 @@ export default function MonitorPage() {
         </div>
         
         {/* 페이지 네비게이션 탭 */}
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className="nav-tabs">
           <Link href="/monitor" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px', backgroundColor: 'rgba(255, 255, 255, 0.1)' }}>
             릴리즈 모니터링
           </Link>
@@ -230,7 +224,7 @@ export default function MonitorPage() {
         <h2 className="h2">▶️ 새 모니터링 시작</h2>
         
         <form onSubmit={handleStart}>
-          <div className="row">
+          <div className="row responsive">
             <label>플랫폼</label>
             <select
               value={platform}
@@ -313,90 +307,160 @@ export default function MonitorPage() {
             {loading ? '로딩 중...' : '모니터가 없습니다.'}
           </div>
         ) : (
-          <div
-            style={{
-              width: '100%',
-              overflowX: 'auto',
-              marginTop: '16px',
-              border: '1px solid var(--border)',
-              borderRadius: '12px',
-            }}
-          >
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>상태</th>
-                  <th style={thStyle}>플랫폼</th>
-                  <th style={thStyle}>베이스 릴리즈</th>
-                  <th style={thStyle}>매칭 릴리즈</th>
-                  <th style={thStyle}>시작일(KST)</th>
-                  <th style={thStyle}>만료일(KST)</th>
-                  <th style={thStyle}>남은 기간</th>
-                  <th style={thStyle}>최근 실행</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>액션</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedMonitors.map((monitor) => {
-                  const statusStyle = getStatusStyle(monitor.status);
-                  return (
-                    <tr
-                      key={monitor.id}
-                      style={{ 
-                        borderBottom: '1px solid var(--border)',
-                        background: monitor.status === 'active' ? 'rgba(34, 197, 94, 0.03)' : 'transparent'
-                      }}
-                    >
-                      <td style={tdStyle}>
-                        <span
-                          style={{
-                            ...statusStyle,
-                            padding: '4px 8px',
-                            borderRadius: '12px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                          }}
-                        >
-                          {getStatusText(monitor.status)}
-                        </span>
-                      </td>
-                      <td style={tdStyle}>{monitor.platform.toUpperCase()}</td>
-                      <td style={tdMonoStyle}>{monitor.base_release}</td>
-                      <td style={tdMonoStyle}>{monitor.matched_release || '-'}</td>
-                      <td style={tdStyle}>{formatKST(monitor.started_at)}</td>
-                      <td style={tdStyle}>{formatKST(monitor.expires_at)}</td>
-                      <td style={tdStyle}>{formatRelativeTime(monitor.expires_at)}</td>
-                      <td style={tdStyle}>
-                        {monitor.lastHistory ? (
-                          <div>
-                            <div>{formatKST(monitor.lastHistory.executed_at)}</div>
-                            <div className="muted" style={{ fontSize: '11px', marginTop: '2px' }}>
-                              E:{monitor.lastHistory.events_count} | I:{monitor.lastHistory.issues_count} | U:{monitor.lastHistory.users_count}
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="muted">아직 실행 없음</span>
-                        )}
-                      </td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>
-                        {monitor.status === 'active' && (
-                          <button
-                            onClick={() => handleStop(monitor.id)}
-                            disabled={stoppingId === monitor.id}
-                            className="btn danger"
-                            style={{ fontSize: '11px', padding: '6px 12px' }}
-                            title="이 모니터를 중단합니다"
+          <>
+            {/* 데스크톱 테이블 */}
+            <div className="table-container table-mobile-cards" style={{ marginTop: '16px' }}>
+              <table className="table-responsive">
+                <thead>
+                  <tr>
+                    <th style={thStyle}>상태</th>
+                    <th style={thStyle}>플랫폼</th>
+                    <th style={thStyle}>베이스 릴리즈</th>
+                    <th style={thStyle}>매칭 릴리즈</th>
+                    <th style={thStyle}>시작일(KST)</th>
+                    <th style={thStyle}>만료일(KST)</th>
+                    <th style={thStyle}>남은 기간</th>
+                    <th style={thStyle}>최근 실행</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>액션</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedMonitors.map((monitor) => {
+                    const statusStyle = getStatusStyle(monitor.status);
+                    return (
+                      <tr
+                        key={monitor.id}
+                        style={{ 
+                          borderBottom: '1px solid var(--border)',
+                          background: monitor.status === 'active' ? 'rgba(34, 197, 94, 0.03)' : 'transparent'
+                        }}
+                      >
+                        <td style={tdStyle}>
+                          <span
+                            style={{
+                              ...statusStyle,
+                              padding: '4px 8px',
+                              borderRadius: '12px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                            }}
                           >
-                            {stoppingId === monitor.id ? '정지 중...' : '정지'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            {getStatusText(monitor.status)}
+                          </span>
+                        </td>
+                        <td style={tdStyle}>{monitor.platform.toUpperCase()}</td>
+                        <td style={tdMonoStyle}>{monitor.base_release}</td>
+                        <td style={tdMonoStyle}>{monitor.matched_release || '-'}</td>
+                        <td style={tdStyle}>{formatKST(monitor.started_at)}</td>
+                        <td style={tdStyle}>{formatKST(monitor.expires_at)}</td>
+                        <td style={tdStyle}>{formatRelativeTime(monitor.expires_at)}</td>
+                        <td style={tdStyle}>
+                          {monitor.lastHistory ? (
+                            <div>
+                              <div>{formatKST(monitor.lastHistory.executed_at)}</div>
+                              <div className="muted" style={{ fontSize: '11px', marginTop: '2px' }}>
+                                E:{monitor.lastHistory.events_count} | I:{monitor.lastHistory.issues_count} | U:{monitor.lastHistory.users_count}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="muted">아직 실행 없음</span>
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>
+                          {monitor.status === 'active' && (
+                            <button
+                              onClick={() => handleStop(monitor.id)}
+                              disabled={stoppingId === monitor.id}
+                              className="btn danger"
+                              style={{ fontSize: '11px', padding: '6px 12px' }}
+                              title="이 모니터를 중단합니다"
+                            >
+                              {stoppingId === monitor.id ? '정지 중...' : '정지'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 모바일 카드 */}
+            <div className="mobile-cards" style={{ marginTop: '16px' }}>
+              {sortedMonitors.map((monitor) => {
+                const statusStyle = getStatusStyle(monitor.status);
+                return (
+                  <div key={monitor.id} className="mobile-card">
+                    <div className="mobile-card-header">
+                      <span
+                        style={{
+                          ...statusStyle,
+                          padding: '4px 8px',
+                          borderRadius: '12px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {getStatusText(monitor.status)}
+                      </span>
+                      {monitor.status === 'active' && (
+                        <button
+                          onClick={() => handleStop(monitor.id)}
+                          disabled={stoppingId === monitor.id}
+                          className="btn danger"
+                          style={{ fontSize: '11px', padding: '6px 12px' }}
+                        >
+                          {stoppingId === monitor.id ? '정지 중...' : '정지'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="mobile-card-content">
+                      <div className="mobile-field">
+                        <span className="mobile-field-label">플랫폼</span>
+                        <span className="mobile-field-value">{monitor.platform.toUpperCase()}</span>
+                      </div>
+                      <div className="mobile-field">
+                        <span className="mobile-field-label">베이스 릴리즈</span>
+                        <span className="mobile-field-value mono">{monitor.base_release}</span>
+                      </div>
+                      <div className="mobile-field">
+                        <span className="mobile-field-label">매칭 릴리즈</span>
+                        <span className="mobile-field-value mono">{monitor.matched_release || '-'}</span>
+                      </div>
+                      <div className="mobile-field">
+                        <span className="mobile-field-label">시작일</span>
+                        <span className="mobile-field-value">{formatKST(monitor.started_at)}</span>
+                      </div>
+                      <div className="mobile-field">
+                        <span className="mobile-field-label">만료일</span>
+                        <span className="mobile-field-value">{formatKST(monitor.expires_at)}</span>
+                      </div>
+                      <div className="mobile-field">
+                        <span className="mobile-field-label">남은 기간</span>
+                        <span className="mobile-field-value">{formatRelativeTime(monitor.expires_at)}</span>
+                      </div>
+                      <div className="mobile-field">
+                        <span className="mobile-field-label">최근 실행</span>
+                        <span className="mobile-field-value">
+                          {monitor.lastHistory ? (
+                            <div>
+                              <div>{formatKST(monitor.lastHistory.executed_at)}</div>
+                              <div className="muted" style={{ fontSize: '11px', marginTop: '2px' }}>
+                                E:{monitor.lastHistory.events_count} | I:{monitor.lastHistory.issues_count} | U:{monitor.lastHistory.users_count}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="muted">아직 실행 없음</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 

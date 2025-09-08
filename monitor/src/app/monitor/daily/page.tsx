@@ -7,8 +7,6 @@ import type {
   ReportExecution, 
   ReportSettings, 
   GenerateDailyReportRequest,
-  DailyReportData,
-  AIAnalysis,
   WeekDay
 } from '@/lib/reports/types'
 
@@ -52,12 +50,6 @@ const weekDays = [
   { key: 'sun' as WeekDay, label: '일' },
 ]
 
-const tableStyle: React.CSSProperties = {
-  width: '100%',
-  borderCollapse: 'separate',
-  borderSpacing: 0,
-  minWidth: '800px',
-}
 
 const thStyle: React.CSSProperties = {
   padding: '12px 14px',
@@ -80,7 +72,7 @@ const tdStyle: React.CSSProperties = {
 export default function DailyReportPage() {
   // 상태 관리
   const [reports, setReports] = useState<ReportExecution[]>([])
-  const [settings, setSettings] = useState<ReportSettings | null>(null)
+  const [, setSettings] = useState<ReportSettings | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   
@@ -278,7 +270,7 @@ export default function DailyReportPage() {
         </div>
         
         {/* 페이지 네비게이션 탭 */}
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className="nav-tabs">
           <Link href="/monitor" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px' }}>
             릴리즈 모니터링
           </Link>
@@ -296,7 +288,7 @@ export default function DailyReportPage() {
         <h2 className="h2">🧪 테스트 실행</h2>
         
         <form onSubmit={handleGenerate}>
-          <div className="row">
+          <div className="row responsive">
             <label>분석 날짜 (기본: 어제)</label>
             <input
               type="date"
@@ -472,16 +464,10 @@ export default function DailyReportPage() {
             {loading ? '로딩 중...' : '리포트 히스토리가 없습니다.'}
           </div>
         ) : (
-          <div
-            style={{
-              width: '100%',
-              overflowX: 'auto',
-              marginTop: '16px',
-              border: '1px solid var(--border)',
-              borderRadius: '12px',
-            }}
-          >
-            <table style={tableStyle}>
+          <>
+            {/* 데스크톱 테이블 */}
+            <div className="table-container table-mobile-cards" style={{ marginTop: '16px' }}>
+            <table className="table-responsive">
               <thead>
                 <tr>
                   <th style={thStyle}>분석 날짜</th>
@@ -531,6 +517,60 @@ export default function DailyReportPage() {
               </tbody>
             </table>
           </div>
+
+          {/* 모바일 카드 */}
+          <div className="mobile-cards" style={{ marginTop: '16px' }}>
+            {reports.map((report) => {
+              const statusStyle = getStatusStyle(report.status)
+              return (
+                <div key={report.id} className="mobile-card">
+                  <div className="mobile-card-header">
+                    <span
+                      style={{
+                        ...statusStyle,
+                        padding: '4px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {getStatusText(report.status)}
+                    </span>
+                    <button
+                      onClick={() => handleViewReport(report)}
+                      className="btn ghost"
+                      style={{ fontSize: '11px', padding: '6px 12px' }}
+                    >
+                      결과 보기
+                    </button>
+                  </div>
+                  <div className="mobile-card-content">
+                    <div className="mobile-field">
+                      <span className="mobile-field-label">분석 날짜</span>
+                      <span className="mobile-field-value">{report.target_date}</span>
+                    </div>
+                    <div className="mobile-field">
+                      <span className="mobile-field-label">실행 방식</span>
+                      <span className="mobile-field-value">{report.trigger_type === 'scheduled' ? '자동' : '수동'}</span>
+                    </div>
+                    <div className="mobile-field">
+                      <span className="mobile-field-label">실행 시간</span>
+                      <span className="mobile-field-value">{formatExecutionTime(report.execution_time_ms)}</span>
+                    </div>
+                    <div className="mobile-field">
+                      <span className="mobile-field-label">Slack 전송</span>
+                      <span className="mobile-field-value">{report.slack_sent ? '✅' : '❌'}</span>
+                    </div>
+                    <div className="mobile-field">
+                      <span className="mobile-field-label">생성 일시</span>
+                      <span className="mobile-field-value">{formatKST(report.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          </>
         )}
       </div>
 
