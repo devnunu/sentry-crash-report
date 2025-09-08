@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { reportsDb } from '@/lib/reports/database'
 import { UpdateReportSettingsSchema } from '@/lib/reports/types'
 import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
+import { ensureDevServicesStarted } from '@/lib/server-startup'
 
 export async function GET() {
   try {
+    // 개발 환경에서 cron 서비스 자동 시작
+    ensureDevServicesStarted()
+    
     console.log('[API] Fetching daily report settings')
     
     const settings = await reportsDb.getReportSettings('daily')

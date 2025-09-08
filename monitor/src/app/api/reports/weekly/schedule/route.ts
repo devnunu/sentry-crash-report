@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { weeklyReportService } from '@/lib/reports/weekly-report'
 import { reportsDb } from '@/lib/reports/database'
 import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
+import { devCronService } from '@/lib/dev-cron'
 
 export async function POST(request: NextRequest) {
   try {
+    // 개발 환경에서 cron 서비스 자동 시작
+    if (process.env.NODE_ENV === 'development') {
+      devCronService.start()
+    }
+    
     // CRON 인증 (선택사항)
     const cronSecret = process.env.CRON_SECRET
     if (cronSecret) {
