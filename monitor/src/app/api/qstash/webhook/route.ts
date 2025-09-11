@@ -18,7 +18,9 @@ export async function POST(request: NextRequest) {
     
     // 서명 검증 (개발 환경에서는 스킵)
     if (process.env.NODE_ENV !== 'development' && signature !== 'dev-signature') {
-      const isValid = await qstashService.verifySignature(signature, body)
+      const url = request.url
+      const method = 'POST'
+      const isValid = await qstashService.verifySignature(signature, body, url, method)
       if (!isValid) {
         console.error('[QStash Webhook] Invalid signature')
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })

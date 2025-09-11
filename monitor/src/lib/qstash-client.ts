@@ -115,11 +115,13 @@ export class QStashService {
   }
 
   // webhook 서명 검증
-  async verifySignature(signature: string, body: string): Promise<boolean> {
+  async verifySignature(signature: string, body: string, url?: string, method?: string): Promise<boolean> {
     try {
       const isValid = await this.receiver.verify({
         signature,
-        body
+        body,
+        url,
+        method
       })
       return isValid
     } catch (error) {
