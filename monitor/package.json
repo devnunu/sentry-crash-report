@@ -31,5 +31,10 @@
     "eslint-config-next": "15.5.2",
     "node-cron": "^4.2.1",
     "typescript": "^5"
+  },
+  "overrides": {
+    "openai": {
+      "zod": "$zod"
+    }
   }
 }
