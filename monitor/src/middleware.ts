@@ -1,17 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export function middleware(request: NextRequest) {
-  // 개발 환경에서만 실행
-  if (process.env.NODE_ENV === 'development') {
-    // API 요청에 대해서만 dev-cron 초기화
-    if (request.nextUrl.pathname.startsWith('/api/')) {
-      // 헤더에 개발 서비스 초기화 신호 추가
-      const response = NextResponse.next()
-      response.headers.set('x-dev-init', 'true')
-      return response
-    }
-  }
-  
+export function middleware(_request: NextRequest) {
+  // 로컬 dev-cron 초기화는 제거. 단순 패스스루.
   return NextResponse.next()
 }
 
