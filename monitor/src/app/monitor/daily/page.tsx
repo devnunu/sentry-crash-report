@@ -945,7 +945,7 @@ export default function DailyReportPage() {
                     {issueAnalysis?.summary ? (
                       <div style={{ lineHeight:1.6 }}>{renderAnalysis(issueAnalysis.summary)}</div>
                     ) : (
-                      <div className="muted">아직 분석되지 않았습니다. 아래의 "AI 분석" 버튼을 눌러 분석을 실행하세요.</div>
+                      <div className="muted">아직 분석되지 않았습니다. 아래의 &quot;AI 분석&quot; 버튼을 눌러 분석을 실행하세요.</div>
                     )}
                   </div>
                 </details>
