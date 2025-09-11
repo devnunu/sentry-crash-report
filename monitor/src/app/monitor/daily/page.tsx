@@ -102,6 +102,9 @@ export default function DailyReportPage() {
     data: false,
     slack: false
   })
+  // Cron 상태(디버그)
+  const [cronStatus, setCronStatus] = useState<any>(null)
+  const [cronLoading, setCronLoading] = useState(false)
   // 플랫폼 필터 (히스토리)
   const [historyPlatform, setHistoryPlatform] = useState<'all' | 'android' | 'ios'>('all')
 
@@ -150,6 +153,22 @@ export default function DailyReportPage() {
   useEffect(() => {
     fetchReports()
     fetchSettings()
+    // 초기 cron 상태 로드 + 60초마다 갱신
+    const loadCron = async () => {
+      setCronLoading(true)
+      try {
+        const res = await fetch('/api/debug/cron-status')
+        const data = await res.json()
+        if (data?.success) setCronStatus(data.data)
+      } catch (e) {
+        // noop
+      } finally {
+        setCronLoading(false)
+      }
+    }
+    loadCron()
+    const t = setInterval(loadCron, 60000)
+    return () => clearInterval(t)
   }, [fetchReports, fetchSettings])
 
   // 리포트 생성
@@ -506,6 +525,24 @@ export default function DailyReportPage() {
       {/* 자동 스케줄 설정 */}
       <div className="card">
         <h2 className="h2">⚙️ 자동 스케줄 설정</h2>
+        {/* 실행 상태 표시 */}
+        <div className="muted" style={{ marginBottom: 12 }}>
+          {cronLoading ? '스케줄 상태 불러오는 중…' : (
+            cronStatus ? (
+              <>
+                <div>현재 시간(KST): {cronStatus.currentTime?.time} ({cronStatus.currentTime?.day?.toUpperCase()})</div>
+                <div>
+                  오늘 실행 여부: {cronStatus.dailyReport?.shouldRunToday ? '예' : '아니오'} · 시간 일치: {cronStatus.dailyReport?.timeMatch ? '예' : '아니오'} · 설정 시간: {cronStatus.dailyReport?.scheduleTime}
+                </div>
+                {cronStatus.dailyReport?.recentExecutions?.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    최근 실행: {cronStatus.dailyReport.recentExecutions.map((r: any) => r.createdAt?.slice(0,16).replace('T',' ')).join(', ')}
+                  </div>
+                )}
+              </>
+            ) : '스케줄 상태 정보를 가져오지 못했습니다.'
+          )}
+        </div>
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="row" style={{ alignItems: 'center' }}>

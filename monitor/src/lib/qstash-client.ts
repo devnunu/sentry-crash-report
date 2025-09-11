@@ -156,20 +156,31 @@ export class QStashService {
 
   // cron 표현식 생성 도우미
   buildCronExpression(days: string[], time: string): string {
-    // days: ['mon', 'tue', 'wed'], time: '09:00'
-    const [hours, minutes] = time.split(':')
-    
-    // 요일 매핑 (QStash는 0=일요일 기준)
+    // 입력은 KST 기준(days, time). QStash는 UTC 기준으로 스케줄되므로 UTC로 변환한다.
+    // KST(UTC+9) => UTC 변환: 시간에서 9를 빼고, 0~8시 구간은 전날로 이동.
+    const [hh, mm] = time.split(':').map(Number)
+    let utcHour = hh - 9
+    const crossesPrevDay = utcHour < 0
+    if (crossesPrevDay) {
+      utcHour += 24
+    }
+
+    // 요일 매핑 (0=일요일)
     const dayMapping: Record<string, number> = {
-      'sun': 0, 'mon': 1, 'tue': 2, 'wed': 3, 
+      'sun': 0, 'mon': 1, 'tue': 2, 'wed': 3,
       'thu': 4, 'fri': 5, 'sat': 6
     }
-    
-    const dayNumbers = days.map(day => dayMapping[day]).sort()
-    const dayString = dayNumbers.join(',')
-    
-    // cron 형식: 분 시 일 월 요일
-    return `${minutes} ${hours} * * ${dayString}`
+
+    // KST 요일을 UTC 요일로 보정
+    // 예: KST 월 00:50 => UTC 일 15:50 (전날)
+    const utcDays = days
+      .map(d => dayMapping[d])
+      .map(kstDay => (kstDay + (crossesPrevDay ? -1 : 0) + 7) % 7)
+      .sort((a, b) => a - b)
+
+    const dayString = utcDays.join(',')
+    // cron: 분 시 일 월 요일 (UTC)
+    return `${mm} ${utcHour} * * ${dayString}`
   }
 }
 
