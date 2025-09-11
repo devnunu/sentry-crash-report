@@ -105,6 +105,8 @@ export default function WeeklyReportPage() {
     data: false,
     slack: false
   })
+  // 플랫폼 필터 (히스토리)
+  const [historyPlatform, setHistoryPlatform] = useState<'all' | 'android' | 'ios'>('all')
 
   // 히스토리 조회
   const fetchReports = useCallback(async () => {
@@ -112,7 +114,8 @@ export default function WeeklyReportPage() {
     setError('')
     
     try {
-      const response = await fetch('/api/reports/weekly/history?limit=30')
+      const q = historyPlatform === 'all' ? '' : `&platform=${historyPlatform}`
+      const response = await fetch(`/api/reports/weekly/history?limit=30${q}`)
       const result: ApiResponse<{ reports: ReportExecution[] }> = await response.json()
       
       if (!result.success || !result.data) {
@@ -125,7 +128,7 @@ export default function WeeklyReportPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [historyPlatform])
 
   // 설정 조회
   const fetchSettings = useCallback(async () => {
