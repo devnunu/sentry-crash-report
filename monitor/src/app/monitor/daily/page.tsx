@@ -108,6 +108,13 @@ export default function DailyReportPage() {
   const [cronLoading, setCronLoading] = useState(false)
   // 플랫폼 필터 (히스토리)
   const [historyPlatform, setHistoryPlatform] = useState<'all' | 'android' | 'ios'>('all')
+  // 날짜 표시를 KST 기준으로 변환 (YYYY-MM-DD)
+  const toKstDate = (dateStr?: string) => {
+    if (!dateStr) return '-'
+    // start_date/target_date는 'YYYY-MM-DD' 형태이므로 자정 UTC를 붙여 KST로 보정
+    const kst = formatKST(`${dateStr}T00:00:00Z`)
+    return kst.slice(0, 10)
+  }
 
   // 히스토리 조회
   const fetchReports = useCallback(async () => {
@@ -708,7 +715,7 @@ export default function DailyReportPage() {
                   const statusStyle = getStatusStyle(report.status)
                   return (
                     <tr key={report.id}>
-                      <td style={tdStyle}>{report.target_date}</td>
+                      <td style={tdStyle}>{toKstDate(report.target_date)}</td>
                       <td style={tdStyle}>{report.platform ? report.platform.toUpperCase() : '-'}</td>
                       <td style={tdStyle}>
                         <span
@@ -772,7 +779,7 @@ export default function DailyReportPage() {
                   <div className="mobile-card-content">
                     <div className="mobile-field">
                       <span className="mobile-field-label">분석 날짜</span>
-                      <span className="mobile-field-value">{report.target_date}</span>
+                      <span className="mobile-field-value">{toKstDate(report.target_date)}</span>
                     </div>
                     <div className="mobile-field">
                       <span className="mobile-field-label">플랫폼</span>

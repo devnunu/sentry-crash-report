@@ -111,6 +111,12 @@ export default function WeeklyReportPage() {
   const [cronLoading, setCronLoading] = useState(false)
   // 플랫폼 필터 (히스토리)
   const [historyPlatform, setHistoryPlatform] = useState<'all' | 'android' | 'ios'>('all')
+  // KST 날짜 라벨 헬퍼
+  const toKstDate = (dateStr?: string) => {
+    if (!dateStr) return '-'
+    const kst = formatKST(`${dateStr}T00:00:00Z`)
+    return kst.slice(0, 10)
+  }
 
   // 히스토리 조회
   const fetchReports = useCallback(async () => {
@@ -771,8 +777,8 @@ export default function WeeklyReportPage() {
                     <tr key={report.id}>
                       <td style={tdStyle}>
                         {report.target_date 
-                          ? `${report.target_date} 주차`
-                          : `${report.start_date} ~ ${report.end_date}`
+                          ? `${toKstDate(report.start_date)} ~ ${toKstDate(report.end_date)}`
+                          : `${toKstDate(report.start_date)} ~ ${toKstDate(report.end_date)}`
                         }
                       </td>
                       <td style={tdStyle}>{report.platform ? report.platform.toUpperCase() : '-'}</td>
@@ -839,10 +845,7 @@ export default function WeeklyReportPage() {
                     <div className="mobile-field">
                       <span className="mobile-field-label">분석 기간</span>
                       <span className="mobile-field-value">
-                        {report.target_date 
-                          ? `${report.target_date} 주차`
-                          : `${report.start_date} ~ ${report.end_date}`
-                        }
+                        {`${toKstDate(report.start_date)} ~ ${toKstDate(report.end_date)}`}
                       </span>
                     </div>
                     <div className="mobile-field">
