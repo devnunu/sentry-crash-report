@@ -55,10 +55,12 @@ export class QStashService {
         }
       })
 
-      console.log(`[QStash] Job scheduled successfully: ${result.scheduleId}`)
+      // 일부 SDK/버전은 scheduleId 대신 schedule_id 를 반환할 수 있음
+      const scheduleId = (result as any)?.scheduleId || (result as any)?.schedule_id || (result as any)?.id
+      console.log(`[QStash] Job scheduled successfully: ${scheduleId}`, result)
       return {
         success: true,
-        scheduleId: result.scheduleId,
+        scheduleId,
         jobId,
         endpoint,
         cron

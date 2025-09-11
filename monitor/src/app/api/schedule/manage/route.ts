@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
         schedule_time: scheduleTime,
         qstash_schedule_id: scheduleResult.scheduleId,
         updated_at: new Date().toISOString()
-      })
+      }, { onConflict: 'report_type' })
 
     if (dbError) {
       console.error('[Schedule API] Database update failed:', dbError)
