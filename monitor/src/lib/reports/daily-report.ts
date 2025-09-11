@@ -243,23 +243,24 @@ export class DailyReportService {
         }
       }
 
+      // Slack 블록 구성 (미리보기/저장 용도 포함)
+      this.log(`[Daily] [13/14] Slack Blocks 구축...`)
+      const slackBlocks = this.buildSlackBlocksForDay(
+        formatKSTDate(yesterday),
+        environment,
+        reportData[formatKSTDate(yesterday)] as any,
+        reportData[formatKSTDate(dayBeforeYesterday)] as any,
+        aiAnalysis ? this.buildAiAdviceBlocks(aiAnalysis) : undefined,
+        aiAnalysis,
+        org,
+        projectId
+      )
+      this.log(`  - Slack blocks generated: ${slackBlocks.length} blocks`)
+      this.log(`  - First block: ${JSON.stringify(slackBlocks[0] || {}).substring(0, 200)}...`)
+
       // Slack 전송
       let slackSent = false
       if (sendSlack && slackWebhook) {
-        this.log(`[Daily] [13/14] Slack Blocks 구축...`)
-        const slackBlocks = this.buildSlackBlocksForDay(
-          formatKSTDate(yesterday),
-          environment,
-          reportData[formatKSTDate(yesterday)] as any,
-          reportData[formatKSTDate(dayBeforeYesterday)] as any,
-          aiAnalysis ? this.buildAiAdviceBlocks(aiAnalysis) : undefined,
-          aiAnalysis,
-          org,
-          projectId
-        )
-        this.log(`  - Slack blocks generated: ${slackBlocks.length} blocks`)
-        this.log(`  - First block: ${JSON.stringify(slackBlocks[0] || {}).substring(0, 200)}...`)
-
         this.log(`[Daily] [14/14] Slack 전송 시도...`)
         this.log(`  - Webhook URL: ${slackWebhook.substring(0, 50)}...`)
         try {
@@ -281,7 +282,7 @@ export class DailyReportService {
       await reportsDb.completeReportExecution(
         execution.id,
         'success',
-        reportData,
+        { ...reportData, slack_blocks: slackBlocks },
         aiAnalysis,
         slackSent,
         undefined,
@@ -1036,7 +1037,8 @@ export class DailyReportService {
     const kstWindow = this.parseIsoToKstLabel(win.start || '?', win.end || '?')
 
     // 헤더
-    let title = `Sentry 일간 리포트 — ${dateLabel}`
+    const platformEmoji = this.platform === 'android' ? '🤖 ' : '🍎 '
+    let title = `${platformEmoji}Sentry 일간 리포트 — ${dateLabel}`
     if (envLabel) {
       title += `  ·  ${envLabel}`
     }

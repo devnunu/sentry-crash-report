@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import SlackPreview from '@/lib/SlackPreview'
 import Link from 'next/link'
 import { formatKST, formatExecutionTime, validateTimeFormat, formatTimeKorean } from '@/lib/utils'
 import type { 
@@ -1037,7 +1038,13 @@ export default function WeeklyReportPage() {
                     lineHeight: '1.5',
                     whiteSpace: 'pre-wrap'
                   }}>
-                    {renderSlackMessage(selectedReport.result_data)}
+                    {(() => {
+                      const blocks = (selectedReport.result_data as any)?.slack_blocks
+                      if (Array.isArray(blocks) && blocks.length > 0) {
+                        return <SlackPreview blocks={blocks} />
+                      }
+                      return renderSlackMessage(selectedReport.result_data)
+                    })()}
                   </div>
                 )}
               </div>

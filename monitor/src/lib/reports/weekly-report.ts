@@ -253,7 +253,7 @@ export class WeeklyReportService {
       // AI 분석 - 주간 리포트에서는 사용하지 않음
       let aiAnalysis: AIAnalysis | undefined
 
-      // [13/13] Slack 전송
+      // [13/13] Slack 블록 구성 및 전송
       let slackSent = false
       // 리포트용 Slack Webhook URL 가져오기 (테스트/운영 모드 구분)
       let slackWebhook: string | null = null
@@ -265,23 +265,26 @@ export class WeeklyReportService {
         this.log(`Slack webhook URL을 가져올 수 없습니다(플랫폼별 필수): ${error}`)
         slackWebhook = null
       }
+
+      const platformEmoji = this.platform === 'android' ? '🤖 ' : '🍎 '
+      const title = `${platformEmoji}Sentry 주간 리포트 — ${thisRangeLabel}`
+      const slackBlocks = this.buildWeeklyBlocks(
+        reportData,
+        title,
+        environment,
+        org,
+        projectId,
+        {
+          start: thisWeekStart.toISOString(),
+          end: thisWeekEnd.toISOString()
+        }
+      )
+
       if (sendSlack && slackWebhook) {
         try {
           const modeText = isTestMode ? '[테스트 모드] ' : ''
           this.log(`[13/13] ${modeText}Slack 전송…`)
-          const title = `Sentry 주간 리포트 — ${thisRangeLabel}`
-          const blocks = this.buildWeeklyBlocks(
-            reportData,
-            title,
-            environment,
-            org,
-            projectId,
-            {
-              start: thisWeekStart.toISOString(),
-              end: thisWeekEnd.toISOString()
-            }
-          )
-          await this.postToSlack(slackWebhook, blocks)
+          await this.postToSlack(slackWebhook, slackBlocks)
           slackSent = true
         } catch (error) {
           this.log(`Slack 전송 실패: ${error}`)
@@ -296,7 +299,7 @@ export class WeeklyReportService {
       await reportsDb.completeReportExecution(
         execution.id,
         'success',
-        reportData,
+        { ...reportData, slack_blocks: slackBlocks },
         aiAnalysis,
         slackSent,
         undefined,
