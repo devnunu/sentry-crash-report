@@ -154,8 +154,8 @@ async function processMonitorTick(monitorId?: string) {
 
   while (retryCount < maxRetries) {
     try {
-      // 기존 monitor tick API 호출 (monitorId가 있으면 쿼리 파라미터로 전달)
-      const url = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/monitor/tick${monitorId ? `?monitorId=${monitorId}` : ''}`
+      // 기존 monitor tick API 호출
+      const url = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/monitor/tick`
       
       const response = await fetch(url, {
         method: 'POST',

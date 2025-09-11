@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { reportsDb } from '@/lib/reports/database'
+import type { WeekDay } from '@/lib/reports/types'
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,8 +10,8 @@ export async function GET(request: NextRequest) {
     const kstTime = new Date(kstTimeStr)
     const dayOfWeek = kstTime.getDay()
     const currentTime = `${kstTime.getHours().toString().padStart(2, '0')}:${kstTime.getMinutes().toString().padStart(2, '0')}`
-    const dayMapping = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-    const todayKey = dayMapping[dayOfWeek]
+    const dayMapping = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+    const todayKey = dayMapping[dayOfWeek] as WeekDay
 
     // 일간 리포트 설정 확인
     const dailySettings = await reportsDb.getReportSettings('daily')
@@ -27,8 +28,8 @@ export async function GET(request: NextRequest) {
     }
 
     // 최근 실행 기록 확인
-    const recentDaily = await reportsDb.getReportExecutions('daily', { limit: 3 })
-    const recentWeekly = await reportsDb.getReportExecutions('weekly', { limit: 3 })
+    const recentDaily = await reportsDb.getReportExecutions('daily', 3)
+    const recentWeekly = await reportsDb.getReportExecutions('weekly', 3)
 
     return NextResponse.json({
       success: true,

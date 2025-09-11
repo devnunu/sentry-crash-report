@@ -762,7 +762,8 @@ export default function DailyReportPage() {
             )}
             
             {/* 접을 수 있는 실행 로그 섹션 */}
-            {selectedReport.execution_logs && selectedReport.execution_logs.length > 0 && (
+            {/* @ts-ignore - execution_logs conditional rendering type issue */}
+            {Array.isArray(selectedReport.execution_logs) && selectedReport.execution_logs.length > 0 && (
               <div style={{ marginBottom: '16px' }}>
                 <button
                   onClick={() => toggleSection('logs')}
@@ -794,7 +795,7 @@ export default function DailyReportPage() {
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word'
                   }}>
-                    {selectedReport.execution_logs.join('\n')}
+                    {(selectedReport.execution_logs as string[]).join('\n')}
                   </pre>
                 )}
               </div>

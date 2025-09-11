@@ -17,6 +17,7 @@ export interface MonitorSession {
   expires_at: string
   created_at: string
   updated_at: string
+  qstash_schedule_id?: string
 }
 
 export interface MonitorHistory {
