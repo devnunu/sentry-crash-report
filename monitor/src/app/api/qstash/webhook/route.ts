@@ -60,6 +60,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
+function getBaseUrl() {
+  return process.env.NEXT_PUBLIC_APP_URL 
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+}
+
 async function processDailyReport() {
   let retryCount = 0
   const maxRetries = 3
@@ -73,7 +78,7 @@ async function processDailyReport() {
       const isTestMode = settings?.is_test_mode ?? false
 
       // Run for both platforms
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const baseUrl = getBaseUrl()
       const platforms: Array<'android' | 'ios'> = ['android', 'ios']
 
       for (const platform of platforms) {
@@ -81,7 +86,7 @@ async function processDailyReport() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sendSlack: true, includeAI, isTestMode, platform }),
-          signal: AbortSignal.timeout(60000)
+          signal: AbortSignal.timeout(10000)
         })
         if (!response.ok) {
           throw new Error(`Daily report API failed for ${platform}: ${response.status}`)
@@ -118,7 +123,7 @@ async function processWeeklyReport() {
       const isTestMode = settings?.is_test_mode ?? false
 
       // Run for both platforms
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const baseUrl = getBaseUrl()
       const platforms: Array<'android' | 'ios'> = ['android', 'ios']
 
       for (const platform of platforms) {
@@ -126,7 +131,7 @@ async function processWeeklyReport() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sendSlack: true, includeAI, isTestMode, platform }),
-          signal: AbortSignal.timeout(90000)
+          signal: AbortSignal.timeout(10000)
         })
         if (!response.ok) {
           throw new Error(`Weekly report API failed for ${platform}: ${response.status}`)
@@ -158,7 +163,7 @@ async function processMonitorTick(monitorId?: string) {
   while (retryCount < maxRetries) {
     try {
       // 기존 monitor tick API 호출
-      const url = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/monitor/tick`
+      const url = `${getBaseUrl()}/api/monitor/tick`
       
       const response = await fetch(url, {
         method: 'POST',
