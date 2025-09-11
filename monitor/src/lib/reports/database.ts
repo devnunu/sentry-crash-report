@@ -3,6 +3,12 @@ import type { ReportExecution, ReportSettings } from './types'
 
 export class ReportsDatabaseService {
   
+  private toKstDateString(date: Date): string {
+    // KST = UTC+9, 저장은 'YYYY-MM-DD' (KST 기준 날짜)
+    const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
+    return kst.toISOString().split('T')[0]
+  }
+  
   private ensureSupabaseAdmin() {
     if (!supabaseAdmin) {
       throw new Error('Supabase admin client is not configured')
@@ -19,15 +25,19 @@ export class ReportsDatabaseService {
     endDate: Date,
     platform?: 'android' | 'ios'
   ): Promise<ReportExecution> {
+    // 날짜 컬럼은 KST 기준의 'YYYY-MM-DD'로 저장
+    const targetDateKst = this.toKstDateString(targetDate)
+    const startDateKst = this.toKstDateString(startDate)
+    const endDateKst = this.toKstDateString(endDate)
     const { data, error } = await this.ensureSupabaseAdmin()
       .from('report_executions')
       .insert({
         report_type: reportType,
         status: 'running',
         trigger_type: triggerType,
-        target_date: targetDate.toISOString().split('T')[0],
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
+        target_date: targetDateKst,
+        start_date: startDateKst,
+        end_date: endDateKst,
         platform
       })
       .select()
