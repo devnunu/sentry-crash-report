@@ -4,6 +4,7 @@ import { db } from '@/lib/database'
 import { monitoringService } from '@/lib/monitor'
 import { StartMonitorSchema } from '@/lib/types'
 import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
+import { qstashService } from '@/lib/qstash-client'
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +19,27 @@ export async function POST(request: NextRequest) {
     monitoringService.notifyMonitorStart(monitorSession).catch(error => {
       console.error('Failed to send start notification:', error)
     })
+
+    // QStash에 monitor tick 스케줄 등록 (30분마다)
+    try {
+      const monitorJobId = qstashService.getJobId('monitor', monitorSession.id)
+      const scheduleResult = await qstashService.scheduleJob({
+        jobId: monitorJobId,
+        endpoint: '/api/qstash/webhook',
+        cron: '*/30 * * * *', // 30분마다
+        body: { monitorId: monitorSession.id }
+      })
+      
+      console.log(`Monitor tick scheduled: ${scheduleResult.scheduleId}`)
+      
+      // 스케줄 ID를 모니터 세션에 저장
+      await db.updateMonitorSession(monitorSession.id, {
+        qstash_schedule_id: scheduleResult.scheduleId
+      })
+    } catch (error) {
+      console.error('Failed to schedule monitor tick:', error)
+      // QStash 스케줄링 실패해도 모니터링은 계속 진행
+    }
     
     return NextResponse.json(
       createApiResponse({

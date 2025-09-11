@@ -74,22 +74,27 @@ class DevCronService {
       scheduled: false // 수동으로 시작
     })
 
-    // 기존 모니터 틱 스케줄 (30분마다)
+    // 모니터 틱 스케줄 (30분마다) - QStash webhook 시뮬레이션
     const monitorTask = cron.schedule('*/30 * * * *', async () => {
       try {
-        console.log('⏰ [DEV CRON] Checking monitor tick...')
+        console.log('⏰ [DEV CRON] Triggering monitor tick via QStash webhook simulation...')
         
-        const response = await fetch('http://localhost:3000/api/monitor/tick', {
+        const response = await fetch('http://localhost:3000/api/qstash/webhook', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
-          }
+            'Content-Type': 'application/json',
+            'upstash-signature': 'dev-signature' // 개발 환경용 더미 서명
+          },
+          body: JSON.stringify({
+            qstashJobId: 'sentry-monitor-tick',
+            triggeredBy: 'dev-cron'
+          })
         })
 
         const result = await response.json()
         
         if (result.success) {
-          console.log(`✅ [DEV CRON] Monitor tick completed`)
+          console.log(`✅ [DEV CRON] Monitor tick executed: ${result.type}`)
         } else {
           console.error(`❌ [DEV CRON] Monitor tick failed: ${result.error}`)
         }
@@ -106,9 +111,9 @@ class DevCronService {
     this.tasks.forEach(task => task.start())
     
     console.log(`✅ Development cron service started with ${this.tasks.length} tasks`)
-    console.log('   - Daily report: Every minute')
-    console.log('   - Weekly report: Every minute') 
-    console.log('   - Monitor tick: Every 30 minutes')
+    console.log('   - Daily report: Every minute (QStash webhook simulation)')
+    console.log('   - Weekly report: Every minute (QStash webhook simulation)') 
+    console.log('   - Monitor tick: Every 30 minutes (QStash webhook simulation)')
   }
 
   stop() {

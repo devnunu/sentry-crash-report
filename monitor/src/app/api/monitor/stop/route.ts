@@ -4,6 +4,7 @@ import { db } from '@/lib/database'
 import { monitoringService } from '@/lib/monitor'
 import { StopMonitorSchema } from '@/lib/types'
 import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
+import { qstashService } from '@/lib/qstash-client'
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,6 +29,16 @@ export async function POST(request: NextRequest) {
       )
     }
     
+    // QStash 스케줄 삭제
+    if (existingMonitor.qstash_schedule_id) {
+      try {
+        await qstashService.deleteSchedule(existingMonitor.qstash_schedule_id)
+        console.log(`Monitor tick schedule deleted: ${existingMonitor.qstash_schedule_id}`)
+      } catch (error) {
+        console.error('Failed to delete monitor tick schedule:', error)
+      }
+    }
+
     // 모니터 중단
     const stoppedMonitor = await db.stopMonitorSession(monitorId)
     
