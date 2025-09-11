@@ -111,10 +111,13 @@ export default function DailyReportPage() {
   // Top5 상태
   const [topAndroid, setTopAndroid] = useState<any[]>([])
   const [topIOS, setTopIOS] = useState<any[]>([])
+  const [topDateKeyAndroid, setTopDateKeyAndroid] = useState<string>('')
+  const [topDateKeyIOS, setTopDateKeyIOS] = useState<string>('')
   const [topLoading, setTopLoading] = useState(false)
   const [issueModal, setIssueModal] = useState<{ open: boolean; item?: any; platform?: 'android'|'ios'; dateKey?: string }>(()=>({ open: false }))
   const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
   const [issueLoading, setIssueLoading] = useState(false)
+  const [issueError, setIssueError] = useState<string>('')
   // 날짜 표시를 KST 기준으로 변환 (YYYY-MM-DD)
   const toKstDate = (dateStr?: string) => {
     if (!dateStr) return '-'
@@ -178,6 +181,8 @@ export default function DailyReportPage() {
         ])
         setTopAndroid(aRes?.data?.top || [])
         setTopIOS(iRes?.data?.top || [])
+        setTopDateKeyAndroid(aRes?.data?.dateKey || '')
+        setTopDateKeyIOS(iRes?.data?.dateKey || '')
       } catch {}
       setTopLoading(false)
     }
@@ -200,16 +205,12 @@ export default function DailyReportPage() {
     return () => clearInterval(t)
   }, [fetchReports, fetchSettings])
 
-  const openIssue = async (item: any, platform: 'android'|'ios') => {
-    setIssueModal({ open: true, item, platform })
-    setIssueLoading(true)
+  const openIssue = (item: any, platform: 'android'|'ios') => {
+    // 팝업만 열고, 분석은 사용자가 버튼을 눌렀을 때만 수행
+    const dateKey = platform === 'android' ? topDateKeyAndroid : topDateKeyIOS
+    setIssueModal({ open: true, item, platform, dateKey })
     setIssueAnalysis(null)
-    try {
-      const dateKey = new Date().toISOString().slice(0,10) // 최신 기준 (정확한 키를 알 수 없을 때 API가 캐시 miss 시 새 분석)
-      const res = await fetch(`/api/reports/issues/${encodeURIComponent(item.issueId)}/analysis?platform=${platform}&type=daily&dateKey=${dateKey}`)
-      const j = await res.json()
-      setIssueAnalysis(j?.data?.analysis || null)
-    } catch {}
+    setIssueError('')
     setIssueLoading(false)
   }
 
@@ -217,16 +218,31 @@ export default function DailyReportPage() {
     if (!issueModal.item || !issueModal.platform) return
     setIssueLoading(true)
     setIssueAnalysis(null)
+    setIssueError('')
     try {
-      const dateKey = new Date().toISOString().slice(0,10)
-      const res = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform: issueModal.platform, type: 'daily', dateKey })
-      })
-      const j = await res.json()
-      setIssueAnalysis(j?.data?.analysis || null)
-    } catch {}
+      const dateKey = issueModal.dateKey || new Date().toISOString().slice(0,10)
+      // 먼저 캐시 조회
+      const getRes = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis?platform=${issueModal.platform}&type=daily&dateKey=${dateKey}`)
+      const getJson = await getRes.json()
+      const cached = getJson?.data?.analysis
+      if (cached) {
+        setIssueAnalysis(cached)
+      } else {
+        // 캐시 없으면 생성
+        const postRes = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform: issueModal.platform, type: 'daily', dateKey })
+        })
+        const postJson = await postRes.json()
+        if (!postRes.ok || !postJson?.success) {
+          throw new Error(postJson?.error || 'AI 분석 실패')
+        }
+        setIssueAnalysis(postJson?.data?.analysis || null)
+      }
+    } catch (e:any) {
+      setIssueError(e?.message || 'AI 분석 중 오류가 발생했습니다')
+    }
     setIssueLoading(false)
   }
 
@@ -915,6 +931,9 @@ export default function DailyReportPage() {
                   {issueModal.item.link && <a className="btn ghost" href={issueModal.item.link} target="_blank" rel="noreferrer">Sentry에서 열기</a>}
                   <button className="btn ok" onClick={runIssueAnalysis} disabled={issueLoading}>{issueLoading?'분석 중…':'AI 분석'}</button>
                 </div>
+                {issueError && (
+                  <div style={{ color: 'var(--danger)', marginTop: 8 }}>⚠️ {issueError}</div>
+                )}
                 {issueAnalysis && (
                   <details open style={{ marginTop:8 }}>
                     <summary style={{ cursor:'pointer', fontWeight:600 }}>AI 분석 결과</summary>

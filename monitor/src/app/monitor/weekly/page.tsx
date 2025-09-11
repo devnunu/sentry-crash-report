@@ -117,6 +117,9 @@ export default function WeeklyReportPage() {
   const [issueModal, setIssueModal] = useState<{ open: boolean; item?: any; platform?: 'android'|'ios'; dateKey?: string }>(()=>({ open:false }))
   const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
   const [issueLoading, setIssueLoading] = useState(false)
+  const [issueError, setIssueError] = useState<string>('')
+  const [dateRangeAndroid, setDateRangeAndroid] = useState<{start:string,end:string}|null>(null)
+  const [dateRangeIOS, setDateRangeIOS] = useState<{start:string,end:string}|null>(null)
   // KST 날짜 라벨 헬퍼
   const toKstDate = (dateStr?: string) => {
     if (!dateStr) return '-'
@@ -478,22 +481,21 @@ export default function WeeklyReportPage() {
         ])
         setTopAndroid(aRes?.data?.top || [])
         setTopIOS(iRes?.data?.top || [])
+        if (aRes?.data?.dateRange) setDateRangeAndroid(aRes.data.dateRange)
+        if (iRes?.data?.dateRange) setDateRangeIOS(iRes.data.dateRange)
       } catch {}
       setTopLoading(false)
     }
     loadTop()
   }, [])
 
-  const openIssue = async (item:any, platform:'android'|'ios', dateRange?: {start:string,end:string}) => {
-    setIssueModal({ open:true, item, platform })
-    setIssueLoading(true)
+  const openIssue = (item:any, platform:'android'|'ios') => {
+    // 팝업만 열고, 분석은 클릭 시 수행
+    const dr = platform === 'android' ? dateRangeAndroid : dateRangeIOS
+    const dateKey = dr ? `${dr.start}~${dr.end}` : ''
+    setIssueModal({ open:true, item, platform, dateKey })
     setIssueAnalysis(null)
-    try {
-      const dateKey = dateRange ? `${dateRange.start}~${dateRange.end}` : ''
-      const res = await fetch(`/api/reports/issues/${encodeURIComponent(item.issueId)}/analysis?platform=${platform}&type=weekly&dateKey=${encodeURIComponent(dateKey)}`)
-      const j = await res.json()
-      setIssueAnalysis(j?.data?.analysis || null)
-    } catch {}
+    setIssueError('')
     setIssueLoading(false)
   }
 
@@ -501,14 +503,26 @@ export default function WeeklyReportPage() {
     if (!issueModal.item || !issueModal.platform) return
     setIssueLoading(true)
     setIssueAnalysis(null)
+    setIssueError('')
     try {
-      const res = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ platform: issueModal.platform, type:'weekly', dateKey: new Date().toISOString().slice(0,10) })
-      })
-      const j = await res.json()
-      setIssueAnalysis(j?.data?.analysis || null)
-    } catch {}
+      const dateKey = issueModal.dateKey || new Date().toISOString().slice(0,10)
+      const getRes = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis?platform=${issueModal.platform}&type=weekly&dateKey=${encodeURIComponent(dateKey)}`)
+      const getJson = await getRes.json()
+      const cached = getJson?.data?.analysis
+      if (cached) {
+        setIssueAnalysis(cached)
+      } else {
+        const res = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ platform: issueModal.platform, type:'weekly', dateKey })
+        })
+        const j = await res.json()
+        if (!res.ok || !j?.success) throw new Error(j?.error || 'AI 분석 실패')
+        setIssueAnalysis(j?.data?.analysis || null)
+      }
+    } catch (e:any) {
+      setIssueError(e?.message || 'AI 분석 중 오류가 발생했습니다')
+    }
     setIssueLoading(false)
   }
 
@@ -977,6 +991,9 @@ export default function WeeklyReportPage() {
                   {issueModal.item.link && <a className="btn ghost" href={issueModal.item.link} target="_blank" rel="noreferrer">Sentry에서 열기</a>}
                   <button className="btn ok" onClick={runIssueAnalysis} disabled={issueLoading}>{issueLoading?'분석 중…':'AI 분석'}</button>
                 </div>
+                {issueError && (
+                  <div style={{ color: 'var(--danger)', marginTop: 8 }}>⚠️ {issueError}</div>
+                )}
                 {issueAnalysis && (
                   <details open style={{ marginTop:8 }}>
                     <summary style={{ cursor:'pointer', fontWeight:600 }}>AI 분석 결과</summary>
