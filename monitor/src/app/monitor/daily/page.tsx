@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import SlackPreview from '@/lib/SlackPreview'
-import { formatKST } from '@/lib/utils'
 import Link from 'next/link'
 import { formatKST, formatExecutionTime, validateTimeFormat, formatTimeKorean } from '@/lib/utils'
 import type { 
