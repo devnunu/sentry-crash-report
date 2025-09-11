@@ -12,27 +12,27 @@ class DevCronService {
     console.log('🚀 Starting development cron service...')
     this.isRunning = true
 
-    // 일간 리포트 스케줄 (매분 실행)
+    // 일간 리포트 스케줄 (매분 실행) - QStash webhook 시뮬레이션
     const dailyTask = cron.schedule('* * * * *', async () => {
       try {
-        console.log('⏰ [DEV CRON] Checking daily report schedule...')
+        console.log('⏰ [DEV CRON] Triggering daily report via QStash webhook simulation...')
         
-        const response = await fetch('http://localhost:3000/api/reports/daily/schedule', {
+        const response = await fetch('http://localhost:3000/api/qstash/webhook', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
-          }
+            'Content-Type': 'application/json',
+            'upstash-signature': 'dev-signature' // 개발 환경용 더미 서명
+          },
+          body: JSON.stringify({
+            qstashJobId: 'sentry-daily-report',
+            triggeredBy: 'dev-cron'
+          })
         })
 
         const result = await response.json()
         
         if (result.success) {
-          if (result.data.skipped) {
-            console.log(`📋 [DEV CRON] Daily report skipped: ${result.data.message}`)
-          } else {
-            console.log(`✅ [DEV CRON] Daily report executed: ${result.data.message}`)
-            console.log(`   Execution ID: ${result.data.executionId}`)
-          }
+          console.log(`✅ [DEV CRON] Daily report executed: ${result.type}`)
         } else {
           console.error(`❌ [DEV CRON] Daily report failed: ${result.error}`)
         }
@@ -43,27 +43,27 @@ class DevCronService {
       scheduled: false // 수동으로 시작
     })
 
-    // 주간 리포트 스케줄 (매분 실행)
+    // 주간 리포트 스케줄 (매분 실행) - QStash webhook 시뮬레이션
     const weeklyTask = cron.schedule('* * * * *', async () => {
       try {
-        console.log('⏰ [DEV CRON] Checking weekly report schedule...')
+        console.log('⏰ [DEV CRON] Triggering weekly report via QStash webhook simulation...')
         
-        const response = await fetch('http://localhost:3000/api/reports/weekly/schedule', {
+        const response = await fetch('http://localhost:3000/api/qstash/webhook', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
-          }
+            'Content-Type': 'application/json',
+            'upstash-signature': 'dev-signature' // 개발 환경용 더미 서명
+          },
+          body: JSON.stringify({
+            qstashJobId: 'sentry-weekly-report',
+            triggeredBy: 'dev-cron'
+          })
         })
 
         const result = await response.json()
         
         if (result.success) {
-          if (result.data.skipped) {
-            console.log(`📋 [DEV CRON] Weekly report skipped: ${result.data.message}`)
-          } else {
-            console.log(`✅ [DEV CRON] Weekly report executed: ${result.data.message}`)
-            console.log(`   Execution ID: ${result.data.executionId}`)
-          }
+          console.log(`✅ [DEV CRON] Weekly report executed: ${result.type}`)
         } else {
           console.error(`❌ [DEV CRON] Weekly report failed: ${result.error}`)
         }
@@ -137,13 +137,20 @@ class DevCronService {
     }
   }
 
-  // 수동으로 특정 스케줄 트리거
+  // 수동으로 특정 스케줄 트리거 - QStash webhook 시뮬레이션
   async triggerDaily() {
     console.log('🔧 [MANUAL TRIGGER] Triggering daily report...')
     try {
-      const response = await fetch('http://localhost:3000/api/reports/daily/schedule', {
+      const response = await fetch('http://localhost:3000/api/qstash/webhook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'upstash-signature': 'dev-signature'
+        },
+        body: JSON.stringify({
+          qstashJobId: 'sentry-daily-report',
+          triggeredBy: 'manual-dev'
+        })
       })
       const result = await response.json()
       console.log('🔧 [MANUAL TRIGGER] Daily result:', result)
@@ -157,9 +164,16 @@ class DevCronService {
   async triggerWeekly() {
     console.log('🔧 [MANUAL TRIGGER] Triggering weekly report...')
     try {
-      const response = await fetch('http://localhost:3000/api/reports/weekly/schedule', {
+      const response = await fetch('http://localhost:3000/api/qstash/webhook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'upstash-signature': 'dev-signature'
+        },
+        body: JSON.stringify({
+          qstashJobId: 'sentry-weekly-report',
+          triggeredBy: 'manual-dev'
+        })
       })
       const result = await response.json()
       console.log('🔧 [MANUAL TRIGGER] Weekly result:', result)
