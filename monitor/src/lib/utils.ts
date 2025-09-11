@@ -73,6 +73,29 @@ export function getPlatformEnvOrDefault(platform: Platform, key: string, default
   return getPlatformEnv(platform, key) || defaultValue
 }
 
+// 플랫폼별 Slack 웹훅 URL 가져오기 (테스트/운영 구분)
+export function getSlackWebhookUrl(platform: Platform, isTest: boolean = false, isMonitoring: boolean = false, isReport: boolean = false): string {
+  // 테스트 모드: 통합 테스트 웹훅 허용
+  if (isTest) {
+    const testUrl = process.env.SLACK_TEST_WEBHOOK_URL
+    if (testUrl) return testUrl
+  }
+
+  // 리포트/모니터링은 반드시 플랫폼별 웹훅을 사용 (레거시 폴백 제거)
+  if (isReport) {
+    const reportUrl = getPlatformEnv(platform, 'SLACK_REPORT_WEBHOOK_URL')
+    if (reportUrl) return reportUrl
+  } else if (isMonitoring) {
+    const monitoringUrl = getPlatformEnv(platform, 'SLACK_MONITORING_WEBHOOK_URL')
+    if (monitoringUrl) return monitoringUrl
+  } else {
+    const webhookUrl = getPlatformEnv(platform, 'SLACK_WEBHOOK_URL')
+    if (webhookUrl) return webhookUrl
+  }
+
+  throw new Error(`Slack webhook URL not found for platform ${platform} (test=${isTest}, monitoring=${isMonitoring}, report=${isReport})`)
+}
+
 // 에러 메시지 추출
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {

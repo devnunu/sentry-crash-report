@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { qstashService } from '@/lib/qstash-client'
+import { reportsDb } from '@/lib/reports/database'
 
 export async function POST(request: NextRequest) {
   console.log('[QStash Webhook] Received request')
@@ -66,29 +67,30 @@ async function processDailyReport() {
 
   while (retryCount < maxRetries) {
     try {
-      // 기존 daily report API 호출
-      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/monitor/tick?type=daily`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.CRON_SECRET || 'test-secret'}`
-        },
-        signal: AbortSignal.timeout(30000) // 30초 타임아웃
-      })
+      // Fetch settings to apply AI/test flags
+      const settings = await reportsDb.getReportSettings('daily')
+      const includeAI = settings?.ai_enabled ?? true
+      const isTestMode = settings?.is_test_mode ?? false
 
-      if (!response.ok) {
-        throw new Error(`Daily report API failed: ${response.status}`)
+      // Run for both platforms
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const platforms: Array<'android' | 'ios'> = ['android', 'ios']
+
+      for (const platform of platforms) {
+        const response = await fetch(`${baseUrl}/api/reports/daily/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sendSlack: true, includeAI, isTestMode, platform }),
+          signal: AbortSignal.timeout(60000)
+        })
+        if (!response.ok) {
+          throw new Error(`Daily report API failed for ${platform}: ${response.status}`)
+        }
+        await response.json()
       }
 
-      const result = await response.json()
       console.log('[QStash Webhook] Daily report completed successfully')
-      
-      return NextResponse.json({
-        success: true,
-        type: 'daily-report',
-        result,
-        attempts: retryCount + 1
-      })
+      return NextResponse.json({ success: true, type: 'daily-report', result: { platforms: ['android','ios'] }, attempts: retryCount + 1 })
     } catch (error) {
       retryCount++
       console.error(`[QStash Webhook] Daily report failed (attempt ${retryCount}):`, error)
@@ -110,29 +112,30 @@ async function processWeeklyReport() {
 
   while (retryCount < maxRetries) {
     try {
-      // 기존 weekly report API 호출
-      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/monitor/tick?type=weekly`, {
-        method: 'POST', 
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.CRON_SECRET || 'test-secret'}`
-        },
-        signal: AbortSignal.timeout(30000) // 30초 타임아웃
-      })
+      // Fetch settings to apply AI/test flags
+      const settings = await reportsDb.getReportSettings('weekly')
+      const includeAI = settings?.ai_enabled ?? true
+      const isTestMode = settings?.is_test_mode ?? false
 
-      if (!response.ok) {
-        throw new Error(`Weekly report API failed: ${response.status}`)
+      // Run for both platforms
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const platforms: Array<'android' | 'ios'> = ['android', 'ios']
+
+      for (const platform of platforms) {
+        const response = await fetch(`${baseUrl}/api/reports/weekly/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sendSlack: true, includeAI, isTestMode, platform }),
+          signal: AbortSignal.timeout(90000)
+        })
+        if (!response.ok) {
+          throw new Error(`Weekly report API failed for ${platform}: ${response.status}`)
+        }
+        await response.json()
       }
 
-      const result = await response.json()
       console.log('[QStash Webhook] Weekly report completed successfully')
-      
-      return NextResponse.json({
-        success: true,
-        type: 'weekly-report', 
-        result,
-        attempts: retryCount + 1
-      })
+      return NextResponse.json({ success: true, type: 'weekly-report', result: { platforms: ['android','ios'] }, attempts: retryCount + 1 })
     } catch (error) {
       retryCount++
       console.error(`[QStash Webhook] Weekly report failed (attempt ${retryCount}):`, error)

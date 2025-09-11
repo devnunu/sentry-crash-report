@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { Platform } from '../types'
 
 // 리포트 실행 기록 타입
 export interface ReportExecution {
@@ -6,6 +7,7 @@ export interface ReportExecution {
   report_type: 'daily' | 'weekly'
   status: 'success' | 'error' | 'running'
   trigger_type: 'scheduled' | 'manual'
+  platform?: Platform
   target_date: string
   start_date: string
   end_date: string
@@ -29,6 +31,7 @@ export interface ReportSettings {
   schedule_time: string
   schedule_days: WeekDay[]
   ai_enabled: boolean
+  is_test_mode?: boolean
   created_at: string
   updated_at: string
 }
@@ -171,7 +174,9 @@ export interface AIIssueNote {
 export const GenerateDailyReportSchema = z.object({
   targetDate: z.string().optional(),
   sendSlack: z.boolean().default(true),
-  includeAI: z.boolean().default(true)
+  includeAI: z.boolean().default(true),
+  isTestMode: z.boolean().optional().default(false),
+  platform: z.enum(['android', 'ios', 'all']).optional().default('all')
 })
 
 export const GenerateWeeklyReportSchema = z.object({
@@ -179,14 +184,17 @@ export const GenerateWeeklyReportSchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   sendSlack: z.boolean().default(true),
-  includeAI: z.boolean().default(true)
+  includeAI: z.boolean().default(true),
+  isTestMode: z.boolean().optional().default(false),
+  platform: z.enum(['android', 'ios', 'all']).optional().default('all')
 })
 
 export const UpdateReportSettingsSchema = z.object({
   auto_enabled: z.boolean().optional(),
   schedule_time: z.string().optional(),
   schedule_days: z.array(z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])).optional(),
-  ai_enabled: z.boolean().optional()
+  ai_enabled: z.boolean().optional(),
+  is_test_mode: z.boolean().optional()
 })
 
 export type GenerateDailyReportRequest = z.infer<typeof GenerateDailyReportSchema>

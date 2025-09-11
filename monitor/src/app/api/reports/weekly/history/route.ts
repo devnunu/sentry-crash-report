@@ -10,10 +10,12 @@ export async function GET(request: NextRequest) {
     
     const limit = limitParam ? Math.min(Math.max(parseInt(limitParam), 1), 100) : 20
     const offset = offsetParam ? Math.max(parseInt(offsetParam), 0) : 0
+    const platformParam = searchParams.get('platform')
+    const platform = platformParam === 'android' || platformParam === 'ios' ? platformParam : undefined
     
     console.log(`[API] Fetching weekly report history (limit: ${limit}, offset: ${offset})`)
     
-    const reports = await reportsDb.getReportExecutions('weekly', limit, offset)
+    const reports = await reportsDb.getReportExecutions('weekly', limit, offset, platform as any)
     
     return NextResponse.json(
       createApiResponse({

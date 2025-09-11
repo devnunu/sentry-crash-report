@@ -20,7 +20,7 @@ import type {
   SurgeIssue, 
   AIAnalysis 
 } from './types'
-import { getRequiredEnv, getPlatformEnv, getRequiredPlatformEnv, getPlatformEnvOrDefault } from '../utils'
+import { getRequiredEnv, getPlatformEnv, getRequiredPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl } from '../utils'
 import type { Platform } from '../types'
 
 export interface DailyReportOptions {
@@ -28,6 +28,7 @@ export interface DailyReportOptions {
   sendSlack?: boolean
   includeAI?: boolean
   triggerType?: 'scheduled' | 'manual'
+  isTestMode?: boolean
 }
 
 // 급증 탐지 파라미터 (Python과 동일)
@@ -109,7 +110,8 @@ export class DailyReportService {
       targetDate = getYesterday(),
       sendSlack = true,
       includeAI = true,
-      triggerType = 'manual'
+      triggerType = 'manual',
+      isTestMode = false
     } = options
 
     this.log(`[Daily] [1/14] 환경 변수 로드 (${this.platform.toUpperCase()})...`)
@@ -118,14 +120,18 @@ export class DailyReportService {
     const projectSlug = getPlatformEnv(this.platform, 'PROJECT_SLUG')
     const projectIdEnv = getPlatformEnv(this.platform, 'PROJECT_ID')
     const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
-    const slackWebhook = getPlatformEnv(this.platform, 'SLACK_WEBHOOK_URL')
-    
-    this.log(`Environment variables check:`)
-    this.log(`  - ${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL exists: ${!!slackWebhook}`)
-    this.log(`  - ${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL length: ${(slackWebhook || '').length}`)
-    if (slackWebhook) {
-      this.log(`  - ${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL starts with: ${slackWebhook.substring(0, 30)}...`)
+    // 리포트용 Slack Webhook URL 가져오기 (테스트/운영 모드 구분)
+    let slackWebhook: string | null = null
+    try {
+      slackWebhook = isTestMode
+        ? getSlackWebhookUrl(this.platform, true, false, false)
+        : getSlackWebhookUrl(this.platform, false, false, true)
+    } catch (error) {
+      this.log(`Slack webhook URL을 가져올 수 없습니다(플랫폼별 필수): ${error}`)
+      slackWebhook = null
     }
+    
+    this.log(`Slack webhook configured: ${!!slackWebhook}`)
 
     this.log(`[Daily] [2/14] 날짜 계산(KST 기준 어제/그저께)...`)
     // 어제와 그저께 날짜 계산
@@ -154,7 +160,8 @@ export class DailyReportService {
       triggerType,
       yesterday,
       yesterdayBounds.start,
-      yesterdayBounds.end
+      yesterdayBounds.end,
+      this.platform
     )
 
     try {
@@ -264,8 +271,7 @@ export class DailyReportService {
           this.log(`  - Error details: ${error instanceof Error ? error.stack : JSON.stringify(error)}`)
         }
       } else {
-        this.log(`${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL 미설정 — 전송 스킵`)
-        this.log(`  - sendSlack: ${sendSlack}, slackWebhook exists: ${!!slackWebhook}`)
+        this.log(`Slack Webhook 미설정 — 전송 스킵 (sendSlack=${sendSlack}, configured=${!!slackWebhook})`)
       }
 
       // 실행 완료 처리

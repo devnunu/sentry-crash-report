@@ -82,6 +82,8 @@ export default function DailyReportPage() {
   const [targetDate, setTargetDate] = useState('')
   const [includeAI, setIncludeAI] = useState(true)
   const [sendSlack, setSendSlack] = useState(true)
+  const [isTestMode, setIsTestMode] = useState(false)
+  const [platform, setPlatform] = useState<'android' | 'ios' | 'all'>('all')
   
   // 설정 변경 상태
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -90,6 +92,7 @@ export default function DailyReportPage() {
   const [aiEnabled, setAiEnabled] = useState(true)
   const [scheduleDays, setScheduleDays] = useState<WeekDay[]>(['mon', 'tue', 'wed', 'thu', 'fri'])
   const [scheduleTime, setScheduleTime] = useState('09:00')
+  const [settingsTestMode, setSettingsTestMode] = useState(false)
   
   // 결과 모달 상태
   const [selectedReport, setSelectedReport] = useState<ReportExecution | null>(null)
@@ -99,6 +102,8 @@ export default function DailyReportPage() {
     data: false,
     slack: false
   })
+  // 플랫폼 필터 (히스토리)
+  const [historyPlatform, setHistoryPlatform] = useState<'all' | 'android' | 'ios'>('all')
 
   // 히스토리 조회
   const fetchReports = useCallback(async () => {
@@ -106,7 +111,8 @@ export default function DailyReportPage() {
     setError('')
     
     try {
-      const response = await fetch('/api/reports/daily/history?limit=30')
+      const q = historyPlatform === 'all' ? '' : `&platform=${historyPlatform}`
+      const response = await fetch(`/api/reports/daily/history?limit=30${q}`)
       const result: ApiResponse<{ reports: ReportExecution[] }> = await response.json()
       
       if (!result.success || !result.data) {
@@ -119,7 +125,7 @@ export default function DailyReportPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [historyPlatform])
 
   // 설정 조회
   const fetchSettings = useCallback(async () => {
@@ -133,6 +139,7 @@ export default function DailyReportPage() {
         setAiEnabled(result.data.settings.ai_enabled)
         setScheduleDays(result.data.settings.schedule_days || ['mon', 'tue', 'wed', 'thu', 'fri'])
         setScheduleTime(result.data.settings.schedule_time || '09:00')
+        setSettingsTestMode(result.data.settings.is_test_mode || false)
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err)
@@ -156,7 +163,9 @@ export default function DailyReportPage() {
       const request: GenerateDailyReportRequest = {
         targetDate: targetDate || undefined,
         sendSlack,
-        includeAI
+        includeAI,
+        isTestMode,
+        platform
       }
       
       const response = await fetch('/api/reports/daily/generate', {
@@ -208,7 +217,8 @@ export default function DailyReportPage() {
           auto_enabled: autoEnabled,
           ai_enabled: aiEnabled,
           schedule_days: scheduleDays,
-          schedule_time: scheduleTime
+          schedule_time: scheduleTime,
+          is_test_mode: settingsTestMode
         })
       })
       
@@ -427,6 +437,19 @@ export default function DailyReportPage() {
         
         <form onSubmit={handleGenerate}>
           <div className="row responsive">
+            {/* 플랫폼 선택 */}
+            <label>플랫폼</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input type="radio" name="platform" value="all" checked={platform === 'all'} onChange={() => setPlatform('all')} /> 전체
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input type="radio" name="platform" value="android" checked={platform === 'android'} onChange={() => setPlatform('android')} /> Android
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input type="radio" name="platform" value="ios" checked={platform === 'ios'} onChange={() => setPlatform('ios')} /> iOS
+              </label>
+            </div>
             <label>분석 날짜 (기본: 어제)</label>
             <input
               type="date"
@@ -451,6 +474,15 @@ export default function DailyReportPage() {
                   onChange={(e) => setIncludeAI(e.target.checked)}
                 />
                 AI 분석 포함
+              </label>
+              
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  checked={isTestMode}
+                  onChange={(e) => setIsTestMode(e.target.checked)}
+                />
+                🧪 테스트 모드
               </label>
             </div>
             
@@ -493,6 +525,15 @@ export default function DailyReportPage() {
                 onChange={(e) => setAiEnabled(e.target.checked)}
               />
               AI 분석 포함
+            </label>
+            
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                checked={settingsTestMode}
+                onChange={(e) => setSettingsTestMode(e.target.checked)}
+              />
+              🧪 테스트 모드
             </label>
           </div>
 
@@ -584,13 +625,19 @@ export default function DailyReportPage() {
       <div className="card">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 className="h2">📋 실행 히스토리</h2>
-          <button
-            onClick={fetchReports}
-            disabled={loading}
-            className="btn ghost"
-          >
-            {loading ? '새로고침 중...' : '새로고침'}
-          </button>
+          <div className="row" style={{ gap: 12, alignItems: 'center' }}>
+            <label className="row" style={{ gap: 6 }}>
+              <span className="muted">플랫폼</span>
+              <select value={historyPlatform} onChange={(e) => setHistoryPlatform(e.target.value as any)}>
+                <option value="all">전체</option>
+                <option value="android">Android</option>
+                <option value="ios">iOS</option>
+              </select>
+            </label>
+            <button onClick={fetchReports} disabled={loading} className="btn ghost">
+              {loading ? '새로고침 중...' : '새로고침'}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -609,6 +656,7 @@ export default function DailyReportPage() {
               <thead>
                 <tr>
                   <th style={thStyle}>분석 날짜</th>
+                  <th style={thStyle}>플랫폼</th>
                   <th style={thStyle}>상태</th>
                   <th style={thStyle}>실행 방식</th>
                   <th style={thStyle}>실행 시간</th>
@@ -623,6 +671,7 @@ export default function DailyReportPage() {
                   return (
                     <tr key={report.id}>
                       <td style={tdStyle}>{report.target_date}</td>
+                      <td style={tdStyle}>{report.platform ? report.platform.toUpperCase() : '-'}</td>
                       <td style={tdStyle}>
                         <span
                           style={{
@@ -686,6 +735,10 @@ export default function DailyReportPage() {
                     <div className="mobile-field">
                       <span className="mobile-field-label">분석 날짜</span>
                       <span className="mobile-field-value">{report.target_date}</span>
+                    </div>
+                    <div className="mobile-field">
+                      <span className="mobile-field-label">플랫폼</span>
+                      <span className="mobile-field-value">{report.platform ? report.platform.toUpperCase() : '-'}</span>
                     </div>
                     <div className="mobile-field">
                       <span className="mobile-field-label">실행 방식</span>

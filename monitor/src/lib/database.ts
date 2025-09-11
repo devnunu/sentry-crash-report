@@ -23,7 +23,8 @@ export class DatabaseService {
   async createMonitorSession(
     platform: Platform, 
     baseRelease: string, 
-    days: number = 7
+    days: number = 7,
+    isTestMode: boolean = false
   ): Promise<MonitorSession> {
     const id = uuidv4()
     const now = new Date()
@@ -37,7 +38,8 @@ export class DatabaseService {
         base_release: baseRelease,
         status: 'active' as MonitorStatus,
         started_at: now.toISOString(),
-        expires_at: expiresAt.toISOString()
+        expires_at: expiresAt.toISOString(),
+        is_test_mode: isTestMode
       })
       .select()
       .single()

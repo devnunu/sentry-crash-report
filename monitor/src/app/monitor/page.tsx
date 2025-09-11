@@ -82,6 +82,7 @@ export default function MonitorPage() {
   const [platform, setPlatform] = useState<Platform>('android');
   const [baseRelease, setBaseRelease] = useState('');
   const [days, setDays] = useState(7);
+  const [isTestMode, setIsTestMode] = useState(false);
   const [startLoading, setStartLoading] = useState(false);
   const [startMessage, setStartMessage] = useState('');
   
@@ -134,7 +135,7 @@ export default function MonitorPage() {
       const response = await fetch('/api/monitor/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform, baseRelease: baseRelease.trim(), days })
+        body: JSON.stringify({ platform, baseRelease: baseRelease.trim(), days, isTestMode })
       });
       
       const result: ApiResponse<{ message: string; monitorId: string }> = await response.json();
@@ -252,6 +253,20 @@ export default function MonitorPage() {
               max="14"
               style={{ width: '90px' }}
             />
+          </div>
+          
+          <div className="row responsive" style={{ marginTop: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={isTestMode}
+                onChange={(e) => setIsTestMode(e.target.checked)}
+                style={{ marginRight: '8px' }}
+              />
+              <span style={{ fontSize: '13px' }}>
+                🧪 테스트 모드 (테스트용 Slack 채널로 알림 전송)
+              </span>
+            </label>
             
             <button 
               type="submit" 

@@ -1,5 +1,5 @@
 import { reportsDb } from './database'
-import { getPlatformEnv, getPlatformEnvOrDefault } from '../utils'
+import { getPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl } from '../utils'
 import type { Platform } from '../types'
 import type { WeeklyReportData, WeeklyIssue, NewIssue, WeeklySurgeIssue, ReleaseFix, AIAnalysis } from './types'
 
@@ -33,6 +33,7 @@ export interface WeeklyReportOptions {
   sendSlack?: boolean
   includeAI?: boolean
   triggerType?: 'scheduled' | 'manual'
+  isTestMode?: boolean
 }
 
 export class WeeklyReportService {
@@ -109,7 +110,8 @@ export class WeeklyReportService {
       startDate,
       endDate,
       sendSlack = true,
-      triggerType = 'manual'
+      triggerType = 'manual',
+      isTestMode = false
     } = options
 
     this.log(`[1/13] 환경 로드 (${this.platform.toUpperCase()})…`)
@@ -166,7 +168,8 @@ export class WeeklyReportService {
       triggerType,
       thisWeekStart,
       thisWeekStart,
-      thisWeekEnd
+      thisWeekEnd,
+      this.platform
     )
 
     try {
@@ -252,10 +255,20 @@ export class WeeklyReportService {
 
       // [13/13] Slack 전송
       let slackSent = false
-      const slackWebhook = getPlatformEnv(this.platform, 'SLACK_WEBHOOK_URL')
+      // 리포트용 Slack Webhook URL 가져오기 (테스트/운영 모드 구분)
+      let slackWebhook: string | null = null
+      try {
+        slackWebhook = isTestMode
+          ? getSlackWebhookUrl(this.platform, true, false, false)
+          : getSlackWebhookUrl(this.platform, false, false, true)
+      } catch (error) {
+        this.log(`Slack webhook URL을 가져올 수 없습니다(플랫폼별 필수): ${error}`)
+        slackWebhook = null
+      }
       if (sendSlack && slackWebhook) {
         try {
-          this.log('[13/13] Slack 전송…')
+          const modeText = isTestMode ? '[테스트 모드] ' : ''
+          this.log(`[13/13] ${modeText}Slack 전송…`)
           const title = `Sentry 주간 리포트 — ${thisRangeLabel}`
           const blocks = this.buildWeeklyBlocks(
             reportData,
@@ -275,7 +288,7 @@ export class WeeklyReportService {
           throw error
         }
       } else {
-        this.log(`[13/13] ${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL 미설정: Slack 전송 생략.`)
+        this.log(`[13/13] Slack Webhook 미설정: Slack 전송 생략`)
       }
 
       // 실행 완료 처리

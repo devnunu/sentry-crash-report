@@ -10,10 +10,10 @@ export async function POST(request: NextRequest) {
   try {
     // 요청 바디 파싱 및 검증
     const body = await request.json()
-    const { platform, baseRelease, days } = StartMonitorSchema.parse(body)
+    const { platform, baseRelease, days, isTestMode } = StartMonitorSchema.parse(body)
     
     // 데이터베이스에 모니터링 세션 생성
-    const monitorSession = await db.createMonitorSession(platform, baseRelease, days)
+    const monitorSession = await db.createMonitorSession(platform, baseRelease, days, isTestMode)
     
     // Slack 시작 알림 (비동기, 실패해도 API 응답에는 영향 없음)
     monitoringService.notifyMonitorStart(monitorSession).catch(error => {

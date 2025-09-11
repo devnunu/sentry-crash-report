@@ -116,7 +116,7 @@ export class MonitoringService {
       
       // 5. Slack 알림 전송
       let slackSent = false
-      const platformSlackService = createSlackService(monitor.platform)
+      const platformSlackService = createSlackService(monitor.platform, monitor.is_test_mode || false)
       try {
         const actionUrls = platformSentryService.buildActionUrls(matchedRelease, windowStart, windowEnd)
         
@@ -210,7 +210,7 @@ export class MonitoringService {
   // 모니터링 시작 시 Slack 알림
   async notifyMonitorStart(monitor: MonitorSession): Promise<void> {
     try {
-      const platformSlackService = createSlackService(monitor.platform)
+      const platformSlackService = createSlackService(monitor.platform, monitor.is_test_mode || false)
       await platformSlackService.sendStartNotification(
         monitor.platform,
         monitor.base_release,
@@ -229,7 +229,7 @@ export class MonitoringService {
     reason: 'manual' | 'expired'
   ): Promise<void> {
     try {
-      const platformSlackService = createSlackService(monitor.platform)
+      const platformSlackService = createSlackService(monitor.platform, monitor.is_test_mode || false)
       await platformSlackService.sendStopNotification(
         monitor.platform,
         monitor.base_release,

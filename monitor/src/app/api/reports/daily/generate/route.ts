@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { dailyReportService } from '@/lib/reports/daily-report'
+import { DailyReportService } from '@/lib/reports/daily-report'
 import { GenerateDailyReportSchema } from '@/lib/reports/types'
 import { parseDate } from '@/lib/reports/utils'
 import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
@@ -7,7 +7,7 @@ import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { targetDate, sendSlack, includeAI } = GenerateDailyReportSchema.parse(body)
+    const { targetDate, sendSlack, includeAI, isTestMode, platform } = GenerateDailyReportSchema.parse(body)
     
     // 날짜 파싱
     let parsedTargetDate: Date | undefined
@@ -22,22 +22,28 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    console.log(`[API] Generating daily report for ${targetDate || 'yesterday'}`)
+    const modeText = isTestMode ? '[테스트 모드] ' : ''
+    console.log(`[API] ${modeText}Generating daily report for ${targetDate || 'yesterday'} - platform=${platform}`)
     
     // 리포트 생성
-    const result = await dailyReportService.generateReport({
-      targetDate: parsedTargetDate,
-      sendSlack,
-      includeAI,
-      triggerType: 'manual'
-    })
+    const platforms: Array<'android' | 'ios'> = platform === 'all' ? ['android', 'ios'] : [platform as 'android' | 'ios']
+    const results = [] as Array<{ platform: string; executionId: string }>
+    for (const p of platforms) {
+      const svc = new DailyReportService(p)
+      const result = await svc.generateReport({
+        targetDate: parsedTargetDate,
+        sendSlack,
+        includeAI,
+        triggerType: 'manual',
+        isTestMode: isTestMode || false
+      })
+      results.push({ platform: p, executionId: result.executionId })
+    }
     
     return NextResponse.json(
       createApiResponse({
-        executionId: result.executionId,
-        message: '일간 리포트가 성공적으로 생성되었습니다.',
-        data: result.data,
-        aiAnalysis: result.aiAnalysis
+        executionIds: results,
+        message: `일간 리포트가 성공적으로 생성되었습니다. (${platforms.join(', ')})`
       }),
       { status: 201 }
     )

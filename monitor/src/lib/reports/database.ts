@@ -16,7 +16,8 @@ export class ReportsDatabaseService {
     triggerType: 'scheduled' | 'manual',
     targetDate: Date,
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    platform?: 'android' | 'ios'
   ): Promise<ReportExecution> {
     const { data, error } = await this.ensureSupabaseAdmin()
       .from('report_executions')
@@ -26,7 +27,8 @@ export class ReportsDatabaseService {
         trigger_type: triggerType,
         target_date: targetDate.toISOString().split('T')[0],
         start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0]
+        end_date: endDate.toISOString().split('T')[0],
+        platform
       })
       .select()
       .single()
@@ -80,7 +82,8 @@ export class ReportsDatabaseService {
   async getReportExecutions(
     reportType?: 'daily' | 'weekly',
     limit: number = 30,
-    offset: number = 0
+    offset: number = 0,
+    platform?: 'android' | 'ios'
   ): Promise<ReportExecution[]> {
     let query = this.ensureSupabaseAdmin()
       .from('report_executions')
@@ -88,6 +91,9 @@ export class ReportsDatabaseService {
     
     if (reportType) {
       query = query.eq('report_type', reportType)
+    }
+    if (platform) {
+      query = query.eq('platform', platform)
     }
     
     const { data, error } = await query
@@ -140,7 +146,7 @@ export class ReportsDatabaseService {
   // 리포트 설정 업데이트
   async updateReportSettings(
     reportType: 'daily' | 'weekly',
-    updates: Partial<Pick<ReportSettings, 'auto_enabled' | 'schedule_time' | 'schedule_days' | 'ai_enabled'>>
+    updates: Partial<Pick<ReportSettings, 'auto_enabled' | 'schedule_time' | 'schedule_days' | 'ai_enabled' | 'is_test_mode'>>
   ): Promise<ReportSettings> {
     const { data, error } = await this.ensureSupabaseAdmin()
       .from('report_settings')

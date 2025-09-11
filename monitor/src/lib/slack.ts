@@ -1,4 +1,4 @@
-import { formatKST, getPlatformEnv } from './utils'
+import { formatKST, getSlackWebhookUrl } from './utils'
 import type { WindowAggregation, TopIssue, Platform } from './types'
 
 interface SlackBlock {
@@ -29,21 +29,25 @@ function truncateTitle(title: string | undefined, maxLength: number = 90): strin
 }
 
 export class SlackService {
-  private webhookUrl: string
   private platform: Platform
+  private isTestMode: boolean
 
-  constructor(platform: Platform = 'android') {
+  constructor(platform: Platform = 'android', isTestMode: boolean = false) {
     this.platform = platform
-    this.webhookUrl = this.getWebhookUrl('SLACK_MONITORING_WEBHOOK_URL')
+    this.isTestMode = isTestMode
   }
 
-  private getWebhookUrl(type: 'SLACK_MONITORING_WEBHOOK_URL' | 'SLACK_WEBHOOK_URL'): string {
-    return getPlatformEnv(this.platform, type) || ''
+  private getWebhookUrl(isMonitoring: boolean = true, isReport: boolean = false): string {
+    return getSlackWebhookUrl(this.platform, this.isTestMode, isMonitoring, isReport)
   }
 
-  private validateConfig(): void {
-    if (!this.webhookUrl) {
-      throw new Error(`${this.platform.toUpperCase()}_SLACK_MONITORING_WEBHOOK_URL environment variable is required`)
+  private validateConfig(isMonitoring: boolean = true, isReport: boolean = false): void {
+    try {
+      this.getWebhookUrl(isMonitoring, isReport)
+    } catch (error) {
+      const modeText = this.isTestMode ? '테스트' : '운영'
+      const typeText = isReport ? '리포트' : (isMonitoring ? '모니터링' : '일반')
+      throw new Error(`${modeText} 모드용 ${typeText} Slack 웹훅 URL이 설정되지 않았습니다: ${error}`)
     }
   }
 
@@ -161,13 +165,27 @@ export class SlackService {
   }
 
   // Slack 메시지 전송
-  async sendMessage(blocks: SlackBlock[]): Promise<void> {
-    this.validateConfig()
+  async sendMessage(blocks: SlackBlock[], isMonitoring: boolean = true, isReport: boolean = false): Promise<void> {
+    this.validateConfig(isMonitoring, isReport)
+    const webhookUrl = this.getWebhookUrl(isMonitoring, isReport)
 
     const message: SlackMessage = { blocks }
+    
+    // 테스트 모드인 경우 메시지에 표시
+    if (this.isTestMode) {
+      message.blocks.unshift({
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: ':warning: *테스트 모드* - 이 메시지는 테스트용입니다.'
+          }
+        ]
+      })
+    }
 
     try {
-      const response = await fetch(this.webhookUrl, {
+      const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -182,7 +200,8 @@ export class SlackService {
         throw new Error(`Slack webhook failed ${response.status}: ${errorText}`)
       }
 
-      console.log('[Slack] ✅ 메시지 전송 완료')
+      const modeText = this.isTestMode ? '[테스트]' : ''
+      console.log(`[Slack] ✅ ${modeText} 메시지 전송 완료`)
     } catch (error) {
       console.error('[Slack] ❌ 메시지 전송 실패:', error)
       throw error
@@ -297,12 +316,17 @@ export class SlackService {
 
     await this.sendMessage(blocks)
   }
+
+  // 리포트 메시지 전송 (편의 메서드)
+  async sendReportMessage(blocks: SlackBlock[]): Promise<void> {
+    await this.sendMessage(blocks, false, true) // isMonitoring: false, isReport: true
+  }
 }
 
 // 플랫폼별 서비스 인스턴스 생성 함수
-export function createSlackService(platform: Platform): SlackService {
-  return new SlackService(platform)
+export function createSlackService(platform: Platform, isTestMode: boolean = false): SlackService {
+  return new SlackService(platform, isTestMode)
 }
 
-// 기본 인스턴스 (Android)
-export const slackService = new SlackService('android')
+// 기본 인스턴스 (Android, 운영 모드)
+export const slackService = new SlackService('android', false)

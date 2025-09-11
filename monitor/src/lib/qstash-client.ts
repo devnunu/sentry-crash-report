@@ -146,7 +146,11 @@ export class QStashService {
 
   // 리포트별 스케줄 ID 생성
   getJobId(reportType: 'daily' | 'weekly' | 'monitor', suffix?: string): string {
-    const base = `sentry-${reportType}-report`
+    // Align IDs with webhook expectations
+    // - daily => sentry-daily-report
+    // - weekly => sentry-weekly-report
+    // - monitor => sentry-monitor-tick (instead of previous "monitor-report")
+    const base = reportType === 'monitor' ? 'sentry-monitor-tick' : `sentry-${reportType}-report`
     return suffix ? `${base}-${suffix}` : base
   }
 
