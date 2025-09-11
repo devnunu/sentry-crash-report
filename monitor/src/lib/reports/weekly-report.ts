@@ -1,4 +1,6 @@
 import { reportsDb } from './database'
+import { getPlatformEnv, getPlatformEnvOrDefault } from '../utils'
+import type { Platform } from '../types'
 import type { WeeklyReportData, WeeklyIssue, NewIssue, WeeklySurgeIssue, ReleaseFix, AIAnalysis } from './types'
 
 // Python 스크립트와 동일한 상수들
@@ -35,6 +37,11 @@ export interface WeeklyReportOptions {
 
 export class WeeklyReportService {
   private executionLogs: string[] = []
+  private platform: Platform
+
+  constructor(platform: Platform = 'android') {
+    this.platform = platform
+  }
   
   private log(message: string): void {
     console.log(`[Weekly] ${message}`)
@@ -105,11 +112,11 @@ export class WeeklyReportService {
       triggerType = 'manual'
     } = options
 
-    this.log('[1/13] 환경 로드…')
+    this.log(`[1/13] 환경 로드 (${this.platform.toUpperCase()})…`)
     const token = process.env.SENTRY_AUTH_TOKEN
     const org = process.env.SENTRY_ORG_SLUG
-    const projectSlug = process.env.SENTRY_PROJECT_SLUG
-    const environment = process.env.SENTRY_ENVIRONMENT
+    const projectSlug = getPlatformEnv(this.platform, 'PROJECT_SLUG')
+    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     
     if (!token || !org) {
       throw new Error('SENTRY_AUTH_TOKEN, SENTRY_ORG_SLUG 필수')
@@ -245,7 +252,8 @@ export class WeeklyReportService {
 
       // [13/13] Slack 전송
       let slackSent = false
-      if (sendSlack && process.env.SLACK_WEBHOOK_URL) {
+      const slackWebhook = getPlatformEnv(this.platform, 'SLACK_WEBHOOK_URL')
+      if (sendSlack && slackWebhook) {
         try {
           this.log('[13/13] Slack 전송…')
           const title = `Sentry 주간 리포트 — ${thisRangeLabel}`
@@ -260,14 +268,14 @@ export class WeeklyReportService {
               end: thisWeekEnd.toISOString()
             }
           )
-          await this.postToSlack(process.env.SLACK_WEBHOOK_URL, blocks)
+          await this.postToSlack(slackWebhook, blocks)
           slackSent = true
         } catch (error) {
           this.log(`Slack 전송 실패: ${error}`)
           throw error
         }
       } else {
-        this.log('[13/13] SLACK_WEBHOOK_URL 미설정: Slack 전송 생략.')
+        this.log(`[13/13] ${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL 미설정: Slack 전송 생략.`)
       }
 
       // 실행 완료 처리
@@ -312,7 +320,7 @@ export class WeeklyReportService {
   // Python 스크립트의 resolve_project_id
   private async resolveProjectId(token: string, org: string, projectSlug?: string): Promise<number> {
     if (!projectSlug) {
-      throw new Error('SENTRY_PROJECT_SLUG 필요합니다.')
+      throw new Error(`${this.platform.toUpperCase()}_PROJECT_SLUG 필요합니다.`)
     }
     this.log('[3/13] 프로젝트 ID 확인 중…')
     const url = `${API_BASE}/organizations/${org}/projects/`
@@ -1170,8 +1178,8 @@ export class WeeklyReportService {
     endIsoUtc: string
   ): { dashboard_url: string; issues_filtered_url: string } {
     // 1) 대시보드 URL
-    const envDash = process.env.SENTRY_DASHBOARD_URL
-    const dashId = process.env.DASH_BOARD_ID
+    const envDash = getPlatformEnv(this.platform, 'DASHBOARD_URL')
+    const dashId = getPlatformEnv(this.platform, 'DASH_BOARD_ID')
     let dashboardUrl: string
     if (envDash) {
       dashboardUrl = envDash

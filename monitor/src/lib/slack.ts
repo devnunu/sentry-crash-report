@@ -1,5 +1,5 @@
-import { formatKST } from './utils'
-import type { WindowAggregation, TopIssue } from './types'
+import { formatKST, getPlatformEnv } from './utils'
+import type { WindowAggregation, TopIssue, Platform } from './types'
 
 interface SlackBlock {
   type: string
@@ -30,14 +30,20 @@ function truncateTitle(title: string | undefined, maxLength: number = 90): strin
 
 export class SlackService {
   private webhookUrl: string
+  private platform: Platform
 
-  constructor() {
-    this.webhookUrl = process.env.SLACK_MONITORING_WEBHOOK_URL || ''
+  constructor(platform: Platform = 'android') {
+    this.platform = platform
+    this.webhookUrl = this.getWebhookUrl('SLACK_MONITORING_WEBHOOK_URL')
+  }
+
+  private getWebhookUrl(type: 'SLACK_MONITORING_WEBHOOK_URL' | 'SLACK_WEBHOOK_URL'): string {
+    return getPlatformEnv(this.platform, type) || ''
   }
 
   private validateConfig(): void {
     if (!this.webhookUrl) {
-      throw new Error('SLACK_MONITORING_WEBHOOK_URL environment variable is required')
+      throw new Error(`${this.platform.toUpperCase()}_SLACK_MONITORING_WEBHOOK_URL environment variable is required`)
     }
   }
 
@@ -293,5 +299,10 @@ export class SlackService {
   }
 }
 
-// 싱글톤 인스턴스
-export const slackService = new SlackService()
+// 플랫폼별 서비스 인스턴스 생성 함수
+export function createSlackService(platform: Platform): SlackService {
+  return new SlackService(platform)
+}
+
+// 기본 인스턴스 (Android)
+export const slackService = new SlackService('android')

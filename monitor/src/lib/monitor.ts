@@ -1,5 +1,5 @@
-import { sentryService } from './sentry'
-import { slackService } from './slack'
+import { createSentryService } from './sentry'
+import { createSlackService } from './slack'
 import { db } from './database'
 import { SchedulerService } from './scheduler'
 import type { MonitorSession, WindowAggregation, TopIssue } from './types'
@@ -56,7 +56,8 @@ export class MonitoringService {
       let matchedRelease = monitor.matched_release
       if (!matchedRelease) {
         console.log(`🔍 [${monitor.platform}:${monitor.base_release}] 릴리즈 매칭 중...`)
-        const foundRelease = await sentryService.matchFullRelease(monitor.base_release)
+        const platformSentryService = createSentryService(monitor.platform)
+        const foundRelease = await platformSentryService.matchFullRelease(monitor.base_release)
         
         if (!foundRelease) {
           throw new Error(`매칭되는 릴리즈를 찾을 수 없습니다: ${monitor.base_release}`)
@@ -82,9 +83,10 @@ export class MonitoringService {
       console.log(`📊 [${monitor.platform}:${monitor.base_release}] 집계 구간: ${windowStart.toISOString()} ~ ${windowEnd.toISOString()}`)
       
       // 3. Sentry 데이터 수집
+      const platformSentryService = createSentryService(monitor.platform)
       const [aggregation, topIssues] = await Promise.all([
-        sentryService.getWindowAggregates(matchedRelease, windowStart, windowEnd),
-        sentryService.getTopIssues(matchedRelease, windowStart, windowEnd, 5)
+        platformSentryService.getWindowAggregates(matchedRelease, windowStart, windowEnd),
+        platformSentryService.getTopIssues(matchedRelease, windowStart, windowEnd, 5)
       ])
       
       result.aggregation = aggregation
@@ -114,30 +116,29 @@ export class MonitoringService {
       
       // 5. Slack 알림 전송
       let slackSent = false
-      if (process.env.SLACK_MONITORING_WEBHOOK_URL) {
-        try {
-          const actionUrls = sentryService.buildActionUrls(matchedRelease, windowStart, windowEnd)
-          
-          await slackService.sendMonitoringReport(
-            monitor.platform,
-            monitor.base_release,
-            matchedRelease,
-            windowStart,
-            windowEnd,
-            aggregation,
-            deltas,
-            cumulative,
-            topIssues,
-            actionUrls,
-            scheduleConfig.interval
-          )
-          
-          slackSent = true
-          console.log(`📤 [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 완료`)
-        } catch (slackError) {
-          console.error(`📤 [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 실패:`, slackError)
-          // Slack 실패는 전체 실행 실패로 처리하지 않음
-        }
+      const platformSlackService = createSlackService(monitor.platform)
+      try {
+        const actionUrls = platformSentryService.buildActionUrls(matchedRelease, windowStart, windowEnd)
+        
+        await platformSlackService.sendMonitoringReport(
+          monitor.platform,
+          monitor.base_release,
+          matchedRelease,
+          windowStart,
+          windowEnd,
+          aggregation,
+          deltas,
+          cumulative,
+          topIssues,
+          actionUrls,
+          scheduleConfig.interval
+        )
+        
+        slackSent = true
+        console.log(`📤 [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 완료`)
+      } catch (slackError) {
+        console.error(`📤 [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 실패:`, slackError)
+        // Slack 실패는 전체 실행 실패로 처리하지 않음
       }
       
       result.slackSent = slackSent
@@ -208,12 +209,9 @@ export class MonitoringService {
   
   // 모니터링 시작 시 Slack 알림
   async notifyMonitorStart(monitor: MonitorSession): Promise<void> {
-    if (!process.env.SLACK_MONITORING_WEBHOOK_URL) {
-      return
-    }
-    
     try {
-      await slackService.sendStartNotification(
+      const platformSlackService = createSlackService(monitor.platform)
+      await platformSlackService.sendStartNotification(
         monitor.platform,
         monitor.base_release,
         monitor.id,
@@ -230,12 +228,9 @@ export class MonitoringService {
     monitor: MonitorSession, 
     reason: 'manual' | 'expired'
   ): Promise<void> {
-    if (!process.env.SLACK_MONITORING_WEBHOOK_URL) {
-      return
-    }
-    
     try {
-      await slackService.sendStopNotification(
+      const platformSlackService = createSlackService(monitor.platform)
+      await platformSlackService.sendStopNotification(
         monitor.platform,
         monitor.base_release,
         monitor.id,

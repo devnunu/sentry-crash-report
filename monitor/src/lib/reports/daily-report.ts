@@ -1,6 +1,7 @@
 import { reportsDb } from './database'
 import { aiAnalysisService } from './ai-analysis'
-import { slackService } from '../slack'
+import { createSlackService } from '../slack'
+import { createSentryService } from '../sentry'
 import { 
   getKSTDayBounds, 
   getYesterday, 
@@ -19,7 +20,8 @@ import type {
   SurgeIssue, 
   AIAnalysis 
 } from './types'
-import { getRequiredEnv } from '../utils'
+import { getRequiredEnv, getPlatformEnv, getRequiredPlatformEnv, getPlatformEnvOrDefault } from '../utils'
+import type { Platform } from '../types'
 
 export interface DailyReportOptions {
   targetDate?: Date
@@ -81,6 +83,11 @@ interface SentryCrashFreeResult {
 
 export class DailyReportService {
   private executionLogs: string[] = []
+  private platform: Platform
+
+  constructor(platform: Platform = 'android') {
+    this.platform = platform
+  }
   
   private log(message: string): void {
     const timestamp = new Date().toISOString()
@@ -105,19 +112,19 @@ export class DailyReportService {
       triggerType = 'manual'
     } = options
 
-    this.log(`[Daily] [1/14] 환경 변수 로드...`)
+    this.log(`[Daily] [1/14] 환경 변수 로드 (${this.platform.toUpperCase()})...`)
     const token = getRequiredEnv('SENTRY_AUTH_TOKEN')
     const org = getRequiredEnv('SENTRY_ORG_SLUG')
-    const projectSlug = process.env.SENTRY_PROJECT_SLUG
-    const projectIdEnv = process.env.SENTRY_PROJECT_ID
-    const environment = process.env.SENTRY_ENVIRONMENT || null
-    const slackWebhook = process.env.SLACK_WEBHOOK_URL || null
+    const projectSlug = getPlatformEnv(this.platform, 'PROJECT_SLUG')
+    const projectIdEnv = getPlatformEnv(this.platform, 'PROJECT_ID')
+    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
+    const slackWebhook = getPlatformEnv(this.platform, 'SLACK_WEBHOOK_URL')
     
     this.log(`Environment variables check:`)
-    this.log(`  - SLACK_WEBHOOK_URL exists: ${!!process.env.SLACK_WEBHOOK_URL}`)
-    this.log(`  - SLACK_WEBHOOK_URL length: ${(process.env.SLACK_WEBHOOK_URL || '').length}`)
-    if (process.env.SLACK_WEBHOOK_URL) {
-      this.log(`  - SLACK_WEBHOOK_URL starts with: ${process.env.SLACK_WEBHOOK_URL.substring(0, 30)}...`)
+    this.log(`  - ${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL exists: ${!!slackWebhook}`)
+    this.log(`  - ${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL length: ${(slackWebhook || '').length}`)
+    if (slackWebhook) {
+      this.log(`  - ${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL starts with: ${slackWebhook.substring(0, 30)}...`)
     }
 
     this.log(`[Daily] [2/14] 날짜 계산(KST 기준 어제/그저께)...`)
@@ -257,7 +264,7 @@ export class DailyReportService {
           this.log(`  - Error details: ${error instanceof Error ? error.stack : JSON.stringify(error)}`)
         }
       } else {
-        this.log('Slack Webhook 미설정 — 전송 스킵')
+        this.log(`${this.platform.toUpperCase()}_SLACK_WEBHOOK_URL 미설정 — 전송 스킵`)
         this.log(`  - sendSlack: ${sendSlack}, slackWebhook exists: ${!!slackWebhook}`)
       }
 
@@ -314,7 +321,7 @@ export class DailyReportService {
       return parseInt(projectIdEnv)
     }
     if (!projectSlug) {
-      throw new Error('SENTRY_PROJECT_SLUG 또는 SENTRY_PROJECT_ID 중 하나는 필요합니다.')
+      throw new Error(`${this.platform.toUpperCase()}_PROJECT_SLUG 또는 ${this.platform.toUpperCase()}_PROJECT_ID 중 하나는 필요합니다.`)
     }
     
     const response = await fetch(`https://sentry.io/api/0/organizations/${org}/projects/`, {
@@ -880,8 +887,8 @@ export class DailyReportService {
     endIsoUtc: string
   ): { dashboard_url: string; issues_filtered_url: string } {
     // 1) 대시보드 URL
-    const envDash = process.env.SENTRY_DASHBOARD_URL
-    const dashId = process.env.DASH_BOARD_ID
+    const envDash = getPlatformEnv(this.platform, 'DASHBOARD_URL')
+    const dashId = getPlatformEnv(this.platform, 'DASH_BOARD_ID')
     let dashboardUrl: string
     
     if (envDash) {

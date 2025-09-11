@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx'
 import { format, addDays } from 'date-fns'
 import { ko } from 'date-fns/locale'
+import type { Platform } from './types'
 
 export function cn(...inputs: ClassValue[]) {
   return clsx(inputs)
@@ -50,6 +51,26 @@ export function getRequiredEnv(key: string): string {
     throw new Error(`Missing required environment variable: ${key}`)
   }
   return value
+}
+
+// 플랫폼별 환경변수 가져오기
+export function getPlatformEnv(platform: Platform, key: string): string | null {
+  const platformKey = `${platform.toUpperCase()}_${key}`
+  return process.env[platformKey] || null
+}
+
+// 플랫폼별 필수 환경변수 가져오기
+export function getRequiredPlatformEnv(platform: Platform, key: string): string {
+  const value = getPlatformEnv(platform, key)
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${platform.toUpperCase()}_${key}`)
+  }
+  return value
+}
+
+// 플랫폼별 환경변수 또는 기본값 가져오기
+export function getPlatformEnvOrDefault(platform: Platform, key: string, defaultValue: string): string {
+  return getPlatformEnv(platform, key) || defaultValue
 }
 
 // 에러 메시지 추출

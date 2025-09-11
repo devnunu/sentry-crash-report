@@ -1,9 +1,8 @@
-import { getRequiredEnv } from './utils'
-import type { WindowAggregation, TopIssue } from './types'
+import { getRequiredEnv, getRequiredPlatformEnv, getPlatformEnvOrDefault } from './utils'
+import type { WindowAggregation, TopIssue, Platform } from './types'
 
 // Sentry API 설정
 const SENTRY_API_BASE = 'https://sentry.io/api/0'
-const SENTRY_ENVIRONMENT = process.env.SENTRY_ENVIRONMENT || 'production'
 
 // Sentry API 응답 타입들
 interface SentryRelease {
@@ -38,9 +37,10 @@ interface SentryProject {
 
 export class SentryService {
   private projectId: string | null = null
+  private platform: Platform
   
-  constructor() {
-    // 환경 변수 검증은 실제 호출 시에 수행
+  constructor(platform: Platform = 'android') {
+    this.platform = platform
   }
   
   private getAuthHeaders(): HeadersInit {
@@ -88,7 +88,16 @@ export class SentryService {
     }
     
     const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
-    const projectSlug = getRequiredEnv('SENTRY_PROJECT_SLUG')
+    
+    // 플랫폼별 PROJECT_ID가 있으면 우선 사용
+    const platformProjectId = getRequiredPlatformEnv(this.platform, 'PROJECT_ID')
+    if (platformProjectId) {
+      this.projectId = platformProjectId
+      return platformProjectId
+    }
+    
+    // PROJECT_ID가 없으면 PROJECT_SLUG로 조회
+    const projectSlug = getRequiredPlatformEnv(this.platform, 'PROJECT_SLUG')
     
     try {
       const projects = await this.fetchSentryAPI<SentryProject[]>(`/organizations/${orgSlug}/projects/`)
@@ -229,10 +238,11 @@ export class SentryService {
     const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
     const projectId = await this.resolveProjectId()
     
+    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
       'level:[error,fatal]',
       `release:${releaseVersion}`,
-      SENTRY_ENVIRONMENT ? `environment:${SENTRY_ENVIRONMENT}` : ''
+      environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
     
     const params = {
@@ -276,10 +286,11 @@ export class SentryService {
     const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
     const projectId = await this.resolveProjectId()
     
+    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
       'level:[error,fatal]',
       `release:${releaseVersion}`,
-      SENTRY_ENVIRONMENT ? `environment:${SENTRY_ENVIRONMENT}` : ''
+      environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
     
     const params = {
@@ -326,15 +337,16 @@ export class SentryService {
     const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
     const projectId = this.projectId
     
-    // 대시보드 URL (커스텀 URL이 있으면 사용)
-    const dashboardUrl = process.env.SENTRY_DASHBOARD_URL || 
+    // 대시보드 URL (플랫폼별 또는 기본 URL 사용)
+    const dashboardUrl = getPlatformEnvOrDefault(this.platform, 'DASHBOARD_URL', '') || 
       `https://sentry.io/organizations/${orgSlug}/projects/`
     
     // 이슈 필터 URL
+    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
       'level:[error,fatal]',
       `release:${releaseVersion}`,
-      SENTRY_ENVIRONMENT ? `environment:${SENTRY_ENVIRONMENT}` : ''
+      environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
     
     const params = new URLSearchParams({
@@ -353,5 +365,10 @@ export class SentryService {
   }
 }
 
-// 싱글톤 인스턴스
-export const sentryService = new SentryService()
+// 플랫폼별 서비스 인스턴스 생성 함수
+export function createSentryService(platform: Platform): SentryService {
+  return new SentryService(platform)
+}
+
+// 기본 인스턴스 (Android)
+export const sentryService = new SentryService('android')
