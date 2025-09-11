@@ -209,7 +209,8 @@ export default function WeeklyReportPage() {
     }
     
     try {
-      const response = await fetch('/api/reports/weekly/settings', {
+      // 기존 설정 업데이트
+      const settingsResponse = await fetch('/api/reports/weekly/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -220,13 +221,33 @@ export default function WeeklyReportPage() {
         })
       })
       
-      const result: ApiResponse<{ settings: ReportSettings }> = await response.json()
+      const settingsResult: ApiResponse<{ settings: ReportSettings }> = await settingsResponse.json()
       
-      if (!result.success) {
-        throw new Error(result.error || '설정 업데이트 실패')
+      if (!settingsResult.success) {
+        throw new Error(settingsResult.error || '설정 업데이트 실패')
+      }
+
+      // QStash 스케줄 업데이트 (자동 스케줄이 활성화된 경우)
+      if (autoEnabled) {
+        const scheduleResponse = await fetch('/api/schedule/manage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reportType: 'weekly',
+            scheduleDays,
+            scheduleTime
+          })
+        })
+
+        const scheduleResult = await scheduleResponse.json()
+        
+        if (!scheduleResult.success) {
+          console.warn('QStash 스케줄 업데이트 실패:', scheduleResult.error)
+          // QStash 실패해도 설정 저장은 성공으로 처리
+        }
       }
       
-      setSettings(result.data!.settings)
+      setSettings(settingsResult.data!.settings)
       setSettingsMessage('✅ 설정이 성공적으로 저장되었습니다.')
       
       // 3초 후 메시지 자동 삭제

@@ -3,14 +3,6 @@
     {
       "path": "/api/monitor/tick",
       "schedule": "*/30 * * * *"
-    },
-    {
-      "path": "/api/reports/daily/schedule",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/reports/weekly/schedule", 
-      "schedule": "* * * * *"
     }
   ]
 }
