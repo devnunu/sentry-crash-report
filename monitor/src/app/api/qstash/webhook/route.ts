@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { qstashService } from '@/lib/qstash-client'
 import { reportsDb } from '@/lib/reports/database'
 
+export const runtime = 'nodejs'
+
 export async function POST(request: NextRequest) {
   console.log('[QStash Webhook] Received request')
   
@@ -83,14 +85,17 @@ async function processDailyReport() {
       const platforms: Array<'android' | 'ios'> = ['android', 'ios']
 
       for (const platform of platforms) {
+        console.log(`[QStash Webhook] Triggering daily generate for ${platform} -> ${baseUrl}/api/reports/daily/generate`)
         const response = await fetch(`${baseUrl}/api/reports/daily/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sendSlack: true, includeAI, isTestMode, platform }),
-          signal: AbortSignal.timeout(10000)
+          // 첫 시도만 Slack 전송, 재시도 시 중복 방지 위해 sendSlack=false
+          body: JSON.stringify({ sendSlack: retryCount === 0, includeAI, isTestMode, platform }),
+          signal: AbortSignal.timeout(120000)
         })
         if (!response.ok) {
-          throw new Error(`Daily report API failed for ${platform}: ${response.status}`)
+          const text = await response.text().catch(() => '')
+          throw new Error(`Daily report API failed for ${platform}: ${response.status} ${text?.slice(0,200)}`)
         }
         await response.json()
       }
@@ -128,14 +133,16 @@ async function processWeeklyReport() {
       const platforms: Array<'android' | 'ios'> = ['android', 'ios']
 
       for (const platform of platforms) {
+        console.log(`[QStash Webhook] Triggering weekly generate for ${platform} -> ${baseUrl}/api/reports/weekly/generate`)
         const response = await fetch(`${baseUrl}/api/reports/weekly/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sendSlack: true, includeAI, isTestMode, platform }),
-          signal: AbortSignal.timeout(10000)
+          body: JSON.stringify({ sendSlack: retryCount === 0, includeAI, isTestMode, platform }),
+          signal: AbortSignal.timeout(120000)
         })
         if (!response.ok) {
-          throw new Error(`Weekly report API failed for ${platform}: ${response.status}`)
+          const text = await response.text().catch(() => '')
+          throw new Error(`Weekly report API failed for ${platform}: ${response.status} ${text?.slice(0,200)}`)
         }
         await response.json()
       }
