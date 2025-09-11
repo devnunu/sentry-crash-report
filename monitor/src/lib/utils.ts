@@ -10,8 +10,11 @@ export function cn(...inputs: ClassValue[]) {
 // 날짜 포맷팅 유틸리티
 export function formatKST(dateString: string): string {
   try {
-    const date = new Date(dateString)
-    return format(date, 'yyyy-MM-dd HH:mm', { locale: ko })
+    const utc = new Date(dateString)
+    if (isNaN(utc.getTime())) return '잘못된 날짜'
+    // KST = UTC + 9시간 (DST 없음)
+    const kst = new Date(utc.getTime() + 9 * 60 * 60 * 1000)
+    return format(kst, 'yyyy-MM-dd HH:mm', { locale: ko })
   } catch {
     return '잘못된 날짜'
   }
