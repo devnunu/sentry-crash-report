@@ -61,7 +61,8 @@ export async function POST(request: NextRequest) {
 }
 
 function getBaseUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL 
+  return process.env.APP_BASE_URL 
+    || process.env.NEXT_PUBLIC_APP_URL 
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
 }
 

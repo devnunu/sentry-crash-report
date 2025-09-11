@@ -20,9 +20,16 @@ export class QStashService {
       nextSigningKey
     })
 
-    // 환경에 따른 베이스 URL 설정
-    this.baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-                   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+    // 환경에 따른 베이스 URL 설정 (서버 우선)
+    const appBase = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
+    if (!appBase) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('APP_BASE_URL or NEXT_PUBLIC_APP_URL is required in production for QStash destination')
+      }
+      this.baseUrl = 'http://localhost:3000'
+    } else {
+      this.baseUrl = appBase
+    }
   }
 
   // 스케줄 등록
