@@ -489,7 +489,7 @@ export default function WeeklyReportPage() {
     loadTop()
   }, [])
 
-  const openIssue = (item:any, platform:'android'|'ios') => {
+  const openIssue = async (item:any, platform:'android'|'ios') => {
     // 팝업만 열고, 분석은 클릭 시 수행
     const dr = platform === 'android' ? dateRangeAndroid : dateRangeIOS
     const dateKey = dr ? `${dr.start}~${dr.end}` : ''
@@ -497,33 +497,45 @@ export default function WeeklyReportPage() {
     setIssueAnalysis(null)
     setIssueError('')
     setIssueLoading(false)
+    // 캐시가 있다면 미리 로딩
+    try {
+      if (item?.issueId && dateKey) {
+        const res = await fetch(`/api/reports/issues/${encodeURIComponent(item.issueId)}/analysis?platform=${platform}&type=weekly&dateKey=${encodeURIComponent(dateKey)}`)
+        const j = await res.json()
+        setIssueAnalysis(j?.data?.analysis || null)
+      }
+    } catch { /* noop */ }
   }
 
-  const runIssueAnalysis = async () => {
+  const runIssueAnalysis = async (force = true) => {
     if (!issueModal.item || !issueModal.platform) return
     setIssueLoading(true)
     setIssueAnalysis(null)
     setIssueError('')
     try {
       const dateKey = issueModal.dateKey || new Date().toISOString().slice(0,10)
-      const getRes = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis?platform=${issueModal.platform}&type=weekly&dateKey=${encodeURIComponent(dateKey)}`)
-      const getJson = await getRes.json()
-      const cached = getJson?.data?.analysis
-      if (cached) {
-        setIssueAnalysis(cached)
-      } else {
-        const res = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis`, {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ platform: issueModal.platform, type:'weekly', dateKey })
-        })
-        const j = await res.json()
-        if (!res.ok || !j?.success) throw new Error(j?.error || 'AI 분석 실패')
-        setIssueAnalysis(j?.data?.analysis || null)
-      }
+      const res = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ platform: issueModal.platform, type:'weekly', dateKey, force })
+      })
+      const j = await res.json()
+      if (!res.ok || !j?.success) throw new Error(j?.error || 'AI 분석 실패')
+      setIssueAnalysis(j?.data?.analysis || null)
     } catch (e:any) {
       setIssueError(e?.message || 'AI 분석 중 오류가 발생했습니다')
     }
     setIssueLoading(false)
+  }
+
+  const renderAnalysis = (text?: string) => {
+    if (!text) return <span className="muted">아직 분석되지 않았습니다.</span>
+    const html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br/>')
+    return <span dangerouslySetInnerHTML={{ __html: html }} />
   }
 
   return (
@@ -987,18 +999,28 @@ export default function WeeklyReportPage() {
               <div style={{ marginTop:12 }}>
                 <div style={{ fontWeight:600, marginBottom:6 }}>{issueModal.item.title}</div>
                 <div className="muted" style={{ fontSize:12, marginBottom:10 }}>📈 {issueModal.item.events}건 {issueModal.item.users!=null?`· 👥 ${issueModal.item.users}명`:''}</div>
+                <details open style={{ marginTop:8, marginBottom:12 }}>
+                  <summary style={{ cursor:'pointer', fontWeight:600 }}>AI 분석 결과</summary>
+                  <div style={{ marginTop:8 }}>
+                    {issueAnalysis?.summary ? (
+                      <div style={{ lineHeight:1.6 }}>{renderAnalysis(issueAnalysis.summary)}</div>
+                    ) : (
+                      <div className="muted">아직 분석되지 않았습니다. 아래의 "AI 분석" 버튼을 눌러 분석을 실행하세요.</div>
+                    )}
+                  </div>
+                </details>
                 <div className="row" style={{ gap:8, marginBottom:12 }}>
                   {issueModal.item.link && <a className="btn ghost" href={issueModal.item.link} target="_blank" rel="noreferrer">Sentry에서 열기</a>}
-                  <button className="btn ok" onClick={runIssueAnalysis} disabled={issueLoading}>{issueLoading?'분석 중…':'AI 분석'}</button>
+                  <button
+                    className="btn ok"
+                    onClick={()=>runIssueAnalysis(!!issueAnalysis?.summary)}
+                    disabled={issueLoading}
+                  >
+                    {issueLoading ? '분석 중…' : (!!issueAnalysis?.summary ? 'AI 재분석' : 'AI 분석')}
+                  </button>
                 </div>
                 {issueError && (
                   <div style={{ color: 'var(--danger)', marginTop: 8 }}>⚠️ {issueError}</div>
-                )}
-                {issueAnalysis && (
-                  <details open style={{ marginTop:8 }}>
-                    <summary style={{ cursor:'pointer', fontWeight:600 }}>AI 분석 결과</summary>
-                    <pre style={{ whiteSpace:'pre-wrap', lineHeight:1.5 }}>{issueAnalysis.summary || JSON.stringify(issueAnalysis, null, 2)}</pre>
-                  </details>
                 )}
               </div>
             )}

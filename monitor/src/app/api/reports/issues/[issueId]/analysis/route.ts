@@ -66,12 +66,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ is
     const breadcrumbs = (details.breadcrumbs || []).slice(-20)
 
     let analysis: any = { summary: '분석 실패', notes: [] }
-    const apiKey = process.env.OPENAI_API_KEY
-    console.log(`[IssueAnalysis] OPENAI_API_KEY present=${!!apiKey} length=${apiKey ? apiKey.length : 0}`)
-    if (apiKey) {
+    const rawKey = process.env.OPENAI_API_KEY
+    const apiKey = (rawKey || '').trim()
+    console.log(`[IssueAnalysis] OPENAI_API_KEY present=${apiKey.length>0} length=${apiKey.length}`)
+    if (apiKey.length > 0) {
       const client = new OpenAI({ apiKey })
       const prompt = `당신은 모바일 앱 크래시 분석가입니다. 주어진 이슈의 최근 이벤트 정보를 바탕으로 원인을 분석하고 개선책을 제시하세요.\n\n` +
-        `플랫폼: ${platform}\n리포트: ${reportType}\n기간키: ${dateKey}\n이슈ID: ${params.issueId}\n제목: ${details.title || ''}\n\n` +
+        `플랫폼: ${platform}\n리포트: ${reportType}\n기간키: ${dateKey}\n이슈ID: ${issueId}\n제목: ${details.title || ''}\n\n` +
         `스택프레임(상위 8):\n${stack.map((f:any)=>`- ${f.module || f.filename || ''}:${f.lineno || ''} in ${f.function || ''}`).join('\n')}\n\n` +
         `최근 브레드크럼(최대 20):\n${breadcrumbs.map((b:any)=>`- [${b.category || ''}] ${b.message || b.type || ''}`).join('\n')}\n\n` +
         `요청사항:\n1) 원인 요약(핵심 2~3줄)\n2) 유력한 원인 후보(코드/라이브러리/OS 등)\n3) 즉시 조치 및 근본 해결안\n4) 재발 방지 모니터링 포인트\n`
