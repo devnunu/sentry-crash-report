@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import SlackPreview from '@/lib/SlackPreview'
+import { formatKST } from '@/lib/utils'
 import Link from 'next/link'
 import { formatKST, formatExecutionTime, validateTimeFormat, formatTimeKorean } from '@/lib/utils'
 import type { 
@@ -111,6 +112,12 @@ export default function WeeklyReportPage() {
   const [cronLoading, setCronLoading] = useState(false)
   // 플랫폼 필터 (히스토리)
   const [historyPlatform, setHistoryPlatform] = useState<'all' | 'android' | 'ios'>('all')
+  const [topAndroid, setTopAndroid] = useState<any[]>([])
+  const [topIOS, setTopIOS] = useState<any[]>([])
+  const [topLoading, setTopLoading] = useState(false)
+  const [issueModal, setIssueModal] = useState<{ open: boolean; item?: any; platform?: 'android'|'ios'; dateKey?: string }>(()=>({ open:false }))
+  const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
+  const [issueLoading, setIssueLoading] = useState(false)
   // KST 날짜 라벨 헬퍼
   const toKstDate = (dateStr?: string) => {
     if (!dateStr) return '-'
@@ -462,6 +469,50 @@ export default function WeeklyReportPage() {
     return () => clearInterval(t)
   }, [])
 
+  useEffect(() => {
+    const loadTop = async () => {
+      setTopLoading(true)
+      try {
+        const [aRes, iRes] = await Promise.all([
+          fetch('/api/reports/weekly/top?platform=android').then(r=>r.json()),
+          fetch('/api/reports/weekly/top?platform=ios').then(r=>r.json())
+        ])
+        setTopAndroid(aRes?.data?.top || [])
+        setTopIOS(iRes?.data?.top || [])
+      } catch {}
+      setTopLoading(false)
+    }
+    loadTop()
+  }, [])
+
+  const openIssue = async (item:any, platform:'android'|'ios', dateRange?: {start:string,end:string}) => {
+    setIssueModal({ open:true, item, platform })
+    setIssueLoading(true)
+    setIssueAnalysis(null)
+    try {
+      const dateKey = dateRange ? `${dateRange.start}~${dateRange.end}` : ''
+      const res = await fetch(`/api/reports/issues/${encodeURIComponent(item.issueId)}/analysis?platform=${platform}&type=weekly&dateKey=${encodeURIComponent(dateKey)}`)
+      const j = await res.json()
+      setIssueAnalysis(j?.data?.analysis || null)
+    } catch {}
+    setIssueLoading(false)
+  }
+
+  const runIssueAnalysis = async () => {
+    if (!issueModal.item || !issueModal.platform) return
+    setIssueLoading(true)
+    setIssueAnalysis(null)
+    try {
+      const res = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ platform: issueModal.platform, type:'weekly', dateKey: new Date().toISOString().slice(0,10) })
+      })
+      const j = await res.json()
+      setIssueAnalysis(j?.data?.analysis || null)
+    } catch {}
+    setIssueLoading(false)
+  }
+
   return (
     <div className="container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -484,6 +535,40 @@ export default function WeeklyReportPage() {
             주간 리포트
           </Link>
         </div>
+      </div>
+
+      {/* Top 5 이슈 (플랫폼별) */}
+      <div className="card">
+        <h2 className="h2">🏅 플랫폼별 Top 5 이슈 (최근 리포트)</h2>
+        {topLoading ? (
+          <div className="muted">불러오는 중…</div>
+        ) : (
+          <div className="row" style={{ gap: 24, alignItems:'flex-start' }}>
+            {[{key:'android', label:'🤖 ANDROID', data: topAndroid},{key:'ios', label:'🍎 iOS', data: topIOS}].map(col => (
+              <div key={col.key} style={{ flex:1, minWidth:320 }}>
+                <div style={{ fontWeight:700, marginBottom:8 }}>{col.label}</div>
+                {col.data.length === 0 ? (
+                  <div className="muted">데이터가 없습니다.</div>
+                ) : (
+                  <div>
+                    {col.data.map((it:any, idx:number)=>(
+                      <div key={it.issueId || idx} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px', marginBottom:8 }}>
+                        <div style={{ maxWidth:'70%' }}>
+                          <div style={{ fontWeight:600, fontSize:13, marginBottom:4 }}>{idx+1}. {it.title}</div>
+                          <div className="muted" style={{ fontSize:12 }}>📈 {it.events}건 {it.users!=null?`· 👥 ${it.users}명`:''}</div>
+                        </div>
+                        <div style={{ display:'flex', gap:8 }}>
+                          {it.link && <a className="btn ghost" style={{ fontSize:11, padding:'6px 10px' }} href={it.link} target="_blank" rel="noreferrer">Sentry</a>}
+                          <button className="btn ghost" style={{ fontSize:11, padding:'6px 10px' }} onClick={()=>openIssue(it, col.key as any)}>상세보기</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 테스트 실행 섹션 */}
@@ -877,6 +962,33 @@ export default function WeeklyReportPage() {
       </div>
 
       {/* 결과 보기 모달 */}
+      {/* 이슈 상세 모달 */}
+      {issueModal.open && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
+          <div style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:12, padding:20, width:'90%', maxWidth:800, maxHeight:'80vh', overflow:'auto' }}>
+            <div className="row" style={{ justifyContent:'space-between', alignItems:'center' }}>
+              <h3 style={{ margin:0 }}>이슈 상세</h3>
+              <button className="btn ghost" onClick={()=>setIssueModal({ open:false })}>✕</button>
+            </div>
+            {issueModal.item && (
+              <div style={{ marginTop:12 }}>
+                <div style={{ fontWeight:600, marginBottom:6 }}>{issueModal.item.title}</div>
+                <div className="muted" style={{ fontSize:12, marginBottom:10 }}>📈 {issueModal.item.events}건 {issueModal.item.users!=null?`· 👥 ${issueModal.item.users}명`:''}</div>
+                <div className="row" style={{ gap:8, marginBottom:12 }}>
+                  {issueModal.item.link && <a className="btn ghost" href={issueModal.item.link} target="_blank" rel="noreferrer">Sentry에서 열기</a>}
+                  <button className="btn ok" onClick={runIssueAnalysis} disabled={issueLoading}>{issueLoading?'분석 중…':'AI 분석'}</button>
+                </div>
+                {issueAnalysis && (
+                  <details open style={{ marginTop:8 }}>
+                    <summary style={{ cursor:'pointer', fontWeight:600 }}>AI 분석 결과</summary>
+                    <pre style={{ whiteSpace:'pre-wrap', lineHeight:1.5 }}>{issueAnalysis.summary || JSON.stringify(issueAnalysis, null, 2)}</pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {showModal && selectedReport && (
         <div style={{
           position: 'fixed',

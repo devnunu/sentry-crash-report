@@ -8,6 +8,45 @@ export class ReportsDatabaseService {
     const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
     return kst.toISOString().split('T')[0]
   }
+
+  // ----- Issue Analyses -----
+  async getIssueAnalysis(
+    platform: 'android' | 'ios',
+    issueId: string,
+    reportType: 'daily' | 'weekly',
+    dateKey: string
+  ): Promise<any | null> {
+    const { data, error } = await this.ensureSupabaseAdmin()
+      .from('issue_analyses')
+      .select('*')
+      .eq('platform', platform)
+      .eq('issue_id', issueId)
+      .eq('report_type', reportType)
+      .eq('date_key', dateKey)
+      .single()
+    if (error) {
+      if ((error as any).code === 'PGRST116') return null
+      throw new Error(`Failed to get issue analysis: ${error.message}`)
+    }
+    return data
+  }
+
+  async upsertIssueAnalysis(
+    platform: 'android' | 'ios',
+    issueId: string,
+    reportType: 'daily' | 'weekly',
+    dateKey: string,
+    analysis: any,
+    promptDigest?: string
+  ): Promise<any> {
+    const { data, error } = await this.ensureSupabaseAdmin()
+      .from('issue_analyses')
+      .upsert({ platform, issue_id: issueId, report_type: reportType, date_key: dateKey, analysis, prompt_digest: promptDigest, updated_at: new Date().toISOString() }, { onConflict: 'platform,issue_id,report_type,date_key' })
+      .select('*')
+      .single()
+    if (error) throw new Error(`Failed to upsert issue analysis: ${error.message}`)
+    return data
+  }
   
   private ensureSupabaseAdmin() {
     if (!supabaseAdmin) {
