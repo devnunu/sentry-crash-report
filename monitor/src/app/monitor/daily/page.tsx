@@ -439,8 +439,7 @@ export default function DailyReportPage() {
         <div>
           <h1 className="h1">📊 일간 리포트</h1>
           <p className="muted">
-            Sentry 일간 크래시 리포트를 생성하고 관리합니다. 
-            화수목금 오전 9시에 자동으로 실행되며, 수동으로도 생성할 수 있습니다.
+            Sentry 일간 크래시 리포트를 생성하고 관리합니다. 자동 스케줄 설정에 따라 실행되며, 수동 생성도 가능합니다.
           </p>
         </div>
         
@@ -585,9 +584,9 @@ export default function DailyReportPage() {
           {/* 요일 선택 */}
           {autoEnabled && (
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600' }}>
-                실행 요일 선택 (오전 9시 기준)
-              </label>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600' }}>
+              실행 요일 선택
+            </label>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {weekDays.map(({ key, label }) => (
                   <button
