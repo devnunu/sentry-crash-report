@@ -44,8 +44,10 @@ export async function POST(request: NextRequest) {
       }
     }
     
+    const triggerHeader = request.headers.get('x-trigger-type')
+    const triggerType: 'scheduled' | 'manual' = triggerHeader === 'scheduled' ? 'scheduled' : 'manual'
     const modeText = isTestMode ? '[테스트 모드] ' : ''
-    console.log(`[API] ${modeText}Generating weekly report for ${targetWeek || startDate + ' to ' + endDate || 'last week'} - platform=${platform}`)
+    console.log(`[API] ${modeText}Generating weekly report for ${targetWeek || startDate + ' to ' + endDate || 'last week'} - platform=${platform} - trigger=${triggerType}`)
     
     // 리포트 생성
     const platforms: Array<'android' | 'ios'> = platform === 'all' ? ['android', 'ios'] : [platform as 'android' | 'ios']
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
         endDate: parsedEndDate,
         sendSlack,
         includeAI,
-        triggerType: 'manual',
+        triggerType,
         isTestMode: isTestMode || false
       })
       results.push({ platform: p, executionId: result.executionId })

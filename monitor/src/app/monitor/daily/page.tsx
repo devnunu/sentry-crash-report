@@ -536,7 +536,7 @@ export default function DailyReportPage() {
                 </div>
                 {cronStatus.dailyReport?.recentExecutions?.length > 0 && (
                   <div style={{ marginTop: 6 }}>
-                    최근 실행: {cronStatus.dailyReport.recentExecutions.map((r: any) => r.createdAt?.slice(0,16).replace('T',' ')).join(', ')}
+                    최근 실행: {cronStatus.dailyReport.recentExecutions.map((r: any) => r.createdAtKST || r.createdAt?.slice(0,16).replace('T',' ')).join(', ')}
                   </div>
                 )}
               </>

@@ -88,7 +88,7 @@ async function processDailyReport() {
         console.log(`[QStash Webhook] Triggering daily generate for ${platform} -> ${baseUrl}/api/reports/daily/generate`)
         const response = await fetch(`${baseUrl}/api/reports/daily/generate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Trigger-Type': 'scheduled' },
           // 첫 시도만 Slack 전송, 재시도 시 중복 방지 위해 sendSlack=false
           body: JSON.stringify({ sendSlack: retryCount === 0, includeAI, isTestMode, platform }),
           signal: AbortSignal.timeout(120000)
@@ -136,7 +136,7 @@ async function processWeeklyReport() {
         console.log(`[QStash Webhook] Triggering weekly generate for ${platform} -> ${baseUrl}/api/reports/weekly/generate`)
         const response = await fetch(`${baseUrl}/api/reports/weekly/generate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Trigger-Type': 'scheduled' },
           body: JSON.stringify({ sendSlack: retryCount === 0, includeAI, isTestMode, platform }),
           signal: AbortSignal.timeout(120000)
         })

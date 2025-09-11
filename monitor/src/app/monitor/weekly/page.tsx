@@ -710,7 +710,7 @@ export default function WeeklyReportPage() {
                 </div>
                 {cronStatus.weeklyReport?.recentExecutions?.length > 0 && (
                   <div style={{ marginTop: 6 }}>
-                    최근 실행: {cronStatus.weeklyReport.recentExecutions.map((r: any) => r.createdAt?.slice(0,16).replace('T',' ')).join(', ')}
+                    최근 실행: {cronStatus.weeklyReport.recentExecutions.map((r: any) => r.createdAtKST || r.createdAt?.slice(0,16).replace('T',' ')).join(', ')}
                   </div>
                 )}
               </>

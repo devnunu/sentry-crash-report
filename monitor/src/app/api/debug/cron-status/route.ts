@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { reportsDb } from '@/lib/reports/database'
 import type { WeekDay } from '@/lib/reports/types'
+import { formatKST } from '@/lib/utils'
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,7 +51,8 @@ export async function GET(request: NextRequest) {
             id: r.id,
             triggerType: r.trigger_type,
             status: r.status,
-            createdAt: r.created_at
+            createdAt: r.created_at,
+            createdAtKST: formatKST(r.created_at)
           }))
         },
         weeklyReport: {
@@ -63,7 +65,8 @@ export async function GET(request: NextRequest) {
             id: r.id,
             triggerType: r.trigger_type,
             status: r.status,
-            createdAt: r.created_at
+            createdAt: r.created_at,
+            createdAtKST: formatKST(r.created_at)
           }))
         }
       }
