@@ -1,3 +1,6 @@
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- 모니터링 세션 테이블
 CREATE TABLE IF NOT EXISTS monitor_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -8,7 +11,9 @@ CREATE TABLE IF NOT EXISTS monitor_sessions (
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  qstash_schedule_id TEXT,
+  is_test_mode BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- 모니터링 히스토리 테이블 (각 tick 실행 결과 저장)
@@ -29,6 +34,7 @@ CREATE TABLE IF NOT EXISTS monitor_history (
 -- 인덱스 생성
 CREATE INDEX IF NOT EXISTS idx_monitor_sessions_status ON monitor_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_monitor_sessions_expires_at ON monitor_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_monitor_sessions_platform ON monitor_sessions(platform);
 CREATE INDEX IF NOT EXISTS idx_monitor_history_monitor_id ON monitor_history(monitor_id);
 CREATE INDEX IF NOT EXISTS idx_monitor_history_executed_at ON monitor_history(executed_at);
 
@@ -74,6 +80,7 @@ CREATE TABLE IF NOT EXISTS report_executions (
   report_type TEXT NOT NULL CHECK (report_type IN ('daily', 'weekly')),
   status TEXT NOT NULL CHECK (status IN ('success', 'error', 'running')),
   trigger_type TEXT NOT NULL CHECK (trigger_type IN ('scheduled', 'manual')),
+  platform TEXT CHECK (platform IN ('android', 'ios')),
   target_date DATE NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
@@ -92,7 +99,10 @@ CREATE TABLE IF NOT EXISTS report_settings (
   report_type TEXT NOT NULL CHECK (report_type IN ('daily', 'weekly')),
   auto_enabled BOOLEAN NOT NULL DEFAULT false,
   schedule_time TIME NOT NULL DEFAULT '09:00',
+  schedule_days TEXT[] DEFAULT ARRAY[]::TEXT[],
   ai_enabled BOOLEAN NOT NULL DEFAULT true,
+  is_test_mode BOOLEAN NOT NULL DEFAULT false,
+  qstash_schedule_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(report_type)
@@ -102,7 +112,12 @@ CREATE TABLE IF NOT EXISTS report_settings (
 CREATE INDEX IF NOT EXISTS idx_report_executions_type_date ON report_executions(report_type, target_date DESC);
 CREATE INDEX IF NOT EXISTS idx_report_executions_status ON report_executions(status);
 CREATE INDEX IF NOT EXISTS idx_report_executions_created_at ON report_executions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_report_executions_platform ON report_executions(platform);
 CREATE INDEX IF NOT EXISTS idx_report_settings_type ON report_settings(report_type);
+
+-- schedule_days 값 검증(허용 요일만)
+-- 주의: Postgres는 ADD CONSTRAINT에 IF NOT EXISTS를 지원하지 않습니다.
+-- 아래 DO 블록에서 존재 여부를 확인한 뒤 제약조건을 추가합니다.
 
 -- RLS 정책 활성화
 ALTER TABLE report_executions ENABLE ROW LEVEL SECURITY;
@@ -120,9 +135,65 @@ CREATE TRIGGER update_report_settings_updated_at
   BEFORE UPDATE ON report_settings 
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- 기본 리포트 설정 데이터 삽입
-INSERT INTO report_settings (report_type, auto_enabled, schedule_time, ai_enabled) 
+-- 기본 리포트 설정 데이터 삽입 (요일 기본값 포함)
+INSERT INTO report_settings (report_type, auto_enabled, schedule_time, schedule_days, ai_enabled, is_test_mode) 
 VALUES 
-  ('daily', true, '09:00', true),
-  ('weekly', true, '09:00', true)
+  ('daily', true, '09:00', ARRAY['mon','tue','wed','thu','fri']::TEXT[], true, false),
+  ('weekly', true, '09:00', ARRAY['mon']::TEXT[], true, false)
 ON CONFLICT (report_type) DO NOTHING;
+
+-- 이슈별 AI 분석 결과 저장 테이블
+CREATE TABLE IF NOT EXISTS issue_analyses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  platform TEXT NOT NULL CHECK (platform IN ('android', 'ios')),
+  issue_id TEXT NOT NULL,
+  report_type TEXT NOT NULL CHECK (report_type IN ('daily', 'weekly')),
+  date_key TEXT NOT NULL, -- 'YYYY-MM-DD' (daily) 또는 주차 기준 키
+  analysis JSONB NOT NULL,
+  prompt_digest TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(platform, issue_id, report_type, date_key)
+);
+
+-- 인덱스 (issue_analyses)
+CREATE INDEX IF NOT EXISTS idx_issue_analyses_platform ON issue_analyses(platform);
+CREATE INDEX IF NOT EXISTS idx_issue_analyses_date_key ON issue_analyses(date_key);
+
+-- RLS 정책 활성화 (issue_analyses)
+ALTER TABLE issue_analyses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all access to issue_analyses" ON issue_analyses FOR ALL USING (true);
+
+-- issue_analyses updated_at 트리거
+CREATE TRIGGER update_issue_analyses_updated_at 
+  BEFORE UPDATE ON issue_analyses 
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- 스키마 보완용 컬럼 추가(기존 테이블에 누락 시)
+ALTER TABLE monitor_sessions 
+  ADD COLUMN IF NOT EXISTS qstash_schedule_id TEXT,
+  ADD COLUMN IF NOT EXISTS is_test_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE report_executions 
+  ADD COLUMN IF NOT EXISTS platform TEXT CHECK (platform IN ('android','ios'));
+
+ALTER TABLE report_settings 
+  ADD COLUMN IF NOT EXISTS schedule_days TEXT[] DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN IF NOT EXISTS is_test_mode BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS qstash_schedule_id TEXT;
+
+-- schedule_days 제약조건 재보장(존재하지 않을 경우만)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'chk_report_settings_schedule_days_valid'
+  ) THEN
+    ALTER TABLE report_settings
+      ADD CONSTRAINT chk_report_settings_schedule_days_valid
+      CHECK (
+        schedule_days IS NULL
+        OR schedule_days <@ ARRAY['mon','tue','wed','thu','fri','sat','sun']::TEXT[]
+      );
+  END IF;
+END $$;
