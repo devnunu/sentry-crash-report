@@ -79,10 +79,7 @@ const tdStyle: React.CSSProperties = {
 
 export default function DailyAndroidReportPage() {
   // 상태 관리
-  const [reports, setReports] = useState<ReportExecution[]>([])
   const [, setSettings] = useState<ReportSettings | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   
   
   
@@ -96,7 +93,6 @@ export default function DailyAndroidReportPage() {
   })
   // Cron 상태(디버그)
   // 플랫폼 필터 (히스토리)
-  const [historyPlatform] = useState<'all' | 'android' | 'ios'>('android')
   // Top5 상태
   const [topAndroid, setTopAndroid] = useState<any[]>([])
   const [topDateKeyAndroid, setTopDateKeyAndroid] = useState<string>('')
@@ -115,32 +111,10 @@ export default function DailyAndroidReportPage() {
     return kst.slice(0, 10)
   }
 
-  // 히스토리 조회
-  const fetchReports = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    
-    try {
-      const q = historyPlatform === 'all' ? '' : `&platform=${historyPlatform}`
-      const response = await fetch(`/api/reports/daily/history?limit=30${q}`)
-      const result: ApiResponse<{ reports: ReportExecution[] }> = await response.json()
-      
-      if (!result.success || !result.data) {
-        throw new Error(result.error || '리포트 히스토리 조회 실패')
-      }
-      
-      setReports(result.data.reports)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '알 수 없는 오류')
-    } finally {
-      setLoading(false)
-    }
-  }, [historyPlatform])
 
 
   // 컴포넌트 마운트 시 데이터 로드
   useEffect(() => {
-    fetchReports()
     // 최신 Top5 로드
     const loadTop = async () => {
       setTopLoading(true)
@@ -168,7 +142,7 @@ export default function DailyAndroidReportPage() {
     loadCron()
     const t = setInterval(loadCron, 60000)
     return () => clearInterval(t)
-  }, [fetchReports])
+  }, [])
 
   const openIssue = async (item: any, platform: 'android'|'ios') => {
     // 팝업만 열고, 분석은 사용자가 버튼을 눌렀을 때만 수행
@@ -391,100 +365,6 @@ export default function DailyAndroidReportPage() {
               </Card>
             ))}
           </Group>
-        )}
-      </Card>
-      <StatsCards
-        items={[
-          { label: '리포트(최근)', value: reports.length },
-          { label: '성공', value: reports.filter(r => r.status === 'success').length, color: 'green' },
-          { label: '실패', value: reports.filter(r => r.status === 'error').length, color: 'red' },
-          { label: '실행중', value: reports.filter(r => r.status === 'running').length, color: 'yellow' },
-        ]}
-      />
-
-
-      {/* 히스토리 섹션 */}
-      <Card withBorder radius="lg" p="lg" mt="md">
-        <Group justify="space-between" align="center">
-          <Title order={4}>📋 실행 히스토리</Title>
-          <Group gap={12} align="center">
-            <Button onClick={fetchReports} loading={loading} variant="light">새로고침</Button>
-          </Group>
-        </Group>
-
-        {error && (
-          <Text c="red">⚠️ {error}</Text>
-        )}
-
-        {reports.length === 0 ? (
-          <Text c="dimmed" ta="center" py={40}>{loading ? '로딩 중...' : '리포트 히스토리가 없습니다.'}</Text>
-        ) : (
-          <>
-            {!isMobile && (
-            <TableWrapper>
-                <Table highlightOnHover withColumnBorders verticalSpacing="xs" stickyHeader stickyHeaderOffset={0}>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>분석 날짜</Table.Th>
-                      <Table.Th>플랫폼</Table.Th>
-                      <Table.Th>상태</Table.Th>
-                      <Table.Th>실행 방식</Table.Th>
-                      <Table.Th>실행 시간</Table.Th>
-                      <Table.Th>Slack 전송</Table.Th>
-                      <Table.Th>생성 일시</Table.Th>
-                      <Table.Th style={{ textAlign: 'right' }}>액션</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {reports.map((report) => {
-                      return (
-                        <Table.Tr key={report.id}>
-                          <Table.Td>{toKstDate(report.target_date)}</Table.Td>
-                          <Table.Td>{report.platform ? report.platform.toUpperCase() : '-'}</Table.Td>
-                          <Table.Td><StatusBadge kind="report" status={report.status} /></Table.Td>
-                          <Table.Td>{report.trigger_type === 'scheduled' ? '자동' : '수동'}</Table.Td>
-                          <Table.Td>{formatExecutionTime(report.execution_time_ms)}</Table.Td>
-                          <Table.Td>{report.slack_sent ? '✅' : '❌'}</Table.Td>
-                          <Table.Td>{formatKST(report.created_at)}</Table.Td>
-                          <Table.Td style={{ textAlign: 'right' }}>
-                            <Button onClick={() => handleViewReport(report)} variant="light" size="xs">결과 보기</Button>
-                          </Table.Td>
-                        </Table.Tr>
-                      )
-                    })}
-                  </Table.Tbody>
-                </Table>
-            </TableWrapper>
-            )}
-
-          {/* 모바일 카드 */}
-          {isMobile && (
-          <div className="mobile-cards" style={{ marginTop: 16 }}>
-            {reports.map((report) => (
-              <Card key={report.id} withBorder radius="md" p="md" style={{ marginBottom: 12 }}>
-                <Group justify="space-between" align="center" mb={8}>
-                  <StatusBadge kind="report" status={report.status} />
-                  <Button size="xs" variant="light" onClick={() => handleViewReport(report)}>결과 보기</Button>
-                </Group>
-                <Stack gap={6}>
-                  <Text size="xs" c="dimmed">분석 날짜</Text>
-                  <Text size="sm">{toKstDate(report.target_date)}</Text>
-                  <Text size="xs" c="dimmed">플랫폼</Text>
-                  <Text size="sm">{report.platform ? report.platform.toUpperCase() : '-'}</Text>
-                  <Text size="xs" c="dimmed">실행 방식</Text>
-                  <Text size="sm">{report.trigger_type === 'scheduled' ? '자동' : '수동'}</Text>
-                  <Text size="xs" c="dimmed">실행 시간</Text>
-                  <Text size="sm">{formatExecutionTime(report.execution_time_ms)}</Text>
-                  <Text size="xs" c="dimmed">Slack 전송</Text>
-                  <Text size="sm">{report.slack_sent ? '✅' : '❌'}</Text>
-                  <Text size="xs" c="dimmed">생성 일시</Text>
-                  <Text size="sm">{formatKST(report.created_at)}</Text>
-                </Stack>
-              </Card>
-            ))}
-          </div>
-          )}
-          </>
         )}
       </Card>
 

@@ -6,7 +6,6 @@ import { Button, Card, Group, Modal, Select, Stack, Table, Text, Title, useManti
 import TableWrapper from '@/components/TableWrapper'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
-import { notifications } from '@mantine/notifications'
 import { useMediaQuery } from '@mantine/hooks'
 import StatsCards from '@/components/StatsCards'
 import { formatKST, formatExecutionTime } from '@/lib/utils'
@@ -21,67 +20,11 @@ interface ApiResponse<T> {
   error?: string
 }
 
-// 상태별 스타일
-const getStatusStyle = (status: string) => {
-  switch (status) {
-    case 'success':
-      return { color: 'var(--ok)', backgroundColor: 'rgba(34, 197, 94, 0.1)' }
-    case 'error':
-      return { color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)' }
-    case 'running':
-      return { color: 'var(--warn)', backgroundColor: 'rgba(245, 158, 11, 0.1)' }
-    default:
-      return { color: 'var(--muted)', backgroundColor: 'rgba(154, 164, 178, 0.1)' }
-  }
-}
-
-const getStatusText = (status: string) => {
-  switch (status) {
-    case 'success': return '✅ 성공'
-    case 'error': return '❌ 실패'
-    case 'running': return '🔄 실행중'
-    default: return status
-  }
-}
-
-const getStatusBadge = (status: string): { color: string; label: string } => {
-  switch (status) {
-    case 'success':
-      return { color: 'green', label: '성공' }
-    case 'error':
-      return { color: 'red', label: '실패' }
-    case 'running':
-      return { color: 'yellow', label: '실행중' }
-    default:
-      return { color: 'gray', label: status }
-  }
-}
-
-
-
-const thStyle: React.CSSProperties = {
-  padding: '12px 14px',
-  textAlign: 'left',
-  fontWeight: 700,
-  fontSize: '12px',
-  letterSpacing: '0.2px',
-  background: '#0f1524',
-  color: 'var(--muted)',
-  borderBottom: '1px solid var(--border)',
-}
-
-const tdStyle: React.CSSProperties = {
-  padding: '12px 14px',
-  fontSize: '13px',
-  verticalAlign: 'middle',
-  borderBottom: '1px solid var(--border)',
-}
-
-export default function DailyiOSReportPage() {
+export default function ReportHistoryPage() {
   // 상태 관리
-  const [, setSettings] = useState<ReportSettings | null>(null)
-  
-  
+  const [reports, setReports] = useState<ReportExecution[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   
   // 결과 모달 상태
   const [selectedReport, setSelectedReport] = useState<ReportExecution | null>(null)
@@ -91,18 +34,14 @@ export default function DailyiOSReportPage() {
     data: false,
     slack: false
   })
-  // Cron 상태(디버그)
-  // 플랫폼 필터 (히스토리)
-  // Top5 상태
-  const [topAndroid, setTopAndroid] = useState<any[]>([])
-  const [topDateKeyAndroid, setTopDateKeyAndroid] = useState<string>('')
-  const [topLoading, setTopLoading] = useState(false)
-  const [issueModal, setIssueModal] = useState<{ open: boolean; item?: any; platform?: 'android'|'ios'; dateKey?: string }>(()=>({ open: false }))
-  const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
-  const [issueLoading, setIssueLoading] = useState(false)
-  const [issueError, setIssueError] = useState<string>('')
+  
+  // 필터 상태
+  const [reportType, setReportType] = useState<'all' | 'daily' | 'weekly'>('all')
+  const [historyPlatform, setHistoryPlatform] = useState<'all' | 'android' | 'ios'>('all')
+  
   const theme = useMantineTheme()
   const isMobile = useMediaQuery(`(max-width: ${theme.breakpoints.sm})`)
+  
   // 날짜 표시를 KST 기준으로 변환 (YYYY-MM-DD)
   const toKstDate = (dateStr?: string) => {
     if (!dateStr) return '-'
@@ -111,92 +50,59 @@ export default function DailyiOSReportPage() {
     return kst.slice(0, 10)
   }
 
-
+  // 히스토리 조회
+  const fetchReports = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    
+    try {
+      let allReports: ReportExecution[] = []
+      
+      // 플랫폼 필터 구성
+      const platformQuery = historyPlatform === 'all' ? '' : `&platform=${historyPlatform}`
+      
+      // 리포트 타입별로 API 호출
+      if (reportType === 'all' || reportType === 'daily') {
+        try {
+          const dailyResponse = await fetch(`/api/reports/daily/history?limit=25${platformQuery}`)
+          const dailyResult: ApiResponse<{ reports: ReportExecution[] }> = await dailyResponse.json()
+          if (dailyResult.success && dailyResult.data) {
+            allReports = allReports.concat(dailyResult.data.reports)
+          }
+        } catch (err) {
+          console.warn('일간 리포트 히스토리 조회 실패:', err)
+        }
+      }
+      
+      if (reportType === 'all' || reportType === 'weekly') {
+        try {
+          const weeklyResponse = await fetch(`/api/reports/weekly/history?limit=25${platformQuery}`)
+          const weeklyResult: ApiResponse<{ reports: ReportExecution[] }> = await weeklyResponse.json()
+          if (weeklyResult.success && weeklyResult.data) {
+            allReports = allReports.concat(weeklyResult.data.reports)
+          }
+        } catch (err) {
+          console.warn('주간 리포트 히스토리 조회 실패:', err)
+        }
+      }
+      
+      // 생성 일시 기준으로 정렬 (최신순)
+      allReports.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      
+      // 최대 50개로 제한
+      setReports(allReports.slice(0, 50))
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '알 수 없는 오류')
+    } finally {
+      setLoading(false)
+    }
+  }, [reportType, historyPlatform])
 
   // 컴포넌트 마운트 시 데이터 로드
   useEffect(() => {
-    // 최신 Top5 로드
-    const loadTop = async () => {
-      setTopLoading(true)
-      try {
-        const aRes = await fetch('/api/reports/daily/top?platform=ios').then(r=>r.json())
-        setTopAndroid(aRes?.data?.top || [])
-        setTopDateKeyAndroid(aRes?.data?.dateKey || '')
-      } catch {}
-      setTopLoading(false)
-    }
-    loadTop()
-    // 초기 cron 상태 로드 + 60초마다 갱신
-    const loadCron = async () => {
-      setCronLoading(true)
-      try {
-        const res = await fetch('/api/debug/cron-status')
-        const data = await res.json()
-        if (data?.success) setCronStatus(data.data)
-      } catch (e) {
-        // noop
-      } finally {
-        setCronLoading(false)
-      }
-    }
-    loadCron()
-    const t = setInterval(loadCron, 60000)
-    return () => clearInterval(t)
-  }, [])
-
-  const openIssue = async (item: any, platform: 'android'|'ios') => {
-    // 팝업만 열고, 분석은 사용자가 버튼을 눌렀을 때만 수행
-    const dateKey = platform === 'android' ? topDateKeyAndroid : topDateKeyIOS
-    setIssueModal({ open: true, item, platform, dateKey })
-    setIssueAnalysis(null)
-    setIssueError('')
-    setIssueLoading(false)
-    // 캐시된 분석이 있으면 미리 표시
-    try {
-      if (item?.issueId && dateKey) {
-        const res = await fetch(`/api/reports/issues/${encodeURIComponent(item.issueId)}/analysis?platform=${platform}&type=daily&dateKey=${dateKey}`)
-        const j = await res.json()
-        setIssueAnalysis(j?.data?.analysis || null)
-      }
-    } catch { /* noop */ }
-  }
-
-  const runIssueAnalysis = async (force = true) => {
-    if (!issueModal.item || !issueModal.platform) return
-    setIssueLoading(true)
-    setIssueAnalysis(null)
-    setIssueError('')
-    try {
-      const dateKey = issueModal.dateKey || new Date().toISOString().slice(0,10)
-      const postRes = await fetch(`/api/reports/issues/${encodeURIComponent(issueModal.item.issueId)}/analysis`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform: issueModal.platform, type: 'daily', dateKey, force })
-      })
-      const postJson = await postRes.json()
-      if (!postRes.ok || !postJson?.success) {
-        throw new Error(postJson?.error || 'AI 분석 실패')
-      }
-      setIssueAnalysis(postJson?.data?.analysis || null)
-    } catch (e:any) {
-      setIssueError(e?.message || 'AI 분석 중 오류가 발생했습니다')
-    }
-    setIssueLoading(false)
-  }
-
-  // 간단한 마크다운 렌더링(굵게/줄바꿈)
-  const renderAnalysis = (text?: string) => {
-    if (!text) return <span className="muted">아직 분석되지 않았습니다.</span>
-    const html = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n/g, '<br/>')
-    return <span dangerouslySetInnerHTML={{ __html: html }} />
-  }
-
-
+    fetchReports()
+  }, [fetchReports])
 
   // 결과 보기
   const handleViewReport = (report: ReportExecution) => {
@@ -223,7 +129,14 @@ export default function DailyiOSReportPage() {
     if (!reportData) return '리포트 데이터가 없습니다.'
     
     try {
-      let message = `📊 *일간 크래시 리포트 - ${selectedReport?.target_date}*\n\n`
+      const isWeekly = selectedReport?.target_date?.includes('W') || selectedReport?.start_date
+      const period = isWeekly 
+        ? (selectedReport?.target_date 
+          ? `${selectedReport.target_date} 주차`
+          : `${selectedReport?.start_date} ~ ${selectedReport?.end_date}`)
+        : selectedReport?.target_date
+        
+      let message = `${isWeekly ? '📈' : '📊'} *${isWeekly ? '주간' : '일간'} 크래시 리포트 - ${period}*\n\n`
       
       // 데이터 구조 디버깅을 위한 로그
       console.log('Report Data Structure:', reportData)
@@ -316,93 +229,151 @@ export default function DailyiOSReportPage() {
     }
   }
 
-
-  // 어제 날짜 기본값
-
   return (
     <div className="container">
       <Group justify="space-between" align="flex-start" mb="sm">
         <div>
-          <Title order={2}>🍎 iOS 일간 리포트</Title>
+          <Title order={2}>📋 리포트 실행 내역</Title>
           <Text c="dimmed" size="sm">
-            iOS 플랫폼의 Sentry 일간 크래시 리포트를 생성하고 관리합니다.
+            일간 및 주간 리포트의 실행 내역을 조회하고 관리합니다.
           </Text>
         </div>
       </Group>
 
-      {/* Top 5 이슈 (플랫폼별) */}
+      {/* 통계 요약 */}
+      <StatsCards
+        items={[
+          { label: '총 실행', value: reports.length },
+          { label: '성공', value: reports.filter(r => r.status === 'success').length, color: 'green' },
+          { label: '실패', value: reports.filter(r => r.status === 'error').length, color: 'red' },
+          { label: '실행중', value: reports.filter(r => r.status === 'running').length, color: 'yellow' },
+        ]}
+      />
+
+      {/* 실행 히스토리 */}
       <Card withBorder radius="lg" p="lg" mt="md">
-        <Title order={4} mb="sm">🏅 iOS Top 5 이슈 (최근 리포트)</Title>
-        {topLoading ? (
-          <Text c="dimmed">불러오는 중…</Text>
-        ) : (
-          <Group align="stretch" wrap="wrap" gap={24}>
-            {[{key:'ios', label:'🍎 iOS', data: topAndroid}].map(col => (
-              <Card key={col.key} withBorder radius="md" p="md" style={{ flex: 1, minWidth: 320 }}>
-                <Text fw={700} mb={8}>{col.label}</Text>
-                {col.data.length === 0 ? (
-                  <Text c="dimmed">데이터가 없습니다.</Text>
-                ) : (
-                  <Stack gap={8}>
-                    {col.data.map((it:any, idx:number)=>(
-                      <Card key={it.issueId || idx} withBorder radius="md" p="sm">
-                        <Group justify="space-between" align="center">
-                          <div style={{ maxWidth:'70%' }}>
-                            <Text fw={600} size="sm" mb={4}>{idx+1}. {it.title}</Text>
-                            <Text c="dimmed" size="xs">📈 {it.events}건 {it.users!=null?`· 👥 ${it.users}명`:''}</Text>
-                          </div>
-                          <Group gap={8}>
-                            {it.link && (
-                              <Button component="a" href={it.link} target="_blank" variant="light" size="xs">Sentry</Button>
-                            )}
-                            <Button variant="light" size="xs" onClick={()=>openIssue(it, col.key as any)}>상세보기</Button>
-                          </Group>
-                        </Group>
-                      </Card>
-                    ))}
-                  </Stack>
-                )}
-              </Card>
-            ))}
+        <Group justify="space-between" align="center" mb="md">
+          <Title order={4}>📋 실행 내역</Title>
+          <Group gap={12} align="center">
+            <Select
+              placeholder="리포트 타입"
+              data={[
+                { value: 'all', label: '전체' }, 
+                { value: 'daily', label: '일간 리포트' }, 
+                { value: 'weekly', label: '주간 리포트' }
+              ]}
+              value={reportType}
+              onChange={(val) => setReportType((val as any) ?? 'all')}
+              allowDeselect={false}
+              w={160}
+            />
+            <Select
+              placeholder="플랫폼"
+              data={[
+                { value: 'all', label: '전체' }, 
+                { value: 'android', label: 'Android' }, 
+                { value: 'ios', label: 'iOS' }
+              ]}
+              value={historyPlatform}
+              onChange={(val) => setHistoryPlatform((val as any) ?? 'all')}
+              allowDeselect={false}
+              w={160}
+            />
+            <Button onClick={fetchReports} loading={loading} variant="light">새로고침</Button>
           </Group>
+        </Group>
+
+        {error && (<Text c="red">⚠️ {error}</Text>)}
+
+        {reports.length === 0 && !loading && !error && (
+          <Text c="dimmed" ta="center" py="xl">실행 내역이 없습니다.</Text>
+        )}
+
+        {reports.length > 0 && (
+          <>
+            {/* 데스크톱 테이블 */}
+            {!isMobile && (
+            <TableWrapper>
+                <Table highlightOnHover withColumnBorders verticalSpacing="xs" stickyHeader stickyHeaderOffset={0}>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>리포트 타입</Table.Th>
+                      <Table.Th>분석 날짜</Table.Th>
+                      <Table.Th>플랫폼</Table.Th>
+                      <Table.Th>상태</Table.Th>
+                      <Table.Th>실행 방식</Table.Th>
+                      <Table.Th>실행 시간</Table.Th>
+                      <Table.Th>Slack 전송</Table.Th>
+                      <Table.Th>생성 일시</Table.Th>
+                      <Table.Th style={{ textAlign: 'right' }}>액션</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {reports.map((report) => {
+                      const reportTypeText = report.target_date?.includes('W') || report.start_date ? '주간' : '일간'
+                      return (
+                        <Table.Tr key={report.id}>
+                          <Table.Td>{reportTypeText}</Table.Td>
+                          <Table.Td>{toKstDate(report.target_date)}</Table.Td>
+                          <Table.Td>{report.platform ? report.platform.toUpperCase() : '-'}</Table.Td>
+                          <Table.Td><StatusBadge kind="report" status={report.status} /></Table.Td>
+                          <Table.Td>{report.trigger_type === 'scheduled' ? '자동' : '수동'}</Table.Td>
+                          <Table.Td>{formatExecutionTime(report.execution_time_ms)}</Table.Td>
+                          <Table.Td>{report.slack_sent ? '✅' : '❌'}</Table.Td>
+                          <Table.Td>{formatKST(report.created_at)}</Table.Td>
+                          <Table.Td style={{ textAlign: 'right' }}>
+                            <Button size="xs" variant="light" onClick={() => handleViewReport(report)}>결과 보기</Button>
+                          </Table.Td>
+                        </Table.Tr>
+                      )
+                    })}
+                  </Table.Tbody>
+                </Table>
+              </TableWrapper>
+            )}
+            
+          {/* 모바일 카드 */}
+          {isMobile && (
+          <div className="mobile-cards" style={{ marginTop: 16 }}>
+            {reports.map((report) => {
+              const reportTypeText = report.target_date?.includes('W') || report.start_date ? '주간' : '일간'
+              return (
+                <Card key={report.id} withBorder radius="md" p="md" style={{ marginBottom: 12 }}>
+                  <Group justify="space-between" align="center" mb={8}>
+                    <StatusBadge kind="report" status={report.status} />
+                    <Button size="xs" variant="light" onClick={() => handleViewReport(report)}>결과 보기</Button>
+                  </Group>
+                  <Stack gap={6}>
+                    <Text size="xs" c="dimmed">리포트 타입</Text>
+                    <Text size="sm">{reportTypeText}</Text>
+                    <Text size="xs" c="dimmed">분석 날짜</Text>
+                    <Text size="sm">{toKstDate(report.target_date)}</Text>
+                    <Text size="xs" c="dimmed">플랫폼</Text>
+                    <Text size="sm">{report.platform ? report.platform.toUpperCase() : '-'}</Text>
+                    <Text size="xs" c="dimmed">실행 방식</Text>
+                    <Text size="sm">{report.trigger_type === 'scheduled' ? '자동' : '수동'}</Text>
+                    <Text size="xs" c="dimmed">실행 시간</Text>
+                    <Text size="sm">{formatExecutionTime(report.execution_time_ms)}</Text>
+                    <Text size="xs" c="dimmed">Slack 전송</Text>
+                    <Text size="sm">{report.slack_sent ? '✅ 성공' : '❌ 실패'}</Text>
+                    <Text size="xs" c="dimmed">생성 일시</Text>
+                    <Text size="sm">{formatKST(report.created_at)}</Text>
+                  </Stack>
+                </Card>
+              )
+            })}
+          </div>
+          )}
+          </>
         )}
       </Card>
 
-      {/* 이슈 상세 모달 */}
-      <Modal opened={issueModal.open} onClose={() => setIssueModal({ open: false })} title="이슈 상세" size="lg" centered>
-        {issueModal.item && (
-          <Stack gap="sm">
-            <Text fw={600}>{issueModal.item.title}</Text>
-            <Text c="dimmed" size="sm">📈 {issueModal.item.events}건 {issueModal.item.users!=null?`· 👥 ${issueModal.item.users}명`:''}</Text>
-            <div>
-              <Text fw={600} size="sm">AI 분석 결과</Text>
-              <div style={{ marginTop: 8 }}>
-                {issueAnalysis?.summary ? (
-                  <Text style={{ lineHeight: 1.6 }}>{renderAnalysis(issueAnalysis.summary) as any}</Text>
-                ) : (
-                  <Text c="dimmed" size="sm">아직 분석되지 않았습니다. 아래의 &quot;AI 분석&quot; 버튼을 눌러 분석을 실행하세요.</Text>
-                )}
-              </div>
-            </div>
-            <Group gap={8}>
-              {issueModal.item.link && (
-                <Button component="a" href={issueModal.item.link} target="_blank" variant="light">Sentry에서 열기</Button>
-              )}
-              <Button onClick={()=>runIssueAnalysis(!!issueAnalysis?.summary)} loading={issueLoading} color="green">
-                {!!issueAnalysis?.summary ? 'AI 재분석' : 'AI 분석'}
-              </Button>
-            </Group>
-            {issueError && (
-              <Text c="red">⚠️ {issueError}</Text>
-            )}
-          </Stack>
-        )}
-      </Modal>
+      {/* 리포트 결과 모달 */}
       <Modal opened={showModal && !!selectedReport} onClose={() => setShowModal(false)} title={`리포트 결과 - ${selectedReport?.target_date ?? ''}`} size="lg" centered>
         {selectedReport && (
           <Stack gap="sm">
             <div>
-              <Text><Text span fw={600}>상태:</Text> {getStatusText(selectedReport.status)}</Text>
+              <Text><Text span fw={600}>상태:</Text> {selectedReport.status === 'success' ? '✅ 성공' : selectedReport.status === 'error' ? '❌ 실패' : selectedReport.status === 'running' ? '🔄 실행중' : selectedReport.status}</Text>
               <Text><Text span fw={600}>실행 방식:</Text> {selectedReport.trigger_type === 'scheduled' ? '자동' : '수동'}</Text>
               <Text><Text span fw={600}>실행 시간:</Text> {formatExecutionTime(selectedReport.execution_time_ms)}</Text>
               <Text><Text span fw={600}>Slack 전송:</Text> {selectedReport.slack_sent ? '✅ 성공' : '❌ 실패'}</Text>
