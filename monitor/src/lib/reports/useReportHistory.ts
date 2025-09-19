@@ -21,10 +21,10 @@ export interface ReportHistoryState {
   selectedIndex: number
   isLoading: boolean
   error: string
-  hasPrev: boolean
-  hasNext: boolean
-  goPrev: () => void
-  goNext: () => void
+  hasOlder: boolean
+  hasNewer: boolean
+  goOlder: () => void
+  goNewer: () => void
   refresh: () => Promise<void>
 }
 
@@ -91,14 +91,14 @@ export function useReportHistory({ reportType, platform, limit = 20 }: UseReport
     })
   }, [reports.length])
 
-  const goPrev = useCallback(() => {
+  const goOlder = useCallback(() => {
     setSelectedIndex((idx) => {
       if (idx >= reports.length - 1) return idx
       return idx + 1
     })
   }, [reports.length])
 
-  const goNext = useCallback(() => {
+  const goNewer = useCallback(() => {
     setSelectedIndex((idx) => {
       if (idx <= 0) return 0
       return idx - 1
@@ -106,8 +106,8 @@ export function useReportHistory({ reportType, platform, limit = 20 }: UseReport
   }, [])
 
   const selectedReport = reports[selectedIndex] ?? null
-  const hasPrev = selectedIndex < reports.length - 1
-  const hasNext = selectedIndex > 0
+  const hasOlder = selectedIndex < reports.length - 1
+  const hasNewer = selectedIndex > 0
 
   return {
     reports,
@@ -115,10 +115,10 @@ export function useReportHistory({ reportType, platform, limit = 20 }: UseReport
     selectedIndex,
     isLoading,
     error,
-    hasPrev,
-    hasNext,
-    goPrev,
-    goNext,
+    hasOlder,
+    hasNewer,
+    goOlder,
+    goNewer,
     refresh: fetchHistory,
   }
 }

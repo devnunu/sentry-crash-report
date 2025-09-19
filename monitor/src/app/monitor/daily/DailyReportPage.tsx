@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useMemo, useState } from 'react'
-import { ActionIcon, Button, Card, Group, Modal, Stack, Text, Title } from '@mantine/core'
+import { ActionIcon, Badge, Button, Card, Group, Modal, Stack, Text, Title } from '@mantine/core'
 import { IconChevronLeft, IconChevronRight, IconRefresh } from '@tabler/icons-react'
 import StatsCards from '@/components/StatsCards'
 import StatusBadge from '@/components/StatusBadge'
@@ -65,10 +65,10 @@ export default function DailyReportPage({ platform, title, description, cardTitl
     selectedIndex,
     isLoading,
     error,
-    hasPrev,
-    hasNext,
-    goPrev,
-    goNext,
+    hasOlder,
+    hasNewer,
+    goOlder,
+    goNewer,
     refresh,
   } = useReportHistory({ reportType: 'daily', platform, limit: 20 })
 
@@ -269,6 +269,9 @@ export default function DailyReportPage({ platform, title, description, cardTitl
     setIssueAnalysis(null)
   }
 
+  const triggerLabel = selectedReport?.trigger_type === 'scheduled' ? '🤖 자동 실행' : '🧪 테스트 실행'
+  const triggerColor = selectedReport?.trigger_type === 'scheduled' ? 'blue' : 'pink'
+
   return (
     <div className="container">
       <Group justify="space-between" align="flex-start" mb="sm">
@@ -276,6 +279,11 @@ export default function DailyReportPage({ platform, title, description, cardTitl
           <Title order={2}>{title}</Title>
           <Text c="dimmed" size="sm">{description}</Text>
         </div>
+        {selectedReport && (
+          <Badge color={triggerColor} size="lg" variant="filled" radius="sm">
+            {triggerLabel}
+          </Badge>
+        )}
         <Button
           variant="default"
           size="xs"
@@ -309,17 +317,17 @@ export default function DailyReportPage({ platform, title, description, cardTitl
             </Button>
             <ActionIcon
               variant="default"
-              aria-label="이전 리포트"
-              onClick={goPrev}
-              disabled={!hasPrev || isLoading}
+              aria-label="최근 리포트"
+              onClick={goNewer}
+              disabled={!hasNewer || isLoading}
             >
               <IconChevronLeft size={16} />
             </ActionIcon>
             <ActionIcon
               variant="default"
-              aria-label="다음 리포트"
-              onClick={goNext}
-              disabled={!hasNext || isLoading}
+              aria-label="이전 리포트"
+              onClick={goOlder}
+              disabled={!hasOlder || isLoading}
             >
               <IconChevronRight size={16} />
             </ActionIcon>
