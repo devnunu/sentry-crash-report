@@ -225,7 +225,7 @@ export default function MonitorPage() {
     <div className="container">
       <Group justify="space-between" align="flex-start" mb="sm">
         <div>
-          <Title order={2}>🚀 Sentry 릴리즈 모니터링</Title>
+          <Title order={2}>🚀 버전별 모니터링</Title>
           <Text c="dimmed" size="sm">
             특정 릴리즈 버전의 error/fatal 이슈를 7일간 자동으로 모니터링합니다. 첫 24시간은 30분 간격, 이후는 1시간 간격으로 리포트를 제공합니다.
           </Text>
@@ -233,46 +233,77 @@ export default function MonitorPage() {
       </Group>
 
       {/* 새 모니터링 시작 카드 */}
-      <Card withBorder radius="lg" p="lg" mt="md">
-        <Title order={4} mb="sm">▶️ 새 모니터링 시작</Title>
+      <Card withBorder radius="lg" p="xl" mt="md" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(59, 130, 246, 0.05) 100%)', borderColor: 'rgba(34, 197, 94, 0.2)' }}>
+        <Group justify="space-between" align="center" mb="lg">
+          <div>
+            <Title order={3} c="green.6" mb={4}>🚀 새 모니터링 시작</Title>
+            <Text size="sm" c="dimmed">특정 릴리즈 버전의 crash 이슈를 지속적으로 모니터링합니다</Text>
+          </div>
+        </Group>
+        
         <form onSubmit={handleStart}>
-          <Stack gap="xs">
-            <Group wrap="wrap" gap="sm" align="flex-end">
+          <Stack gap="lg">
+            <Group grow>
               <Select
                 label="플랫폼"
-                data={[{ value: 'android', label: 'Android' }, { value: 'ios', label: 'iOS' }]}
+                description="모니터링할 플랫폼을 선택하세요"
+                data={[
+                  { value: 'android', label: '🤖 Android' }, 
+                  { value: 'ios', label: '🍎 iOS' }
+                ]}
                 value={platform}
                 onChange={(val) => setPlatform((val as Platform) ?? 'android')}
                 allowDeselect={false}
-                w={220}
+                size="md"
               />
               <TextInput
                 label="베이스 릴리즈"
+                description="모니터링할 릴리즈 버전 (예: 4.69.0)"
                 value={baseRelease}
                 onChange={(e) => setBaseRelease(e.currentTarget.value)}
-                placeholder="예: 4.69.0"
+                placeholder="4.69.0"
                 required
-                w={260}
+                size="md"
               />
               <NumberInput
-                label="기간(일)"
+                label="모니터링 기간"
+                description="모니터링할 일수 (최대 14일)"
                 value={days}
                 min={1}
                 max={14}
                 onChange={(v) => setDays(Number(v) || 7)}
-                w={120}
+                size="md"
+                suffix="일"
               />
+            </Group>
+            
+            <Group justify="space-between" align="flex-end">
               <Checkbox
-                label="🧪 테스트 모드 (테스트용 Slack 채널로 알림 전송)"
+                label="🧪 테스트 모드"
+                description="테스트용 Slack 채널로 알림을 전송합니다"
                 checked={isTestMode}
                 onChange={(e) => setIsTestMode(e.currentTarget.checked)}
+                size="md"
               />
-              <Button type="submit" loading={startLoading} color="green">
-                모니터링 시작
+              <Button 
+                type="submit" 
+                loading={startLoading} 
+                color="green"
+                size="md"
+                leftSection="🚀"
+                style={{ minWidth: 140 }}
+              >
+                {startLoading ? '시작 중...' : '모니터링 시작'}
               </Button>
             </Group>
+            
             {startMessage && (
-              <Text size="sm" c="dimmed">{startMessage}</Text>
+              <Card withBorder p="md" style={{ 
+                backgroundColor: startMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                borderColor: startMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+              }}>
+                <Text size="sm" fw={500}>{startMessage}</Text>
+              </Card>
             )}
           </Stack>
         </form>

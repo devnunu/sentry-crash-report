@@ -34,7 +34,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <NavLink
               component={Link}
               href="/monitor"
-              label="모니터"
+              label="버전별 모니터링"
               leftSection={<IconActivity size={16} />}
               active={pathname === '/monitor'}
             />
