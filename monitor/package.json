@@ -9,7 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@mantine/core": "^8.3.1",
+    "@mantine/hooks": "^8.3.1",
+    "@mantine/notifications": "^8.3.1",
     "@supabase/supabase-js": "^2.57.0",
+    "@tabler/icons-react": "^3.35.0",
     "@upstash/qstash": "^2.8.2",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

@@ -1,9 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
 import { formatKST, formatRelativeTime } from '@/lib/utils';
 import type { MonitorSession, Platform, MonitorHistory } from '@/lib/types';
+import { Button, Card, Checkbox, Group, NumberInput, Select, Stack, Table, Text, TextInput, Title, useMantineTheme } from '@mantine/core';
+import StatusBadge from '@/components/StatusBadge'
+import TableWrapper from '@/components/TableWrapper'
+import StatsCards from '@/components/StatsCards'
+import { notifications } from '@mantine/notifications'
+import { useMediaQuery } from '@mantine/hooks'
 
 interface ApiResponse<T> {
   success: boolean;
@@ -46,6 +51,19 @@ const getStatusText = (status: string) => {
   }
 };
 
+const getStatusBadge = (status: string): { color: string; label: string } => {
+  switch (status) {
+    case 'active':
+      return { color: 'green', label: '활성' };
+    case 'stopped':
+      return { color: 'red', label: '중단됨' };
+    case 'expired':
+      return { color: 'gray', label: '만료됨' };
+    default:
+      return { color: 'gray', label: status };
+  }
+};
+
 
 const thStyle: React.CSSProperties = {
   padding: '12px 14px',
@@ -77,6 +95,8 @@ export default function MonitorPage() {
   const [statusData, setStatusData] = useState<StatusData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  const theme = useMantineTheme();
+  const isMobile = useMediaQuery(`(max-width: ${theme.breakpoints.sm})`);
   
   // 새 모니터링 폼
   const [platform, setPlatform] = useState<Platform>('android');
@@ -144,7 +164,9 @@ export default function MonitorPage() {
         throw new Error(result.error || '모니터링 시작에 실패했습니다');
       }
       
-      setStartMessage(`✅ ${result.data?.message}`);
+      const msg = result.data?.message || '모니터링 시작됨';
+      setStartMessage(`✅ ${msg}`);
+      notifications.show({ color: 'green', message: `모니터 시작: ${msg}` });
       setBaseRelease(''); // 폼 리셋
       
       // 상태 새로고침
@@ -154,7 +176,9 @@ export default function MonitorPage() {
       }, 2000);
       
     } catch (err) {
-      setStartMessage(`❌ ${err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다'}`);
+      const m = err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다';
+      setStartMessage(`❌ ${m}`);
+      notifications.show({ color: 'red', message: `모니터 시작 실패: ${m}` });
     } finally {
       setStartLoading(false);
     }
@@ -181,10 +205,12 @@ export default function MonitorPage() {
       
       // UI에서 즉시 제거하고 새로고침
       setMonitors(prev => prev.filter(m => m.id !== monitorId));
+      notifications.show({ color: 'green', message: '모니터 정지 완료' });
       setTimeout(fetchStatus, 1000);
       
     } catch (err) {
-      alert(`정지 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`);
+      const m = err instanceof Error ? err.message : '알 수 없는 오류';
+      notifications.show({ color: 'red', message: `정지 실패: ${m}` });
     } finally {
       setStoppingId('');
     }
@@ -197,119 +223,77 @@ export default function MonitorPage() {
 
   return (
     <div className="container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+      <Group justify="space-between" align="flex-start" mb="sm">
         <div>
-          <h1 className="h1">🚀 Sentry 릴리즈 모니터링</h1>
-          <p className="muted">
-            특정 릴리즈 버전의 error/fatal 이슈를 7일간 자동으로 모니터링합니다.
-            첫 24시간은 30분 간격, 이후는 1시간 간격으로 리포트를 제공합니다.
-          </p>
+          <Title order={2}>🚀 Sentry 릴리즈 모니터링</Title>
+          <Text c="dimmed" size="sm">
+            특정 릴리즈 버전의 error/fatal 이슈를 7일간 자동으로 모니터링합니다. 첫 24시간은 30분 간격, 이후는 1시간 간격으로 리포트를 제공합니다.
+          </Text>
         </div>
-        
-        {/* 페이지 네비게이션 탭 */}
-        <div className="nav-tabs">
-          <Link href="/monitor" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px', backgroundColor: 'rgba(255, 255, 255, 0.1)' }}>
-            릴리즈 모니터링
-          </Link>
-          <Link href="/monitor/daily" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px' }}>
-            일간 리포트
-          </Link>
-          <Link href="/monitor/weekly" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px' }}>
-            주간 리포트
-          </Link>
-        </div>
-      </div>
+      </Group>
 
       {/* 새 모니터링 시작 카드 */}
-      <div className="card">
-        <h2 className="h2">▶️ 새 모니터링 시작</h2>
-        
+      <Card withBorder radius="lg" p="lg" mt="md">
+        <Title order={4} mb="sm">▶️ 새 모니터링 시작</Title>
         <form onSubmit={handleStart}>
-          <div className="row responsive">
-            <label>플랫폼</label>
-            <select
-              value={platform}
-              onChange={(e) => setPlatform(e.target.value as Platform)}
-            >
-              <option value="android">Android</option>
-              <option value="ios">iOS</option>
-            </select>
-            
-            <label>베이스 릴리즈</label>
-            <input
-              type="text"
-              value={baseRelease}
-              onChange={(e) => setBaseRelease(e.target.value)}
-              placeholder="예: 4.69.0"
-              required
-            />
-            
-            <label>기간(일)</label>
-            <input
-              type="number"
-              value={days}
-              onChange={(e) => setDays(parseInt(e.target.value) || 7)}
-              min="1"
-              max="14"
-              style={{ width: '90px' }}
-            />
-          </div>
-          
-          <div className="row responsive" style={{ marginTop: '12px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={isTestMode}
-                onChange={(e) => setIsTestMode(e.target.checked)}
-                style={{ marginRight: '8px' }}
+          <Stack gap="xs">
+            <Group wrap="wrap" gap="sm" align="flex-end">
+              <Select
+                label="플랫폼"
+                data={[{ value: 'android', label: 'Android' }, { value: 'ios', label: 'iOS' }]}
+                value={platform}
+                onChange={(val) => setPlatform((val as Platform) ?? 'android')}
+                allowDeselect={false}
+                w={220}
               />
-              <span style={{ fontSize: '13px' }}>
-                🧪 테스트 모드 (테스트용 Slack 채널로 알림 전송)
-              </span>
-            </label>
-            
-            <button 
-              type="submit" 
-              className="btn ok"
-              disabled={startLoading}
-            >
-              {startLoading ? '시작 중...' : '모니터링 시작'}
-            </button>
-          </div>
-          
-          {startMessage && (
-            <div className="row" style={{ marginTop: '6px' }}>
-              <span className="muted">{startMessage}</span>
-            </div>
-          )}
+              <TextInput
+                label="베이스 릴리즈"
+                value={baseRelease}
+                onChange={(e) => setBaseRelease(e.currentTarget.value)}
+                placeholder="예: 4.69.0"
+                required
+                w={260}
+              />
+              <NumberInput
+                label="기간(일)"
+                value={days}
+                min={1}
+                max={14}
+                onChange={(v) => setDays(Number(v) || 7)}
+                w={120}
+              />
+              <Checkbox
+                label="🧪 테스트 모드 (테스트용 Slack 채널로 알림 전송)"
+                checked={isTestMode}
+                onChange={(e) => setIsTestMode(e.currentTarget.checked)}
+              />
+              <Button type="submit" loading={startLoading} color="green">
+                모니터링 시작
+              </Button>
+            </Group>
+            {startMessage && (
+              <Text size="sm" c="dimmed">{startMessage}</Text>
+            )}
+          </Stack>
         </form>
-      </div>
+      </Card>
 
       {/* 현재 상태 카드 */}
-      <div className="card">
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="h2">📊 현재 모니터링 상태</h2>
-          <button
-            onClick={fetchStatus}
-            disabled={loading}
-            className="btn ghost"
-          >
-            {loading ? '새로고침 중...' : '새로고침'}
-          </button>
-        </div>
+      <Card withBorder radius="lg" p="lg" mt="md">
+        <Group justify="space-between" align="center">
+          <Title order={4}>📊 현재 모니터링 상태</Title>
+          <Button variant="light" onClick={fetchStatus} loading={loading}>새로고침</Button>
+        </Group>
 
-        {/* 상태 요약 */}
         {statusData && (
-          <div className="kv" style={{ marginBottom: '20px' }}>
-            <div className="k">전체:</div>
-            <div className="v">{statusData.total}개</div>
-            <div className="k">활성:</div>
-            <div className="v" style={{ color: 'var(--ok)' }}>{statusData.active}개</div>
-            <div className="k">중단됨:</div>
-            <div className="v" style={{ color: 'var(--danger)' }}>{statusData.stopped}개</div>
-            <div className="k">만료됨:</div>
-            <div className="v" style={{ color: 'var(--muted)' }}>{statusData.expired}개</div>
-          </div>
+          <StatsCards
+            items={[
+              { label: '전체', value: statusData.total },
+              { label: '활성', value: statusData.active, color: 'green' },
+              { label: '중단됨', value: statusData.stopped, color: 'red' },
+              { label: '만료됨', value: statusData.expired, color: 'dimmed' },
+            ]}
+          />
         )}
 
         {error && (
@@ -321,168 +305,114 @@ export default function MonitorPage() {
           <div className="muted" style={{ textAlign: 'center', padding: '40px 0' }}>
             {loading ? '로딩 중...' : '모니터가 없습니다.'}
           </div>
-        ) : (
-          <>
-            {/* 데스크톱 테이블 */}
-            <div className="table-container table-mobile-cards" style={{ marginTop: '16px' }}>
-              <table className="table-responsive">
-                <thead>
-                  <tr>
-                    <th style={thStyle}>상태</th>
-                    <th style={thStyle}>플랫폼</th>
-                    <th style={thStyle}>베이스 릴리즈</th>
-                    <th style={thStyle}>매칭 릴리즈</th>
-                    <th style={thStyle}>시작일(KST)</th>
-                    <th style={thStyle}>만료일(KST)</th>
-                    <th style={thStyle}>남은 기간</th>
-                    <th style={thStyle}>최근 실행</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>액션</th>
-                  </tr>
-                </thead>
-                <tbody>
+        ) :
+          // 반응형: 데스크톱 테이블 vs 모바일 카드
+          isMobile ? (
+            <div className="mobile-cards" style={{ marginTop: 16 }}>
+              {sortedMonitors.map((monitor) => (
+                <Card key={monitor.id} withBorder radius="md" p="md" style={{ marginBottom: 12 }}>
+                  <Group justify="space-between" align="center" mb={8}>
+                    <StatusBadge kind="monitor" status={monitor.status} />
+                    {monitor.status === 'active' && (
+                      <Button color="red" size="xs" onClick={() => handleStop(monitor.id)} loading={stoppingId === monitor.id}>
+                        {stoppingId === monitor.id ? '정지 중...' : '정지'}
+                      </Button>
+                    )}
+                  </Group>
+                  <Stack gap={6}>
+                    <Text size="xs" c="dimmed">플랫폼</Text>
+                    <Text size="sm">{monitor.platform.toUpperCase()}</Text>
+                    <Text size="xs" c="dimmed">베이스 릴리즈</Text>
+                    <Text size="sm" className="mono">{monitor.base_release}</Text>
+                    <Text size="xs" c="dimmed">매칭 릴리즈</Text>
+                    <Text size="sm" className="mono">{monitor.matched_release || '-'}</Text>
+                    <Text size="xs" c="dimmed">시작일</Text>
+                    <Text size="sm">{formatKST(monitor.started_at)}</Text>
+                    <Text size="xs" c="dimmed">만료일</Text>
+                    <Text size="sm">{formatKST(monitor.expires_at)}</Text>
+                    <Text size="xs" c="dimmed">남은 기간</Text>
+                    <Text size="sm">{formatRelativeTime(monitor.expires_at)}</Text>
+                    <Text size="xs" c="dimmed">최근 실행</Text>
+                    {monitor.lastHistory ? (
+                      <div>
+                        <Text size="sm">{formatKST(monitor.lastHistory.executed_at)}</Text>
+                        <Text size="xs" c="dimmed">E:{monitor.lastHistory.events_count} | I:{monitor.lastHistory.issues_count} | U:{monitor.lastHistory.users_count}</Text>
+                      </div>
+                    ) : (
+                      <Text size="sm" c="dimmed">아직 실행 없음</Text>
+                    )}
+                  </Stack>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <TableWrapper>
+              <Table highlightOnHover withColumnBorders verticalSpacing="xs" stickyHeader stickyHeaderOffset={0}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>상태</Table.Th>
+                    <Table.Th>플랫폼</Table.Th>
+                    <Table.Th>베이스 릴리즈</Table.Th>
+                    <Table.Th>매칭 릴리즈</Table.Th>
+                    <Table.Th>시작일(KST)</Table.Th>
+                    <Table.Th>만료일(KST)</Table.Th>
+                    <Table.Th>남은 기간</Table.Th>
+                    <Table.Th>최근 실행</Table.Th>
+                    <Table.Th style={{ textAlign: 'right' }}>액션</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
                   {sortedMonitors.map((monitor) => {
-                    const statusStyle = getStatusStyle(monitor.status);
                     return (
-                      <tr
-                        key={monitor.id}
-                        style={{ 
-                          borderBottom: '1px solid var(--border)',
-                          background: monitor.status === 'active' ? 'rgba(34, 197, 94, 0.03)' : 'transparent'
-                        }}
-                      >
-                        <td style={tdStyle}>
-                          <span
-                            style={{
-                              ...statusStyle,
-                              padding: '4px 8px',
-                              borderRadius: '12px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {getStatusText(monitor.status)}
-                          </span>
-                        </td>
-                        <td style={tdStyle}>{monitor.platform.toUpperCase()}</td>
-                        <td style={tdMonoStyle}>{monitor.base_release}</td>
-                        <td style={tdMonoStyle}>{monitor.matched_release || '-'}</td>
-                        <td style={tdStyle}>{formatKST(monitor.started_at)}</td>
-                        <td style={tdStyle}>{formatKST(monitor.expires_at)}</td>
-                        <td style={tdStyle}>{formatRelativeTime(monitor.expires_at)}</td>
-                        <td style={tdStyle}>
+                      <Table.Tr key={monitor.id}>
+                        <Table.Td>
+                          <StatusBadge kind="monitor" status={monitor.status} />
+                        </Table.Td>
+                        <Table.Td>{monitor.platform.toUpperCase()}</Table.Td>
+                        <Table.Td className="mono">{monitor.base_release}</Table.Td>
+                        <Table.Td className="mono">{monitor.matched_release || '-'}</Table.Td>
+                        <Table.Td>{formatKST(monitor.started_at)}</Table.Td>
+                        <Table.Td>{formatKST(monitor.expires_at)}</Table.Td>
+                        <Table.Td>{formatRelativeTime(monitor.expires_at)}</Table.Td>
+                        <Table.Td>
                           {monitor.lastHistory ? (
                             <div>
-                              <div>{formatKST(monitor.lastHistory.executed_at)}</div>
-                              <div className="muted" style={{ fontSize: '11px', marginTop: '2px' }}>
+                              <div style={{ marginBottom: 4 }}>{formatKST(monitor.lastHistory.executed_at)}</div>
+                              <Text size="xs" c="dimmed">
                                 E:{monitor.lastHistory.events_count} | I:{monitor.lastHistory.issues_count} | U:{monitor.lastHistory.users_count}
-                              </div>
+                              </Text>
                             </div>
                           ) : (
-                            <span className="muted">아직 실행 없음</span>
+                            <Text c="dimmed">아직 실행 없음</Text>
                           )}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        </Table.Td>
+                        <Table.Td style={{ textAlign: 'right' }}>
                           {monitor.status === 'active' && (
-                            <button
+                            <Button
                               onClick={() => handleStop(monitor.id)}
-                              disabled={stoppingId === monitor.id}
-                              className="btn danger"
-                              style={{ fontSize: '11px', padding: '6px 12px' }}
+                              loading={stoppingId === monitor.id}
+                              color="red"
+                              size="xs"
+                              variant="filled"
                               title="이 모니터를 중단합니다"
                             >
-                              {stoppingId === monitor.id ? '정지 중...' : '정지'}
-                            </button>
+                              정지
+                            </Button>
                           )}
-                        </td>
-                      </tr>
+                        </Table.Td>
+                      </Table.Tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* 모바일 카드 */}
-            <div className="mobile-cards" style={{ marginTop: '16px' }}>
-              {sortedMonitors.map((monitor) => {
-                const statusStyle = getStatusStyle(monitor.status);
-                return (
-                  <div key={monitor.id} className="mobile-card">
-                    <div className="mobile-card-header">
-                      <span
-                        style={{
-                          ...statusStyle,
-                          padding: '4px 8px',
-                          borderRadius: '12px',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        {getStatusText(monitor.status)}
-                      </span>
-                      {monitor.status === 'active' && (
-                        <button
-                          onClick={() => handleStop(monitor.id)}
-                          disabled={stoppingId === monitor.id}
-                          className="btn danger"
-                          style={{ fontSize: '11px', padding: '6px 12px' }}
-                        >
-                          {stoppingId === monitor.id ? '정지 중...' : '정지'}
-                        </button>
-                      )}
-                    </div>
-                    <div className="mobile-card-content">
-                      <div className="mobile-field">
-                        <span className="mobile-field-label">플랫폼</span>
-                        <span className="mobile-field-value">{monitor.platform.toUpperCase()}</span>
-                      </div>
-                      <div className="mobile-field">
-                        <span className="mobile-field-label">베이스 릴리즈</span>
-                        <span className="mobile-field-value mono">{monitor.base_release}</span>
-                      </div>
-                      <div className="mobile-field">
-                        <span className="mobile-field-label">매칭 릴리즈</span>
-                        <span className="mobile-field-value mono">{monitor.matched_release || '-'}</span>
-                      </div>
-                      <div className="mobile-field">
-                        <span className="mobile-field-label">시작일</span>
-                        <span className="mobile-field-value">{formatKST(monitor.started_at)}</span>
-                      </div>
-                      <div className="mobile-field">
-                        <span className="mobile-field-label">만료일</span>
-                        <span className="mobile-field-value">{formatKST(monitor.expires_at)}</span>
-                      </div>
-                      <div className="mobile-field">
-                        <span className="mobile-field-label">남은 기간</span>
-                        <span className="mobile-field-value">{formatRelativeTime(monitor.expires_at)}</span>
-                      </div>
-                      <div className="mobile-field">
-                        <span className="mobile-field-label">최근 실행</span>
-                        <span className="mobile-field-value">
-                          {monitor.lastHistory ? (
-                            <div>
-                              <div>{formatKST(monitor.lastHistory.executed_at)}</div>
-                              <div className="muted" style={{ fontSize: '11px', marginTop: '2px' }}>
-                                E:{monitor.lastHistory.events_count} | I:{monitor.lastHistory.issues_count} | U:{monitor.lastHistory.users_count}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="muted">아직 실행 없음</span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
+                </Table.Tbody>
+              </Table>
+            </TableWrapper>
         )}
-      </div>
+      </Card>
 
       {/* 도움말 */}
       <div className="muted" style={{ marginTop: '20px', fontSize: '12px' }}>
-        💡 <strong>참고:</strong> 모니터링은 Vercel Cron을 통해 자동 실행되며, 
-        level:[error,fatal] 이벤트만 수집합니다. 
+        💡 <strong>참고:</strong> 모니터링은 Vercel Cron을 통해 자동 실행되며,
+        level:[error,fatal] 이벤트만 수집합니다.
         실행 결과는 설정된 Slack 채널로 전송됩니다.
       </div>
     </div>

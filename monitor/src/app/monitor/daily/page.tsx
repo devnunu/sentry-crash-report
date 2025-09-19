@@ -2,7 +2,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import SlackPreview from '@/lib/SlackPreview'
-import Link from 'next/link'
+import { Button, Card, Checkbox, Group, Modal, Select, SegmentedControl, Stack, Table, Text, TextInput, Title, Chip, useMantineTheme } from '@mantine/core'
+import TableWrapper from '@/components/TableWrapper'
+import StatusBadge from '@/components/StatusBadge'
+import SectionToggle from '@/components/SectionToggle'
+import { notifications } from '@mantine/notifications'
+import { useMediaQuery } from '@mantine/hooks'
+import StatsCards from '@/components/StatsCards'
 import { formatKST, formatExecutionTime, validateTimeFormat, formatTimeKorean } from '@/lib/utils'
 import type { 
   ReportExecution, 
@@ -25,7 +31,7 @@ const getStatusStyle = (status: string) => {
     case 'error':
       return { color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)' }
     case 'running':
-      return { color: 'var(--warning)', backgroundColor: 'rgba(245, 158, 11, 0.1)' }
+      return { color: 'var(--warn)', backgroundColor: 'rgba(245, 158, 11, 0.1)' }
     default:
       return { color: 'var(--muted)', backgroundColor: 'rgba(154, 164, 178, 0.1)' }
   }
@@ -37,6 +43,19 @@ const getStatusText = (status: string) => {
     case 'error': return '❌ 실패'
     case 'running': return '🔄 실행중'
     default: return status
+  }
+}
+
+const getStatusBadge = (status: string): { color: string; label: string } => {
+  switch (status) {
+    case 'success':
+      return { color: 'green', label: '성공' }
+    case 'error':
+      return { color: 'red', label: '실패' }
+    case 'running':
+      return { color: 'yellow', label: '실행중' }
+    default:
+      return { color: 'gray', label: status }
   }
 }
 
@@ -118,6 +137,8 @@ export default function DailyReportPage() {
   const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
   const [issueLoading, setIssueLoading] = useState(false)
   const [issueError, setIssueError] = useState<string>('')
+  const theme = useMantineTheme()
+  const isMobile = useMediaQuery(`(max-width: ${theme.breakpoints.sm})`)
   // 날짜 표시를 KST 기준으로 변환 (YYYY-MM-DD)
   const toKstDate = (dateStr?: string) => {
     if (!dateStr) return '-'
@@ -285,7 +306,9 @@ export default function DailyReportPage() {
         throw new Error(result.error || '리포트 생성 실패')
       }
       
-      setGenerateMessage(`✅ ${result.data?.message}`)
+      const msg = result.data?.message || '리포트 생성됨'
+      setGenerateMessage(`✅ ${msg}`)
+      notifications.show({ color: 'green', message: `일간 리포트: ${msg}` })
       
       // 히스토리 새로고침
       setTimeout(() => {
@@ -294,7 +317,9 @@ export default function DailyReportPage() {
       }, 2000)
       
     } catch (err) {
-      setGenerateMessage(`❌ ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      const m = err instanceof Error ? err.message : '알 수 없는 오류'
+      setGenerateMessage(`❌ ${m}`)
+      notifications.show({ color: 'red', message: `리포트 생성 실패: ${m}` })
     } finally {
       setGenerateLoading(false)
     }
@@ -355,6 +380,7 @@ export default function DailyReportPage() {
       
       setSettings(settingsResult.data!.settings)
       setSettingsMessage('✅ 설정이 성공적으로 저장되었습니다.')
+      notifications.show({ color: 'green', message: '일간 설정 저장 완료' })
       
       // 3초 후 메시지 자동 삭제
       setTimeout(() => {
@@ -362,7 +388,9 @@ export default function DailyReportPage() {
       }, 3000)
       
     } catch (err) {
-      setSettingsMessage(`❌ 설정 저장 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      const m = err instanceof Error ? err.message : '알 수 없는 오류'
+      setSettingsMessage(`❌ 설정 저장 실패: ${m}`)
+      notifications.show({ color: 'red', message: `일간 설정 저장 실패: ${m}` })
       // 에러 메시지는 5초 후 삭제
       setTimeout(() => {
         setSettingsMessage('')
@@ -513,619 +541,336 @@ export default function DailyReportPage() {
 
   return (
     <div className="container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+      <Group justify="space-between" align="flex-start" mb="sm">
         <div>
-          <h1 className="h1">📊 일간 리포트</h1>
-          <p className="muted">
+          <Title order={2}>📊 일간 리포트</Title>
+          <Text c="dimmed" size="sm">
             Sentry 일간 크래시 리포트를 생성하고 관리합니다. 자동 스케줄 설정에 따라 실행되며, 수동 생성도 가능합니다.
-          </p>
+          </Text>
         </div>
-        
-        {/* 페이지 네비게이션 탭 */}
-        <div className="nav-tabs">
-          <Link href="/monitor" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px' }}>
-            릴리즈 모니터링
-          </Link>
-          <Link href="/monitor/daily" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px', backgroundColor: 'rgba(255, 255, 255, 0.1)' }}>
-            일간 리포트
-          </Link>
-          <Link href="/monitor/weekly" className="btn ghost" style={{ fontSize: '12px', padding: '8px 16px' }}>
-            주간 리포트
-          </Link>
-        </div>
-      </div>
+      </Group>
 
-      {/* 테스트 실행 섹션 */}
       {/* Top 5 이슈 (플랫폼별) */}
-      <div className="card">
-        <h2 className="h2">🏅 플랫폼별 Top 5 이슈 (최근 리포트)</h2>
+      <Card withBorder radius="lg" p="lg" mt="md">
+        <Title order={4} mb="sm">🏅 플랫폼별 Top 5 이슈 (최근 리포트)</Title>
         {topLoading ? (
-          <div className="muted">불러오는 중…</div>
+          <Text c="dimmed">불러오는 중…</Text>
         ) : (
-          <div className="row" style={{ gap: 24, alignItems: 'flex-start' }}>
+          <Group align="stretch" wrap="wrap" gap={24}>
             {[{key:'android', label:'🤖 ANDROID', data: topAndroid},{key:'ios', label:'🍎 iOS', data: topIOS}].map(col => (
-              <div key={col.key} style={{ flex: 1, minWidth: 320 }}>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>{col.label}</div>
+              <Card key={col.key} withBorder radius="md" p="md" style={{ flex: 1, minWidth: 320 }}>
+                <Text fw={700} mb={8}>{col.label}</Text>
                 {col.data.length === 0 ? (
-                  <div className="muted">데이터가 없습니다.</div>
+                  <Text c="dimmed">데이터가 없습니다.</Text>
                 ) : (
-                  <div>
+                  <Stack gap={8}>
                     {col.data.map((it:any, idx:number)=>(
-                      <div key={it.issueId || idx} style={{
-                        display:'flex', justifyContent:'space-between', alignItems:'center',
-                        border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px', marginBottom:8
-                      }}>
-                        <div style={{ maxWidth:'70%' }}>
-                          <div style={{ fontWeight:600, fontSize:13, marginBottom:4 }}>{idx+1}. {it.title}</div>
-                          <div className="muted" style={{ fontSize:12 }}>📈 {it.events}건 {it.users!=null?`· 👥 ${it.users}명`:''}</div>
-                        </div>
-                        <div style={{ display:'flex', gap:8 }}>
-                          {it.link && (
-                            <a href={it.link} target="_blank" rel="noreferrer" className="btn ghost" style={{ fontSize:11, padding:'6px 10px' }}>Sentry</a>
-                          )}
-                          <button className="btn ghost" style={{ fontSize:11, padding:'6px 10px' }} onClick={()=>openIssue(it, col.key as any)}>상세보기</button>
-                        </div>
-                      </div>
+                      <Card key={it.issueId || idx} withBorder radius="md" p="sm">
+                        <Group justify="space-between" align="center">
+                          <div style={{ maxWidth:'70%' }}>
+                            <Text fw={600} size="sm" mb={4}>{idx+1}. {it.title}</Text>
+                            <Text c="dimmed" size="xs">📈 {it.events}건 {it.users!=null?`· 👥 ${it.users}명`:''}</Text>
+                          </div>
+                          <Group gap={8}>
+                            {it.link && (
+                              <Button component="a" href={it.link} target="_blank" variant="light" size="xs">Sentry</Button>
+                            )}
+                            <Button variant="light" size="xs" onClick={()=>openIssue(it, col.key as any)}>상세보기</Button>
+                          </Group>
+                        </Group>
+                      </Card>
                     ))}
-                  </div>
+                  </Stack>
                 )}
-              </div>
+              </Card>
             ))}
-          </div>
+          </Group>
         )}
-      </div>
-      <div className="card">
-        <h2 className="h2">🧪 테스트 실행</h2>
-        
+      </Card>
+      <StatsCards
+        items={[
+          { label: '리포트(최근)', value: reports.length },
+          { label: '성공', value: reports.filter(r => r.status === 'success').length, color: 'green' },
+          { label: '실패', value: reports.filter(r => r.status === 'error').length, color: 'red' },
+          { label: '실행중', value: reports.filter(r => r.status === 'running').length, color: 'yellow' },
+        ]}
+      />
+      <Card withBorder radius="lg" p="lg" mt="md">
+        <Title order={4} mb="sm">🧪 테스트 실행</Title>
         <form onSubmit={handleGenerate}>
-          <div className="row responsive">
-            {/* 플랫폼 선택 */}
-            <label>플랫폼</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input type="radio" name="platform" value="all" checked={platform === 'all'} onChange={() => setPlatform('all')} /> 전체
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input type="radio" name="platform" value="android" checked={platform === 'android'} onChange={() => setPlatform('android')} /> Android
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input type="radio" name="platform" value="ios" checked={platform === 'ios'} onChange={() => setPlatform('ios')} /> iOS
-              </label>
-            </div>
-            <label>분석 날짜 (기본: 어제)</label>
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-            />
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="checkbox"
-                  checked={sendSlack}
-                  onChange={(e) => setSendSlack(e.target.checked)}
+          <Stack gap="xs">
+            <Group wrap="wrap" gap="sm" align="flex-end">
+              <div>
+                <Text size="sm" c="dimmed" mb={4}>플랫폼</Text>
+                <SegmentedControl
+                  value={platform}
+                  onChange={(val) => setPlatform(val as any)}
+                  data={[
+                    { label: '전체', value: 'all' },
+                    { label: 'Android', value: 'android' },
+                    { label: 'iOS', value: 'ios' },
+                  ]}
                 />
-                Slack 전송
-              </label>
-              
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="checkbox"
-                  checked={includeAI}
-                  onChange={(e) => setIncludeAI(e.target.checked)}
-                />
-                AI 분석 포함
-              </label>
-              
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="checkbox"
-                  checked={isTestMode}
-                  onChange={(e) => setIsTestMode(e.target.checked)}
-                />
-                🧪 테스트 모드
-              </label>
-            </div>
-            
-            <button 
-              type="submit" 
-              className="btn ok"
-              disabled={generateLoading}
-            >
-              {generateLoading ? '생성 중...' : '일간 리포트 생성'}
-            </button>
-          </div>
-          
-          {generateMessage && (
-            <div className="row" style={{ marginTop: '6px' }}>
-              <span className="muted">{generateMessage}</span>
-            </div>
-          )}
+              </div>
+              <TextInput
+                label="분석 날짜 (기본: 어제)"
+                type="date"
+                value={targetDate}
+                onChange={(e) => setTargetDate(e.currentTarget.value)}
+              />
+              <Checkbox
+                label="Slack 전송"
+                checked={sendSlack}
+                onChange={(e) => setSendSlack(e.currentTarget.checked)}
+              />
+              <Checkbox
+                label="AI 분석 포함"
+                checked={includeAI}
+                onChange={(e) => setIncludeAI(e.currentTarget.checked)}
+              />
+              <Checkbox
+                label="🧪 테스트 모드"
+                checked={isTestMode}
+                onChange={(e) => setIsTestMode(e.currentTarget.checked)}
+              />
+              <Button type="submit" loading={generateLoading} color="green">
+                일간 리포트 생성
+              </Button>
+            </Group>
+            {generateMessage && (
+              <Text size="sm" c="dimmed">{generateMessage}</Text>
+            )}
+          </Stack>
         </form>
-      </div>
+      </Card>
 
       {/* 자동 스케줄 설정 */}
-      <div className="card">
-        <h2 className="h2">⚙️ 자동 스케줄 설정</h2>
-        {/* 실행 상태 표시 */}
-        <div className="muted" style={{ marginBottom: 12 }}>
+      <Card withBorder radius="lg" p="lg" mt="md">
+        <Title order={4} mb="sm">⚙️ 자동 스케줄 설정</Title>
+        <Text c="dimmed" mb={12}>
           {cronLoading ? '스케줄 상태 불러오는 중…' : (
             cronStatus ? (
-              <>
-                <div>현재 시간(KST): {cronStatus.currentTime?.time} ({cronStatus.currentTime?.day?.toUpperCase()})</div>
-                <div>
-                  오늘 실행 여부: {cronStatus.dailyReport?.shouldRunToday ? '예' : '아니오'} · 시간 일치: {cronStatus.dailyReport?.timeMatch ? '예' : '아니오'} · 설정 시간: {cronStatus.dailyReport?.scheduleTime}
-                </div>
-                {cronStatus.dailyReport?.recentExecutions?.length > 0 && (
-                  <div style={{ marginTop: 6 }}>
-                    최근 실행: {cronStatus.dailyReport.recentExecutions.map((r: any) => r.createdAtKST || r.createdAt?.slice(0,16).replace('T',' ')).join(', ')}
-                  </div>
-                )}
-              </>
+              `현재 시간(KST): ${cronStatus.currentTime?.time} (${String(cronStatus.currentTime?.day).toUpperCase()}) · 오늘 실행: ${cronStatus.dailyReport?.shouldRunToday ? '예' : '아니오'} · 시간 일치: ${cronStatus.dailyReport?.timeMatch ? '예' : '아니오'} · 설정: ${cronStatus.dailyReport?.scheduleTime}`
             ) : '스케줄 상태 정보를 가져오지 못했습니다.'
           )}
-        </div>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div className="row" style={{ alignItems: 'center' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="checkbox"
-                checked={autoEnabled}
-                onChange={(e) => setAutoEnabled(e.target.checked)}
-              />
-              자동 실행 활성화
-            </label>
-            
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="checkbox"
-                checked={aiEnabled}
-                onChange={(e) => setAiEnabled(e.target.checked)}
-              />
-              AI 분석 포함
-            </label>
-            
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="checkbox"
-                checked={settingsTestMode}
-                onChange={(e) => setSettingsTestMode(e.target.checked)}
-              />
-              🧪 테스트 모드
-            </label>
-          </div>
+        </Text>
 
-          {/* 요일 선택 */}
+        <Stack gap="md">
+          <Group gap="lg">
+            <Checkbox label="자동 실행 활성화" checked={autoEnabled} onChange={(e) => setAutoEnabled(e.currentTarget.checked)} />
+            <Checkbox label="AI 분석 포함" checked={aiEnabled} onChange={(e) => setAiEnabled(e.currentTarget.checked)} />
+            <Checkbox label="🧪 테스트 모드" checked={settingsTestMode} onChange={(e) => setSettingsTestMode(e.currentTarget.checked)} />
+          </Group>
+
           {autoEnabled && (
             <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600' }}>
-              실행 요일 선택
-            </label>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {weekDays.map(({ key, label }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => toggleScheduleDay(key)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '20px',
-                      border: '1px solid var(--border)',
-                      backgroundColor: scheduleDays.includes(key) ? 'var(--ok)' : 'transparent',
-                      color: scheduleDays.includes(key) ? 'white' : 'var(--text)',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <Text fw={600} size="sm" mb={6}>실행 요일 선택</Text>
+              <Chip.Group multiple value={scheduleDays as any} onChange={(v) => setScheduleDays(v as any)}>
+                <Group gap={8} wrap="wrap">
+                  {weekDays.map(({ key, label }) => (
+                    <Chip key={key} value={key} variant="filled">
+                      {label}
+                    </Chip>
+                  ))}
+                </Group>
+              </Chip.Group>
               {scheduleDays.length === 0 && (
-                <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>
-                  최소 1개 이상의 요일을 선택해주세요.
-                </p>
+                <Text size="xs" c="red" mt={4}>최소 1개 이상의 요일을 선택해주세요.</Text>
               )}
-              
-              {/* 시간 설정 */}
-              <div style={{ marginTop: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600' }}>
-                  실행 시간
-                </label>
-                <input
-                  type="time"
-                  value={scheduleTime}
-                  onChange={(e) => setScheduleTime(e.target.value)}
-                  style={{
-                    padding: '10px 14px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--bg)',
-                    color: 'var(--text)',
-                    fontSize: '15px',
-                    width: '160px',
-                    minWidth: '160px'
-                  }}
-                />
-                <span style={{ fontSize: '12px', color: 'var(--muted)', marginLeft: '8px' }}>
+
+              <div style={{ marginTop: 12 }}>
+                <Text fw={600} size="sm" mb={6}>실행 시간</Text>
+                <TextInput type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.currentTarget.value)} w={180} />
+                <Text size="xs" c="dimmed" ml={8} span>
                   {validateTimeFormat(scheduleTime) ? `${formatTimeKorean(scheduleTime)} (KST)` : '(KST 기준)'}
-                </span>
+                </Text>
               </div>
             </div>
           )}
-          
-          <div className="row" style={{ alignItems: 'center', gap: '12px' }}>
-            <button
+
+          <Group align="center" gap="sm">
+            <Button
               onClick={handleSettingsUpdate}
-              disabled={settingsLoading || (autoEnabled && scheduleDays.length === 0) || !validateTimeFormat(scheduleTime)}
-              className="btn ghost"
+              loading={settingsLoading}
+              disabled={(autoEnabled && scheduleDays.length === 0) || !validateTimeFormat(scheduleTime)}
+              variant="light"
             >
-              {settingsLoading ? '저장 중...' : '설정 저장'}
-            </button>
-            
+              설정 저장
+            </Button>
             {settingsMessage && (
-              <span 
-                style={{
-                  fontSize: '13px',
-                  color: settingsMessage.startsWith('✅') ? 'var(--ok)' : 'var(--danger)',
-                  fontWeight: '500'
-                }}
-              >
-                {settingsMessage}
-              </span>
+              <Text size="sm" c={settingsMessage.startsWith('✅') ? 'green' : 'red'} fw={500}>{settingsMessage}</Text>
             )}
-          </div>
-        </div>
-      </div>
+          </Group>
+        </Stack>
+      </Card>
 
       {/* 히스토리 섹션 */}
-      <div className="card">
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="h2">📋 실행 히스토리</h2>
-          <div className="row" style={{ gap: 12, alignItems: 'center' }}>
-            <label className="row" style={{ gap: 6 }}>
-              <span className="muted">플랫폼</span>
-              <select value={historyPlatform} onChange={(e) => setHistoryPlatform(e.target.value as any)}>
-                <option value="all">전체</option>
-                <option value="android">Android</option>
-                <option value="ios">iOS</option>
-              </select>
-            </label>
-            <button onClick={fetchReports} disabled={loading} className="btn ghost">
-              {loading ? '새로고침 중...' : '새로고침'}
-            </button>
-          </div>
-        </div>
+      <Card withBorder radius="lg" p="lg" mt="md">
+        <Group justify="space-between" align="center">
+          <Title order={4}>📋 실행 히스토리</Title>
+          <Group gap={12} align="center">
+            <Select
+              placeholder="플랫폼"
+              data={[{ value: 'all', label: '전체' }, { value: 'android', label: 'Android' }, { value: 'ios', label: 'iOS' }]}
+              value={historyPlatform}
+              onChange={(val) => setHistoryPlatform((val as any) ?? 'all')}
+              allowDeselect={false}
+              w={160}
+            />
+            <Button onClick={fetchReports} loading={loading} variant="light">새로고침</Button>
+          </Group>
+        </Group>
 
         {error && (
-          <div className="muted" style={{ color: 'var(--danger)' }}>⚠️ {error}</div>
+          <Text c="red">⚠️ {error}</Text>
         )}
 
         {reports.length === 0 ? (
-          <div className="muted" style={{ textAlign: 'center', padding: '40px 0' }}>
-            {loading ? '로딩 중...' : '리포트 히스토리가 없습니다.'}
-          </div>
+          <Text c="dimmed" ta="center" py={40}>{loading ? '로딩 중...' : '리포트 히스토리가 없습니다.'}</Text>
         ) : (
           <>
-            {/* 데스크톱 테이블 */}
-            <div className="table-container table-mobile-cards" style={{ marginTop: '16px' }}>
-            <table className="table-responsive">
-              <thead>
-                <tr>
-                  <th style={thStyle}>분석 날짜</th>
-                  <th style={thStyle}>플랫폼</th>
-                  <th style={thStyle}>상태</th>
-                  <th style={thStyle}>실행 방식</th>
-                  <th style={thStyle}>실행 시간</th>
-                  <th style={thStyle}>Slack 전송</th>
-                  <th style={thStyle}>생성 일시</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>액션</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reports.map((report) => {
-                  const statusStyle = getStatusStyle(report.status)
-                  return (
-                    <tr key={report.id}>
-                      <td style={tdStyle}>{toKstDate(report.target_date)}</td>
-                      <td style={tdStyle}>{report.platform ? report.platform.toUpperCase() : '-'}</td>
-                      <td style={tdStyle}>
-                        <span
-                          style={{
-                            ...statusStyle,
-                            padding: '4px 8px',
-                            borderRadius: '12px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                          }}
-                        >
-                          {getStatusText(report.status)}
-                        </span>
-                      </td>
-                      <td style={tdStyle}>{report.trigger_type === 'scheduled' ? '자동' : '수동'}</td>
-                      <td style={tdStyle}>{formatExecutionTime(report.execution_time_ms)}</td>
-                      <td style={tdStyle}>{report.slack_sent ? '✅' : '❌'}</td>
-                      <td style={tdStyle}>{formatKST(report.created_at)}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>
-                        <button
-                          onClick={() => handleViewReport(report)}
-                          className="btn ghost"
-                          style={{ fontSize: '11px', padding: '6px 12px' }}
-                        >
-                          결과 보기
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+            {!isMobile && (
+            <TableWrapper>
+                <Table highlightOnHover withColumnBorders verticalSpacing="xs" stickyHeader stickyHeaderOffset={0}>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>분석 날짜</Table.Th>
+                      <Table.Th>플랫폼</Table.Th>
+                      <Table.Th>상태</Table.Th>
+                      <Table.Th>실행 방식</Table.Th>
+                      <Table.Th>실행 시간</Table.Th>
+                      <Table.Th>Slack 전송</Table.Th>
+                      <Table.Th>생성 일시</Table.Th>
+                      <Table.Th style={{ textAlign: 'right' }}>액션</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {reports.map((report) => {
+                      return (
+                        <Table.Tr key={report.id}>
+                          <Table.Td>{toKstDate(report.target_date)}</Table.Td>
+                          <Table.Td>{report.platform ? report.platform.toUpperCase() : '-'}</Table.Td>
+                          <Table.Td><StatusBadge kind="report" status={report.status} /></Table.Td>
+                          <Table.Td>{report.trigger_type === 'scheduled' ? '자동' : '수동'}</Table.Td>
+                          <Table.Td>{formatExecutionTime(report.execution_time_ms)}</Table.Td>
+                          <Table.Td>{report.slack_sent ? '✅' : '❌'}</Table.Td>
+                          <Table.Td>{formatKST(report.created_at)}</Table.Td>
+                          <Table.Td style={{ textAlign: 'right' }}>
+                            <Button onClick={() => handleViewReport(report)} variant="light" size="xs">결과 보기</Button>
+                          </Table.Td>
+                        </Table.Tr>
+                      )
+                    })}
+                  </Table.Tbody>
+                </Table>
+            </TableWrapper>
+            )}
 
           {/* 모바일 카드 */}
-          <div className="mobile-cards" style={{ marginTop: '16px' }}>
-            {reports.map((report) => {
-              const statusStyle = getStatusStyle(report.status)
-              return (
-                <div key={report.id} className="mobile-card">
-                  <div className="mobile-card-header">
-                    <span
-                      style={{
-                        ...statusStyle,
-                        padding: '4px 8px',
-                        borderRadius: '12px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {getStatusText(report.status)}
-                    </span>
-                    <button
-                      onClick={() => handleViewReport(report)}
-                      className="btn ghost"
-                      style={{ fontSize: '11px', padding: '6px 12px' }}
-                    >
-                      결과 보기
-                    </button>
-                  </div>
-                  <div className="mobile-card-content">
-                    <div className="mobile-field">
-                      <span className="mobile-field-label">분석 날짜</span>
-                      <span className="mobile-field-value">{toKstDate(report.target_date)}</span>
-                    </div>
-                    <div className="mobile-field">
-                      <span className="mobile-field-label">플랫폼</span>
-                      <span className="mobile-field-value">{report.platform ? report.platform.toUpperCase() : '-'}</span>
-                    </div>
-                    <div className="mobile-field">
-                      <span className="mobile-field-label">실행 방식</span>
-                      <span className="mobile-field-value">{report.trigger_type === 'scheduled' ? '자동' : '수동'}</span>
-                    </div>
-                    <div className="mobile-field">
-                      <span className="mobile-field-label">실행 시간</span>
-                      <span className="mobile-field-value">{formatExecutionTime(report.execution_time_ms)}</span>
-                    </div>
-                    <div className="mobile-field">
-                      <span className="mobile-field-label">Slack 전송</span>
-                      <span className="mobile-field-value">{report.slack_sent ? '✅' : '❌'}</span>
-                    </div>
-                    <div className="mobile-field">
-                      <span className="mobile-field-label">생성 일시</span>
-                      <span className="mobile-field-value">{formatKST(report.created_at)}</span>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+          {isMobile && (
+          <div className="mobile-cards" style={{ marginTop: 16 }}>
+            {reports.map((report) => (
+              <Card key={report.id} withBorder radius="md" p="md" style={{ marginBottom: 12 }}>
+                <Group justify="space-between" align="center" mb={8}>
+                  <StatusBadge kind="report" status={report.status} />
+                  <Button size="xs" variant="light" onClick={() => handleViewReport(report)}>결과 보기</Button>
+                </Group>
+                <Stack gap={6}>
+                  <Text size="xs" c="dimmed">분석 날짜</Text>
+                  <Text size="sm">{toKstDate(report.target_date)}</Text>
+                  <Text size="xs" c="dimmed">플랫폼</Text>
+                  <Text size="sm">{report.platform ? report.platform.toUpperCase() : '-'}</Text>
+                  <Text size="xs" c="dimmed">실행 방식</Text>
+                  <Text size="sm">{report.trigger_type === 'scheduled' ? '자동' : '수동'}</Text>
+                  <Text size="xs" c="dimmed">실행 시간</Text>
+                  <Text size="sm">{formatExecutionTime(report.execution_time_ms)}</Text>
+                  <Text size="xs" c="dimmed">Slack 전송</Text>
+                  <Text size="sm">{report.slack_sent ? '✅' : '❌'}</Text>
+                  <Text size="xs" c="dimmed">생성 일시</Text>
+                  <Text size="sm">{formatKST(report.created_at)}</Text>
+                </Stack>
+              </Card>
+            ))}
           </div>
+          )}
           </>
         )}
-      </div>
+      </Card>
 
-      {/* 결과 보기 모달 */}
       {/* 이슈 상세 모달 */}
-      {issueModal.open && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-          <div style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:12, padding:20, width:'90%', maxWidth:800, maxHeight:'80vh', overflow:'auto' }}>
-            <div className="row" style={{ justifyContent:'space-between', alignItems:'center' }}>
-              <h3 style={{ margin:0 }}>이슈 상세</h3>
-              <button className="btn ghost" onClick={()=>setIssueModal({ open:false })}>✕</button>
-            </div>
-            {issueModal.item && (
-              <div style={{ marginTop:12 }}>
-                <div style={{ fontWeight:600, marginBottom:6 }}>{issueModal.item.title}</div>
-                <div className="muted" style={{ fontSize:12, marginBottom:10 }}>📈 {issueModal.item.events}건 {issueModal.item.users!=null?`· 👥 ${issueModal.item.users}명`:''}</div>
-                {/* 분석 결과 섹션 (항상 노출) */}
-                <details open style={{ marginTop:8, marginBottom:12 }}>
-                  <summary style={{ cursor:'pointer', fontWeight:600 }}>AI 분석 결과</summary>
-                  <div style={{ marginTop:8 }}>
-                    {issueAnalysis?.summary ? (
-                      <div style={{ lineHeight:1.6 }}>{renderAnalysis(issueAnalysis.summary)}</div>
-                    ) : (
-                      <div className="muted">아직 분석되지 않았습니다. 아래의 &quot;AI 분석&quot; 버튼을 눌러 분석을 실행하세요.</div>
-                    )}
-                  </div>
-                </details>
-                <div className="row" style={{ gap:8, marginBottom:12 }}>
-                  {issueModal.item.link && <a className="btn ghost" href={issueModal.item.link} target="_blank" rel="noreferrer">Sentry에서 열기</a>}
-                  <button
-                    className="btn ok"
-                    onClick={()=>runIssueAnalysis(!!issueAnalysis?.summary)}
-                    disabled={issueLoading}
-                  >
-                    {issueLoading ? '분석 중…' : (!!issueAnalysis?.summary ? 'AI 재분석' : 'AI 분석')}
-                  </button>
-                </div>
-                {issueError && (
-                  <div style={{ color: 'var(--danger)', marginTop: 8 }}>⚠️ {issueError}</div>
+      <Modal opened={issueModal.open} onClose={() => setIssueModal({ open: false })} title="이슈 상세" size="lg" centered>
+        {issueModal.item && (
+          <Stack gap="sm">
+            <Text fw={600}>{issueModal.item.title}</Text>
+            <Text c="dimmed" size="sm">📈 {issueModal.item.events}건 {issueModal.item.users!=null?`· 👥 ${issueModal.item.users}명`:''}</Text>
+            <div>
+              <Text fw={600} size="sm">AI 분석 결과</Text>
+              <div style={{ marginTop: 8 }}>
+                {issueAnalysis?.summary ? (
+                  <Text style={{ lineHeight: 1.6 }}>{renderAnalysis(issueAnalysis.summary) as any}</Text>
+                ) : (
+                  <Text c="dimmed" size="sm">아직 분석되지 않았습니다. 아래의 &quot;AI 분석&quot; 버튼을 눌러 분석을 실행하세요.</Text>
                 )}
               </div>
+            </div>
+            <Group gap={8}>
+              {issueModal.item.link && (
+                <Button component="a" href={issueModal.item.link} target="_blank" variant="light">Sentry에서 열기</Button>
+              )}
+              <Button onClick={()=>runIssueAnalysis(!!issueAnalysis?.summary)} loading={issueLoading} color="green">
+                {!!issueAnalysis?.summary ? 'AI 재분석' : 'AI 분석'}
+              </Button>
+            </Group>
+            {issueError && (
+              <Text c="red">⚠️ {issueError}</Text>
             )}
-          </div>
-        </div>
-      )}
-      {showModal && selectedReport && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg)',
-            border: '1px solid var(--border)',
-            borderRadius: '12px',
-            padding: '24px',
-            maxWidth: '800px',
-            maxHeight: '80vh',
-            overflow: 'auto',
-            width: '90%'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0 }}>리포트 결과 - {selectedReport.target_date}</h3>
-              <button 
-                onClick={() => setShowModal(false)}
-                className="btn ghost"
-                style={{ padding: '4px 8px' }}
-              >
-                ✕
-              </button>
+          </Stack>
+        )}
+      </Modal>
+      <Modal opened={showModal && !!selectedReport} onClose={() => setShowModal(false)} title={`리포트 결과 - ${selectedReport?.target_date ?? ''}`} size="lg" centered>
+        {selectedReport && (
+          <Stack gap="sm">
+            <div>
+              <Text><Text span fw={600}>상태:</Text> {getStatusText(selectedReport.status)}</Text>
+              <Text><Text span fw={600}>실행 방식:</Text> {selectedReport.trigger_type === 'scheduled' ? '자동' : '수동'}</Text>
+              <Text><Text span fw={600}>실행 시간:</Text> {formatExecutionTime(selectedReport.execution_time_ms)}</Text>
+              <Text><Text span fw={600}>Slack 전송:</Text> {selectedReport.slack_sent ? '✅ 성공' : '❌ 실패'}</Text>
             </div>
-            
-            <div style={{ marginBottom: '16px' }}>
-              <p><strong>상태:</strong> {getStatusText(selectedReport.status)}</p>
-              <p><strong>실행 방식:</strong> {selectedReport.trigger_type === 'scheduled' ? '자동' : '수동'}</p>
-              <p><strong>실행 시간:</strong> {formatExecutionTime(selectedReport.execution_time_ms)}</p>
-              <p><strong>Slack 전송:</strong> {selectedReport.slack_sent ? '✅ 성공' : '❌ 실패'}</p>
-            </div>
-            
+
             {selectedReport.error_message && (
-              <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px' }}>
-                <strong>오류 메시지:</strong><br />
-                {selectedReport.error_message}
+              <div>
+                <Text fw={700} c="red">오류 메시지:</Text>
+                <Text size="sm" c="red">{selectedReport.error_message}</Text>
               </div>
             )}
-            
-            {/* 접을 수 있는 실행 로그 섹션 */}
-            {/* @ts-ignore - execution_logs conditional rendering type issue */}
+
             {Array.isArray(selectedReport.execution_logs) && selectedReport.execution_logs.length > 0 && (
-              <div style={{ marginBottom: '16px' }}>
-                <button
-                  onClick={() => toggleSection('logs')}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    padding: '4px 0'
-                  }}
-                >
-                  <span>{expandedSections.logs ? '▼' : '▶'}</span>
-                  실행 로그
-                </button>
+              <div>
+                <SectionToggle open={expandedSections.logs} onClick={() => toggleSection('logs')} label="실행 로그" />
                 {expandedSections.logs && (
-                  <pre style={{
-                    marginTop: '8px',
-                    padding: '12px',
-                    backgroundColor: 'var(--bg-secondary)',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                    overflow: 'auto',
-                    maxHeight: '400px',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word'
-                  }}>
+                  <pre style={{ marginTop: 8, padding: 12, borderRadius: 8, fontSize: 11, overflow: 'auto', maxHeight: 400, whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: 'var(--mantine-color-dark-7)' }}>
                     {(selectedReport.execution_logs as string[]).join('\n')}
                   </pre>
                 )}
               </div>
             )}
 
-            {/* 접을 수 있는 리포트 데이터 섹션 */}
             {selectedReport.result_data && (
-              <div style={{ marginBottom: '16px' }}>
-                <button
-                  onClick={() => toggleSection('data')}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    padding: '4px 0'
-                  }}
-                >
-                  <span>{expandedSections.data ? '▼' : '▶'}</span>
-                  리포트 데이터
-                </button>
+              <div>
+                <SectionToggle open={expandedSections.data} onClick={() => toggleSection('data')} label="리포트 데이터" />
                 {expandedSections.data && (
-                  <pre style={{
-                    marginTop: '8px',
-                    padding: '12px',
-                    backgroundColor: 'var(--bg-secondary)',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    overflow: 'auto',
-                    maxHeight: '300px'
-                  }}>
+                  <pre style={{ marginTop: 8, padding: 12, borderRadius: 8, fontSize: 12, overflow: 'auto', maxHeight: 300, background: 'var(--mantine-color-dark-7)' }}>
                     {JSON.stringify(selectedReport.result_data, null, 2)}
                   </pre>
                 )}
               </div>
             )}
 
-            {/* Slack 메시지 미리보기 섹션 */}
             {selectedReport.result_data && (
-              <div style={{ marginBottom: '16px' }}>
-                <button
-                  onClick={() => toggleSection('slack')}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    padding: '4px 0'
-                  }}
-                >
-                  <span>{expandedSections.slack ? '▼' : '▶'}</span>
-                  Slack 메시지 미리보기
-                </button>
+              <div>
+                <SectionToggle open={expandedSections.slack} onClick={() => toggleSection('slack')} label="Slack 메시지 미리보기" />
                 {expandedSections.slack && (
-                  <div style={{
-                    marginTop: '8px',
-                    padding: '16px',
-                    backgroundColor: '#f8f9fa',
-                    border: '1px solid #e9ecef',
-                    borderRadius: '8px',
-                    color: '#212529',
-                    fontSize: '13px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif',
-                    lineHeight: '1.5',
-                    whiteSpace: 'pre-wrap'
-                  }}>
+                  <Card withBorder radius="md" p="md" mt={8}>
                     {(() => {
                       const blocks = (selectedReport.result_data as any)?.slack_blocks
                       if (Array.isArray(blocks) && blocks.length > 0) {
@@ -1133,13 +878,13 @@ export default function DailyReportPage() {
                       }
                       return renderSlackMessage(selectedReport.result_data)
                     })()}
-                  </div>
+                  </Card>
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
+          </Stack>
+        )}
+      </Modal>
     </div>
   )
 }

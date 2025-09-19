@@ -1,4 +1,5 @@
 import React from 'react'
+import { Button, Paper, Text } from '@mantine/core'
 
 type SlackText = { type: 'plain_text' | 'mrkdwn'; text: string }
 type SlackBlock = { type: string; text?: SlackText; elements?: any[]; fields?: SlackText[]; image_url?: string; alt_text?: string; url?: string; title?: SlackText }
@@ -32,30 +33,26 @@ function Block({ block }: { block: SlackBlock }) {
       )
     case 'context':
       return (
-        <div style={{ fontSize: 12, color: '#9aa4b2', margin: '6px 0' }}>
+        <Text size="xs" c="dimmed" style={{ margin: '6px 0' }}>
           {(block.elements || []).map((el: any, idx: number) => (
             <span key={idx} style={{ marginRight: 8 }}>
               {el.type === 'mrkdwn' ? renderMrkdwn(el.text || '') : (el.text || '')}
             </span>
           ))}
-        </div>
+        </Text>
       )
     case 'actions':
       return (
         <div style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
           {(block.elements || []).map((el: any, idx: number) => (
-            <a key={idx} href={el.url} target="_blank" rel="noreferrer" style={{
-              fontSize: 12,
-              padding: '6px 10px',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              textDecoration: 'none'
-            }}>{el.text?.text || 'Open'}</a>
+            <Button key={idx} component="a" href={el.url} target="_blank" variant="light" size="xs">
+              {el.text?.text || 'Open'}
+            </Button>
           ))}
         </div>
       )
     case 'divider':
-      return <hr style={{ borderColor: 'var(--border)' }} />
+      return <hr style={{ borderColor: 'var(--mantine-color-dark-4)' }} />
     default:
       return null
   }
@@ -64,9 +61,8 @@ function Block({ block }: { block: SlackBlock }) {
 export default function SlackPreview({ blocks }: { blocks: SlackBlock[] }) {
   if (!blocks || blocks.length === 0) return <div className="muted">미리보기 블록이 없습니다.</div>
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+    <Paper withBorder radius="md" p="md">
       {blocks.map((b, i) => <Block key={i} block={b as any} />)}
-    </div>
+    </Paper>
   )
 }
-
