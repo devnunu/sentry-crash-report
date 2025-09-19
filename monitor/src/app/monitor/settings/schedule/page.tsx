@@ -300,46 +300,69 @@ export default function ScheduleSettingsPage() {
 
           {/* 스케줄 상세 설정 */}
           {currentAutoEnabled && (
-            <div>
-              <Text fw={600} size="sm" mb={6}>실행 요일 선택</Text>
-              <Chip.Group multiple value={currentScheduleDays as any} onChange={(v) => setCurrentScheduleDays(v as any)}>
-                <Group gap={8} wrap="wrap">
-                  {weekDays.map(({ key, label }) => (
-                    <Chip key={key} value={key} variant="filled">{label}</Chip>
-                  ))}
-                </Group>
-              </Chip.Group>
-              {currentScheduleDays.length === 0 && (
-                <Text size="xs" c="red" mt={4}>최소 1개 이상의 요일을 선택해주세요.</Text>
-              )}
-              
-              <div style={{ marginTop: 12 }}>
-                <Text fw={600} size="sm" mb={6}>실행 시간</Text>
-                <TextInput 
-                  type="time" 
-                  value={currentScheduleTime} 
-                  onChange={(e) => setCurrentScheduleTime(e.currentTarget.value)} 
-                  w={180} 
-                />
-                <Text size="xs" c="dimmed" ml={8} span>
-                  {validateTimeFormat(currentScheduleTime) ? `${formatTimeKorean(currentScheduleTime)} (KST)` : '(KST 기준)'}
-                </Text>
-              </div>
-            </div>
+            <Card withBorder p="lg" radius="md" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
+              <Stack gap="lg">
+                <div>
+                  <Text fw={600} mb="md" c="blue.6">📅 실행 요일 선택</Text>
+                  <Chip.Group multiple value={currentScheduleDays as any} onChange={(v) => setCurrentScheduleDays(v as any)}>
+                    <Group gap={12} justify="center">
+                      {weekDays.map(({ key, label }) => (
+                        <Chip key={key} value={key} variant="filled" size="md">{label}요일</Chip>
+                      ))}
+                    </Group>
+                  </Chip.Group>
+                  {currentScheduleDays.length === 0 && (
+                    <Card withBorder p="sm" mt="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                      <Text size="sm" c="red" fw={500}>⚠️ 최소 1개 이상의 요일을 선택해주세요.</Text>
+                    </Card>
+                  )}
+                </div>
+                
+                <div>
+                  <Text fw={600} mb="md" c="blue.6">🕐 실행 시간</Text>
+                  <Group align="flex-end">
+                    <TextInput 
+                      type="time" 
+                      value={currentScheduleTime} 
+                      onChange={(e) => setCurrentScheduleTime(e.currentTarget.value)} 
+                      size="md"
+                      style={{ minWidth: 140 }}
+                      label="시간 (24시간 형식)"
+                    />
+                    <Text size="sm" c="dimmed" style={{ marginBottom: 8 }}>
+                      {validateTimeFormat(currentScheduleTime) ? (
+                        <span style={{ color: 'var(--mantine-color-blue-6)' }}>✅ {formatTimeKorean(currentScheduleTime)} (KST)</span>
+                      ) : (
+                        <span style={{ color: 'var(--mantine-color-red-6)' }}>❌ 올바른 시간 형식이 아닙니다</span>
+                      )}
+                    </Text>
+                  </Group>
+                </div>
+              </Stack>
+            </Card>
           )}
 
           {/* 저장 버튼 */}
-          <Group align="center" gap="sm">
+          <Group justify="space-between" align="center">
             <Button 
               onClick={handleSettingsUpdate} 
               loading={loading} 
               disabled={(currentAutoEnabled && currentScheduleDays.length === 0) || !validateTimeFormat(currentScheduleTime)} 
-              variant="light"
+              color="green"
+              size="md"
+              leftSection="💾"
+              style={{ minWidth: 200 }}
             >
-              {reportType === 'daily' ? '일간' : '주간'} 리포트 설정 저장
+              {loading ? '저장 중...' : `${reportType === 'daily' ? '일간' : '주간'} 리포트 설정 저장`}
             </Button>
+            
             {message && (
-              <Text size="sm" c={message.startsWith('✅') ? 'green' : 'red'} fw={500}>{message}</Text>
+              <Card withBorder p="md" style={{ 
+                backgroundColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                borderColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+              }}>
+                <Text size="sm" fw={500}>{message}</Text>
+              </Card>
             )}
           </Group>
         </Stack>

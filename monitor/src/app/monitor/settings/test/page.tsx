@@ -154,126 +154,196 @@ export default function TestExecutionPage() {
         </div>
       </Group>
 
-      <Card withBorder radius="lg" p="lg" mt="md">
-        <Stack gap="lg">
+      <Card withBorder radius="lg" p="xl" mt="md" style={{ background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%)', borderColor: 'rgba(99, 102, 241, 0.2)' }}>
+        <Stack gap="xl">
           {/* 리포트 타입 선택 */}
           <div>
-            <Text fw={500} mb="xs">리포트 타입</Text>
+            <Group mb="md">
+              <Text fw={600} size="lg" c="indigo.6">📊 리포트 타입 선택</Text>
+            </Group>
             <SegmentedControl
               value={reportType}
               onChange={(value) => setReportType(value as 'daily' | 'weekly')}
               data={[
-                { label: '일간 리포트', value: 'daily' },
-                { label: '주간 리포트', value: 'weekly' }
+                { label: '📅 일간 리포트', value: 'daily' },
+                { label: '📆 주간 리포트', value: 'weekly' }
               ]}
+              size="md"
+              fullWidth
             />
           </div>
 
           {/* 공통 설정 */}
-          <Group wrap="wrap" gap="sm" align="flex-end">
-            <Select
-              label="플랫폼"
-              data={[
-                { value: 'all', label: '전체' },
-                { value: 'android', label: 'Android' },
-                { value: 'ios', label: 'iOS' }
-              ]}
-              value={platform}
-              onChange={(val) => setPlatform((val as Platform | 'all') ?? 'all')}
-              w={140}
-            />
-            <Checkbox
-              label="AI 분석 포함"
-              checked={includeAI}
-              onChange={(e) => setIncludeAI(e.currentTarget.checked)}
-            />
-            <Checkbox
-              label="Slack 전송"
-              checked={sendSlack}
-              onChange={(e) => setSendSlack(e.currentTarget.checked)}
-            />
-            <Checkbox
-              label="🧪 테스트 모드 (테스트용 Slack 채널로 전송)"
-              checked={isTestMode}
-              onChange={(e) => setIsTestMode(e.currentTarget.checked)}
-            />
-          </Group>
+          <Card withBorder p="lg" radius="md" style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)' }}>
+            <Text fw={600} mb="md" c="indigo.5">⚙️ 공통 설정</Text>
+            <Stack gap="md">
+              <Select
+                label="대상 플랫폼"
+                description="리포트를 생성할 플랫폼을 선택하세요"
+                data={[
+                  { value: 'all', label: '🌐 전체 플랫폼' },
+                  { value: 'android', label: '🤖 Android' },
+                  { value: 'ios', label: '🍎 iOS' }
+                ]}
+                value={platform}
+                onChange={(val) => setPlatform((val as Platform | 'all') ?? 'all')}
+                size="md"
+              />
+              <Group grow>
+                <Checkbox
+                  label="🤖 AI 분석 포함"
+                  description="OpenAI를 활용한 이슈 분석 포함"
+                  checked={includeAI}
+                  onChange={(e) => setIncludeAI(e.currentTarget.checked)}
+                  size="md"
+                />
+                <Checkbox
+                  label="💬 Slack 전송"
+                  description="완성된 리포트를 Slack으로 전송"
+                  checked={sendSlack}
+                  onChange={(e) => setSendSlack(e.currentTarget.checked)}
+                  size="md"
+                />
+                <Checkbox
+                  label="🧪 테스트 모드"
+                  description="테스트용 Slack 채널로 전송"
+                  checked={isTestMode}
+                  onChange={(e) => setIsTestMode(e.currentTarget.checked)}
+                  size="md"
+                />
+              </Group>
+            </Stack>
+          </Card>
 
           {/* 일간 리포트 전용 설정 */}
           {reportType === 'daily' && (
-            <form onSubmit={handleDailyGenerate}>
-              <Stack gap="sm">
-                <Group wrap="wrap" gap="sm" align="flex-end">
-                  <TextInput
-                    label="대상 날짜 (선택사항)"
-                    placeholder="YYYY-MM-DD (예: 2024-01-15)"
-                    value={targetDate}
-                    onChange={(e) => setTargetDate(e.currentTarget.value)}
-                    w={200}
-                  />
-                  <Button type="submit" loading={loading} color="green">
-                    일간 리포트 생성
-                  </Button>
-                </Group>
-                {message && (
-                  <Text size="sm" c="dimmed">{message}</Text>
-                )}
-              </Stack>
-            </form>
+            <Card withBorder p="lg" radius="md" style={{ backgroundColor: 'rgba(34, 197, 94, 0.05)', borderColor: 'rgba(34, 197, 94, 0.2)' }}>
+              <form onSubmit={handleDailyGenerate}>
+                <Stack gap="lg">
+                  <Group justify="space-between" align="center">
+                    <div>
+                      <Text fw={600} size="lg" c="green.6">📅 일간 리포트 생성</Text>
+                      <Text size="sm" c="dimmed">특정 날짜의 일간 리포트를 생성합니다</Text>
+                    </div>
+                  </Group>
+                  
+                  <Group grow>
+                    <TextInput
+                      label="대상 날짜"
+                      description="비워두면 어제 날짜로 자동 설정됩니다"
+                      placeholder="YYYY-MM-DD (예: 2024-01-15)"
+                      value={targetDate}
+                      onChange={(e) => setTargetDate(e.currentTarget.value)}
+                      size="md"
+                    />
+                    <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                      <Button 
+                        type="submit" 
+                        loading={loading} 
+                        color="green"
+                        size="md"
+                        leftSection="🚀"
+                        fullWidth
+                        style={{ minHeight: 42 }}
+                      >
+                        {loading ? '생성 중...' : '일간 리포트 생성'}
+                      </Button>
+                    </div>
+                  </Group>
+                  
+                  {message && (
+                    <Card withBorder p="md" style={{ 
+                      backgroundColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                      borderColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+                    }}>
+                      <Text size="sm" fw={500}>{message}</Text>
+                    </Card>
+                  )}
+                </Stack>
+              </form>
+            </Card>
           )}
 
           {/* 주간 리포트 전용 설정 */}
           {reportType === 'weekly' && (
-            <form onSubmit={handleWeeklyGenerate}>
-              <Stack gap="sm">
-                <div>
-                  <Text fw={500} mb="xs">날짜 지정 방식</Text>
-                  <SegmentedControl
-                    value={dateMode}
-                    onChange={(value) => setDateMode(value as 'week' | 'range')}
-                    data={[
-                      { label: '주차 지정', value: 'week' },
-                      { label: '기간 지정', value: 'range' }
-                    ]}
-                  />
-                </div>
-
-                <Group wrap="wrap" gap="sm" align="flex-end">
-                  {dateMode === 'week' ? (
-                    <TextInput
-                      label="대상 주차 (선택사항)"
-                      placeholder="YYYY-Www (예: 2024-W03)"
-                      value={targetWeek}
-                      onChange={(e) => setTargetWeek(e.currentTarget.value)}
-                      w={200}
+            <Card withBorder p="lg" radius="md" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
+              <form onSubmit={handleWeeklyGenerate}>
+                <Stack gap="lg">
+                  <Group justify="space-between" align="center">
+                    <div>
+                      <Text fw={600} size="lg" c="blue.6">📆 주간 리포트 생성</Text>
+                      <Text size="sm" c="dimmed">특정 주차 또는 기간의 주간 리포트를 생성합니다</Text>
+                    </div>
+                  </Group>
+                  
+                  <div>
+                    <Text fw={500} mb="md" c="blue.5">📅 날짜 지정 방식</Text>
+                    <SegmentedControl
+                      value={dateMode}
+                      onChange={(value) => setDateMode(value as 'week' | 'range')}
+                      data={[
+                        { label: '🗓️ 주차 지정', value: 'week' },
+                        { label: '📊 기간 지정', value: 'range' }
+                      ]}
+                      size="md"
+                      fullWidth
                     />
-                  ) : (
-                    <>
+                  </div>
+
+                  <Group grow>
+                    {dateMode === 'week' ? (
                       <TextInput
-                        label="시작 날짜 (선택사항)"
-                        placeholder="YYYY-MM-DD"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.currentTarget.value)}
-                        w={160}
+                        label="대상 주차"
+                        description="비워두면 지난주로 자동 설정됩니다"
+                        placeholder="YYYY-Www (예: 2024-W03)"
+                        value={targetWeek}
+                        onChange={(e) => setTargetWeek(e.currentTarget.value)}
+                        size="md"
                       />
-                      <TextInput
-                        label="종료 날짜 (선택사항)"
-                        placeholder="YYYY-MM-DD"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.currentTarget.value)}
-                        w={160}
-                      />
-                    </>
-                  )}
-                  <Button type="submit" loading={loading} color="green">
-                    주간 리포트 생성
+                    ) : (
+                      <Group grow>
+                        <TextInput
+                          label="시작 날짜"
+                          description="기간의 시작일"
+                          placeholder="YYYY-MM-DD"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.currentTarget.value)}
+                          size="md"
+                        />
+                        <TextInput
+                          label="종료 날짜"
+                          description="기간의 종료일"
+                          placeholder="YYYY-MM-DD"
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.currentTarget.value)}
+                          size="md"
+                        />
+                      </Group>
+                    )}
+                  </Group>
+                  
+                  <Button 
+                    type="submit" 
+                    loading={loading} 
+                    color="blue"
+                    size="md"
+                    leftSection="🚀"
+                    fullWidth
+                  >
+                    {loading ? '생성 중...' : '주간 리포트 생성'}
                   </Button>
-                </Group>
-                {message && (
-                  <Text size="sm" c="dimmed">{message}</Text>
-                )}
-              </Stack>
-            </form>
+                  
+                  {message && (
+                    <Card withBorder p="md" style={{ 
+                      backgroundColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                      borderColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+                    }}>
+                      <Text size="sm" fw={500}>{message}</Text>
+                    </Card>
+                  )}
+                </Stack>
+              </form>
+            </Card>
           )}
         </Stack>
       </Card>
