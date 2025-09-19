@@ -4,7 +4,7 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AppShell, Burger, Group, Title, ScrollArea, NavLink, Box } from '@mantine/core'
-import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory } from '@tabler/icons-react'
+import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable } from '@tabler/icons-react'
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [opened, setOpened] = React.useState(false)
@@ -109,6 +109,13 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                 label="자동 스케줄"
                 leftSection={<IconClock size={14} />}
                 active={pathname?.startsWith('/monitor/settings/schedule')}
+              />
+              <NavLink
+                component={Link}
+                href="/monitor/settings/env"
+                label="환경 변수"
+                leftSection={<IconVariable size={14} />}
+                active={pathname?.startsWith('/monitor/settings/env')}
               />
             </NavLink>
           </Box>
