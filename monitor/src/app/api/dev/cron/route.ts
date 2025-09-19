@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
 // 로컬 개발 크론은 비활성화 (QStash 사용)
-export async function GET(request: NextRequest) {
+export async function GET() {
   return NextResponse.json({
     success: true,
     data: {
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   })
 }
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   return NextResponse.json({
     success: false,
     error: 'Development cron is disabled. Use QStash schedules.'

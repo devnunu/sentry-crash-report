@@ -14,7 +14,8 @@ export async function POST(request: NextRequest) {
     if (targetDate) {
       try {
         parsedTargetDate = parseDate(targetDate)
-      } catch (error) {
+      } catch (err) {
+        console.warn('[API] Invalid target date provided:', err)
         return NextResponse.json(
           createApiError('Invalid target date format. Use YYYY-MM-DD'),
           { status: 400 }

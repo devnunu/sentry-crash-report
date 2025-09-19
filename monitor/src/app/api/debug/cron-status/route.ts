@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { reportsDb } from '@/lib/reports/database'
 import type { WeekDay } from '@/lib/reports/types'
 import { formatKST } from '@/lib/utils'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // KST 시간 계산
     const now = new Date()

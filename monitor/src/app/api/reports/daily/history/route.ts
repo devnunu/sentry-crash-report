@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     
     console.log(`[API] Fetching daily report history (limit: ${limit}, offset: ${offset})`)
     
-    const reports = await reportsDb.getReportExecutions('daily', limit, offset, platform as any)
+    const reports = await reportsDb.getReportExecutions('daily', limit, offset, platform)
     
     return NextResponse.json(
       createApiResponse({
