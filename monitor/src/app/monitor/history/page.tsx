@@ -67,7 +67,12 @@ export default function ReportHistoryPage() {
           const dailyResponse = await fetch(`/api/reports/daily/history?limit=25${platformQuery}`)
           const dailyResult: ApiResponse<{ reports: ReportExecution[] }> = await dailyResponse.json()
           if (dailyResult.success && dailyResult.data) {
-            allReports = allReports.concat(dailyResult.data.reports)
+            // 일간 리포트에 타입 정보 추가
+            const dailyReports = dailyResult.data.reports.map(report => ({
+              ...report,
+              report_type: 'daily' as const
+            }))
+            allReports = allReports.concat(dailyReports)
           }
         } catch (err) {
           console.warn('일간 리포트 히스토리 조회 실패:', err)
@@ -79,7 +84,12 @@ export default function ReportHistoryPage() {
           const weeklyResponse = await fetch(`/api/reports/weekly/history?limit=25${platformQuery}`)
           const weeklyResult: ApiResponse<{ reports: ReportExecution[] }> = await weeklyResponse.json()
           if (weeklyResult.success && weeklyResult.data) {
-            allReports = allReports.concat(weeklyResult.data.reports)
+            // 주간 리포트에 타입 정보 추가
+            const weeklyReports = weeklyResult.data.reports.map(report => ({
+              ...report,
+              report_type: 'weekly' as const
+            }))
+            allReports = allReports.concat(weeklyReports)
           }
         } catch (err) {
           console.warn('주간 리포트 히스토리 조회 실패:', err)
@@ -310,7 +320,7 @@ export default function ReportHistoryPage() {
                   </Table.Thead>
                   <Table.Tbody>
                     {reports.map((report) => {
-                      const reportTypeText = report.target_date?.includes('W') || report.start_date ? '주간' : '일간'
+                      const reportTypeText = (report as any).report_type === 'daily' ? '일간' : '주간'
                       return (
                         <Table.Tr key={report.id}>
                           <Table.Td>{reportTypeText}</Table.Td>
@@ -336,7 +346,7 @@ export default function ReportHistoryPage() {
           {isMobile && (
           <div className="mobile-cards" style={{ marginTop: 16 }}>
             {reports.map((report) => {
-              const reportTypeText = report.target_date?.includes('W') || report.start_date ? '주간' : '일간'
+              const reportTypeText = (report as any).report_type === 'daily' ? '일간' : '주간'
               return (
                 <Card key={report.id} withBorder radius="md" p="md" style={{ marginBottom: 12 }}>
                   <Group justify="space-between" align="center" mb={8}>
