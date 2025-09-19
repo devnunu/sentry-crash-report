@@ -101,6 +101,8 @@ export default function DailyAndroidReportPage() {
   const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
   const [issueLoading, setIssueLoading] = useState(false)
   const [issueError, setIssueError] = useState<string>('')
+  const [cronLoading, setCronLoading] = useState(false)
+  const [cronStatus, setCronStatus] = useState<any>(null)
   const theme = useMantineTheme()
   const isMobile = useMediaQuery(`(max-width: ${theme.breakpoints.sm})`)
   // 날짜 표시를 KST 기준으로 변환 (YYYY-MM-DD)

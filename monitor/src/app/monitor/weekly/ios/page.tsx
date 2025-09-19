@@ -103,6 +103,10 @@ export default function WeeklyiOSReportPage() {
   const [issueError, setIssueError] = useState<string>('')
   const [dateRangeAndroid, setDateRangeAndroid] = useState<{start:string,end:string}|null>(null)
   const [dateRangeIOS, setDateRangeIOS] = useState<{start:string,end:string}|null>(null)
+  const [autoEnabled, setAutoEnabled] = useState(false)
+  const [aiEnabled, setAiEnabled] = useState(false)
+  const [scheduleDays, setScheduleDays] = useState<string[]>(['mon'])
+  const [scheduleTime, setScheduleTime] = useState('09:00')
   // KST 날짜 라벨 헬퍼
   const toKstDate = (dateStr?: string) => {
     if (!dateStr) return '-'
