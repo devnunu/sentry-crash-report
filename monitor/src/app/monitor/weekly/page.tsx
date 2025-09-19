@@ -13,7 +13,6 @@ import StatsCards from '@/components/StatsCards'
 import type { 
   ReportExecution, 
   ReportSettings, 
-  GenerateWeeklyReportRequest,
   WeekDay
 } from '@/lib/reports/types'
 
@@ -99,17 +98,6 @@ export default function WeeklyReportPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   
-  // 테스트 실행 상태
-  const [generateLoading, setGenerateLoading] = useState(false)
-  const [generateMessage, setGenerateMessage] = useState('')
-  const [targetWeek, setTargetWeek] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [dateMode, setDateMode] = useState<'week' | 'range'>('week')
-  const [includeAI, setIncludeAI] = useState(true)
-  const [sendSlack, setSendSlack] = useState(true)
-  const [isTestMode, setIsTestMode] = useState(false)
-  const [platform, setPlatform] = useState<'android' | 'ios' | 'all'>('all')
   
   // 설정 변경 상태
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -195,58 +183,6 @@ export default function WeeklyReportPage() {
     fetchSettings()
   }, [fetchReports, fetchSettings])
 
-  // 리포트 생성
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    setGenerateLoading(true)
-    setGenerateMessage('')
-    
-    try {
-      const request: GenerateWeeklyReportRequest = {
-        sendSlack,
-        includeAI,
-        isTestMode,
-        platform
-      }
-      
-      if (dateMode === 'week' && targetWeek) {
-        request.targetWeek = targetWeek
-      } else if (dateMode === 'range' && startDate && endDate) {
-        request.startDate = startDate
-        request.endDate = endDate
-      }
-      
-      const response = await fetch('/api/reports/weekly/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
-      })
-      
-      const result: ApiResponse<{ message: string; executionId: string }> = await response.json()
-      
-      if (!result.success) {
-        throw new Error(result.error || '리포트 생성 실패')
-      }
-      
-      const msg = result.data?.message || '리포트 생성됨'
-      setGenerateMessage(`✅ ${msg}`)
-      notifications.show({ color: 'green', message: `주간 리포트: ${msg}` })
-      
-      // 히스토리 새로고침
-      setTimeout(() => {
-        fetchReports()
-        setGenerateMessage('')
-      }, 2000)
-      
-    } catch (err) {
-      const m = err instanceof Error ? err.message : '알 수 없는 오류'
-      setGenerateMessage(`❌ ${m}`)
-      notifications.show({ color: 'red', message: `리포트 생성 실패: ${m}` })
-    } finally {
-      setGenerateLoading(false)
-    }
-  }
 
   // 설정 업데이트
   const handleSettingsUpdate = async () => {
@@ -623,47 +559,6 @@ export default function WeeklyReportPage() {
         ]}
       />
 
-      <Card withBorder radius="lg" p="lg" mt="md">
-        <Title order={4} mb="sm">🧪 테스트 실행</Title>
-        <form onSubmit={handleGenerate}>
-          <Stack gap="xs">
-            <Group wrap="wrap" gap="sm" align="flex-end">
-              <div>
-                <Text size="sm" c="dimmed" mb={4}>플랫폼</Text>
-                <SegmentedControl
-                  value={platform}
-                  onChange={(val) => setPlatform(val as any)}
-                  data={[
-                    { label: '전체', value: 'all' },
-                    { label: 'Android', value: 'android' },
-                    { label: 'iOS', value: 'ios' },
-                  ]}
-                />
-              </div>
-              <div>
-                <Text size="sm" c="dimmed" mb={4}>날짜 모드</Text>
-                <SegmentedControl
-                  value={dateMode}
-                  onChange={(val) => setDateMode(val as any)}
-                  data={[{ label: '주차', value: 'week' }, { label: '기간', value: 'range' }]}
-                />
-              </div>
-              {dateMode === 'week' ? (
-                <TextInput label="분석 주차 (월요일 날짜, 기본: 지난주)" type="date" value={targetWeek} onChange={(e) => setTargetWeek(e.currentTarget.value)} />
-              ) : (
-                <Group gap="sm" align="flex-end">
-                  <TextInput label="시작 날짜" type="date" value={startDate} onChange={(e) => setStartDate(e.currentTarget.value)} />
-                  <TextInput label="종료 날짜" type="date" value={endDate} onChange={(e) => setEndDate(e.currentTarget.value)} />
-                </Group>
-              )}
-              <Checkbox label="Slack 전송" checked={sendSlack} onChange={(e) => setSendSlack(e.currentTarget.checked)} />
-              <Checkbox label="AI 분석 포함" checked={includeAI} onChange={(e) => setIncludeAI(e.currentTarget.checked)} />
-              <Button type="submit" loading={generateLoading} color="green">주간 리포트 생성</Button>
-            </Group>
-            {generateMessage && (<Text size="sm" c="dimmed">{generateMessage}</Text>)}
-          </Stack>
-        </form>
-      </Card>
 
       <Card withBorder radius="lg" p="lg" mt="md">
         <Title order={4} mb="sm">⚙️ 자동 스케줄 설정</Title>

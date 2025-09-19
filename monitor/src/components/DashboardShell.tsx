@@ -4,10 +4,11 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AppShell, Burger, Group, Title, ScrollArea, NavLink, Box } from '@mantine/core'
-import { IconActivity, IconCalendarStats, IconDeviceMobile, IconReportAnalytics } from '@tabler/icons-react'
+import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle } from '@tabler/icons-react'
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [opened, setOpened] = React.useState(false)
+  const [settingsOpened, setSettingsOpened] = React.useState(false)
   const pathname = usePathname()
   
   return (
@@ -50,12 +51,20 @@ export default function DashboardShell({ children }: { children: React.ReactNode
               active={pathname?.startsWith('/monitor/weekly')}
             />
             <NavLink
-              component={Link}
-              href="/"
-              label="개요"
-              leftSection={<IconReportAnalytics size={16} />}
-              active={pathname === '/'}
-            />
+              label="설정"
+              leftSection={<IconSettings size={16} />}
+              opened={settingsOpened}
+              onClick={() => setSettingsOpened(!settingsOpened)}
+              childrenOffset={28}
+            >
+              <NavLink
+                component={Link}
+                href="/monitor/settings/test"
+                label="테스트 실행"
+                leftSection={<IconPlaystationTriangle size={14} />}
+                active={pathname?.startsWith('/monitor/settings/test')}
+              />
+            </NavLink>
           </Box>
         </AppShell.Section>
       </AppShell.Navbar>

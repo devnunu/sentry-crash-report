@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import SlackPreview from '@/lib/SlackPreview'
-import { Button, Card, Checkbox, Group, Modal, Select, SegmentedControl, Stack, Table, Text, TextInput, Title, Chip, useMantineTheme } from '@mantine/core'
+import { Button, Card, Checkbox, Group, Modal, Select, Stack, Table, Text, TextInput, Title, Chip, useMantineTheme } from '@mantine/core'
 import TableWrapper from '@/components/TableWrapper'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -13,7 +13,6 @@ import { formatKST, formatExecutionTime, validateTimeFormat, formatTimeKorean } 
 import type { 
   ReportExecution, 
   ReportSettings, 
-  GenerateDailyReportRequest,
   WeekDay
 } from '@/lib/reports/types'
 
@@ -96,14 +95,6 @@ export default function DailyReportPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   
-  // 테스트 실행 상태
-  const [generateLoading, setGenerateLoading] = useState(false)
-  const [generateMessage, setGenerateMessage] = useState('')
-  const [targetDate, setTargetDate] = useState('')
-  const [includeAI, setIncludeAI] = useState(true)
-  const [sendSlack, setSendSlack] = useState(true)
-  const [isTestMode, setIsTestMode] = useState(false)
-  const [platform, setPlatform] = useState<'android' | 'ios' | 'all'>('all')
   
   // 설정 변경 상태
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -278,52 +269,6 @@ export default function DailyReportPage() {
     return <span dangerouslySetInnerHTML={{ __html: html }} />
   }
 
-  // 리포트 생성
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    setGenerateLoading(true)
-    setGenerateMessage('')
-    
-    try {
-      const request: GenerateDailyReportRequest = {
-        targetDate: targetDate || undefined,
-        sendSlack,
-        includeAI,
-        isTestMode,
-        platform
-      }
-      
-      const response = await fetch('/api/reports/daily/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
-      })
-      
-      const result: ApiResponse<{ message: string; executionId: string }> = await response.json()
-      
-      if (!result.success) {
-        throw new Error(result.error || '리포트 생성 실패')
-      }
-      
-      const msg = result.data?.message || '리포트 생성됨'
-      setGenerateMessage(`✅ ${msg}`)
-      notifications.show({ color: 'green', message: `일간 리포트: ${msg}` })
-      
-      // 히스토리 새로고침
-      setTimeout(() => {
-        fetchReports()
-        setGenerateMessage('')
-      }, 2000)
-      
-    } catch (err) {
-      const m = err instanceof Error ? err.message : '알 수 없는 오류'
-      setGenerateMessage(`❌ ${m}`)
-      notifications.show({ color: 'red', message: `리포트 생성 실패: ${m}` })
-    } finally {
-      setGenerateLoading(false)
-    }
-  }
 
   // 설정 업데이트
   const handleSettingsUpdate = async () => {
@@ -533,11 +478,6 @@ export default function DailyReportPage() {
   }
 
   // 어제 날짜 기본값
-  useEffect(() => {
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    setTargetDate(yesterday.toISOString().split('T')[0])
-  }, [])
 
   return (
     <div className="container">
@@ -595,54 +535,6 @@ export default function DailyReportPage() {
           { label: '실행중', value: reports.filter(r => r.status === 'running').length, color: 'yellow' },
         ]}
       />
-      <Card withBorder radius="lg" p="lg" mt="md">
-        <Title order={4} mb="sm">🧪 테스트 실행</Title>
-        <form onSubmit={handleGenerate}>
-          <Stack gap="xs">
-            <Group wrap="wrap" gap="sm" align="flex-end">
-              <div>
-                <Text size="sm" c="dimmed" mb={4}>플랫폼</Text>
-                <SegmentedControl
-                  value={platform}
-                  onChange={(val) => setPlatform(val as any)}
-                  data={[
-                    { label: '전체', value: 'all' },
-                    { label: 'Android', value: 'android' },
-                    { label: 'iOS', value: 'ios' },
-                  ]}
-                />
-              </div>
-              <TextInput
-                label="분석 날짜 (기본: 어제)"
-                type="date"
-                value={targetDate}
-                onChange={(e) => setTargetDate(e.currentTarget.value)}
-              />
-              <Checkbox
-                label="Slack 전송"
-                checked={sendSlack}
-                onChange={(e) => setSendSlack(e.currentTarget.checked)}
-              />
-              <Checkbox
-                label="AI 분석 포함"
-                checked={includeAI}
-                onChange={(e) => setIncludeAI(e.currentTarget.checked)}
-              />
-              <Checkbox
-                label="🧪 테스트 모드"
-                checked={isTestMode}
-                onChange={(e) => setIsTestMode(e.currentTarget.checked)}
-              />
-              <Button type="submit" loading={generateLoading} color="green">
-                일간 리포트 생성
-              </Button>
-            </Group>
-            {generateMessage && (
-              <Text size="sm" c="dimmed">{generateMessage}</Text>
-            )}
-          </Stack>
-        </form>
-      </Card>
 
       {/* 자동 스케줄 설정 */}
       <Card withBorder radius="lg" p="lg" mt="md">

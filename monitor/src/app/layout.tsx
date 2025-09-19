@@ -13,11 +13,11 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko">
+    <html lang="ko" suppressHydrationWarning>
       <head>
         <ColorSchemeScript defaultColorScheme="dark" />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         <Providers>
           <DashboardShell>
             {children}
