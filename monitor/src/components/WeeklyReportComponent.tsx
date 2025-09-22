@@ -30,7 +30,8 @@ import {
   IconList,
   IconTrendingUp,
   IconTrendingDown,
-  IconMinus
+  IconMinus,
+  IconTrash
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -242,6 +243,8 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
   const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
   const [issueLoading, setIssueLoading] = useState(false)
   const [issueError, setIssueError] = useState('')
+  const [deleteModal, setDeleteModal] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const config = getPlatformConfig(platform)
 
@@ -374,6 +377,32 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
   const triggerLabel = selectedReport?.trigger_type === 'scheduled' ? '🤖 자동 실행' : '🧪 테스트 실행'
   const triggerColor = selectedReport?.trigger_type === 'scheduled' ? 'blue' : 'pink'
 
+  // 리포트 삭제 함수
+  const handleDeleteReport = async () => {
+    if (!selectedReport) return
+    
+    setDeleting(true)
+    try {
+      const response = await fetch(`/api/reports/weekly/${selectedReport.id}`, {
+        method: 'DELETE',
+      })
+      
+      if (!response.ok) {
+        throw new Error('리포트 삭제에 실패했습니다.')
+      }
+      
+      // 삭제 성공 시 리스트 새로고침
+      await refresh()
+      setDeleteModal(false)
+      
+    } catch (error) {
+      console.error('리포트 삭제 오류:', error)
+      alert('리포트 삭제에 실패했습니다.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="container">
       {/* 헤더 */}
@@ -385,15 +414,28 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
           </Group>
           <Text c="dimmed" size="sm">{config.description}</Text>
         </div>
-        <Button
-          variant="default"
-          size="sm"
-          leftSection={<IconRefresh size={16} />}
-          onClick={refresh}
-          loading={isLoading}
-        >
-          새로고침
-        </Button>
+        <Group gap="sm">
+          <Button
+            variant="default"
+            size="sm"
+            leftSection={<IconRefresh size={16} />}
+            onClick={refresh}
+            loading={isLoading}
+          >
+            새로고침
+          </Button>
+          {selectedReport && (
+            <Button
+              variant="light"
+              color="red"
+              size="sm"
+              leftSection={<IconTrash size={16} />}
+              onClick={() => setDeleteModal(true)}
+            >
+              삭제
+            </Button>
+          )}
+        </Group>
       </Group>
 
       {/* 에러 알림 */}
@@ -991,6 +1033,30 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
           </Stack>
         )}
       </Modal>
+
+      {/* 삭제 확인 모달 */}
+      <Modal opened={deleteModal} onClose={() => setDeleteModal(false)} title="리포트 삭제 확인" size="sm" centered>
+        <Stack gap="md">
+          <Text>
+            정말로 이 리포트를 삭제하시겠습니까?
+          </Text>
+          <Text size="sm" c="dimmed">
+            <strong>{formatWeekLabel(selectedReport)}</strong> {platform.toUpperCase()} 주간 리포트
+          </Text>
+          <Text size="sm" c="red">
+            ⚠️ 삭제된 리포트는 복구할 수 없습니다.
+          </Text>
+          <Group justify="flex-end" gap="sm">
+            <Button variant="default" onClick={() => setDeleteModal(false)}>
+              취소
+            </Button>
+            <Button color="red" onClick={handleDeleteReport} loading={deleting}>
+              삭제
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
     </div>
   )
 }
