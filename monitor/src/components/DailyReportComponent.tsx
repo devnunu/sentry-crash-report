@@ -26,7 +26,10 @@ import {
   IconAlertTriangle,
   IconShield,
   IconFileAnalytics,
-  IconList
+  IconList,
+  IconTrendingUp,
+  IconTrendingDown,
+  IconMinus
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -92,6 +95,58 @@ const formatNumber = (value: number | null | undefined): string => {
   return value.toLocaleString()
 }
 
+// 변동률 계산
+const calculateChange = (current: number | null | undefined, previous: number | null | undefined) => {
+  const curr = Number(current) || 0
+  const prev = Number(previous) || 0
+  
+  if (prev === 0) {
+    return curr > 0 ? { percent: 100, trend: 'up' as const } : { percent: 0, trend: 'stable' as const }
+  }
+  
+  const change = ((curr - prev) / prev) * 100
+  if (Math.abs(change) < 1) return { percent: Math.abs(change), trend: 'stable' as const }
+  
+  return {
+    percent: Math.abs(change),
+    trend: change > 0 ? 'up' as const : 'down' as const
+  }
+}
+
+// 변동률 표시 컴포넌트
+const ChangeIndicator = ({ current, previous, unit = '', isPercentage = false }: { 
+  current: number | null | undefined, 
+  previous: number | null | undefined, 
+  unit?: string,
+  isPercentage?: boolean 
+}) => {
+  const { percent, trend } = calculateChange(current, previous)
+  
+  if (trend === 'stable') return null
+  
+  const curr = Number(current) || 0
+  const prev = Number(previous) || 0
+  const absoluteChange = curr - prev
+  const sign = trend === 'up' ? '+' : ''
+  
+  const color = trend === 'up' ? 'red' : 'green'
+  const Icon = trend === 'up' ? IconTrendingUp : IconTrendingDown
+  
+  // 퍼센트 값인 경우 특별 처리
+  const displayValue = isPercentage ? 
+    Math.abs(absoluteChange * 100).toFixed(2) : 
+    formatNumber(Math.abs(absoluteChange))
+  
+  return (
+    <Group gap={4} align="center">
+      <Icon size={14} color={color} />
+      <Text size="xs" c={color} fw={600}>
+        {displayValue}{unit}({sign}{percent.toFixed(1)}%)
+      </Text>
+    </Group>
+  )
+}
+
 function normalizeTopIssues(items?: any[]): NormalizedIssue[] {
   if (!Array.isArray(items)) return []
   return items.map((issue, idx) => {
@@ -138,6 +193,23 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   const dayData = useMemo<DayData | null>(() => {
     if (!payload || !selectedReport?.target_date) return null
     const data = payload[selectedReport.target_date]
+    if (!data || typeof data === 'string') {
+      return null
+    }
+    return data
+  }, [payload, selectedReport])
+
+  // 전일 데이터 추출
+  const previousDayData = useMemo<DayData | null>(() => {
+    if (!payload || !selectedReport?.target_date) return null
+    
+    // 현재 날짜에서 하루 전 날짜 계산
+    const currentDate = new Date(selectedReport.target_date + 'T00:00:00Z')
+    const previousDate = new Date(currentDate)
+    previousDate.setDate(currentDate.getDate() - 1)
+    const previousDateStr = previousDate.toISOString().split('T')[0]
+    
+    const data = payload[previousDateStr]
     if (!data || typeof data === 'string') {
       return null
     }
@@ -326,6 +398,12 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Text size="xl" fw={700} c={`${config.color}.6`}>
                       {toPercent(dayData.crash_free_sessions_pct)}
                     </Text>
+                    <ChangeIndicator 
+                      current={dayData.crash_free_sessions_pct} 
+                      previous={previousDayData?.crash_free_sessions_pct}
+                      unit="%p"
+                      isPercentage={true}
+                    />
                   </div>
                   <RingProgress
                     size={60}
@@ -351,6 +429,11 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Text size="xl" fw={700} c="blue.6">
                       {formatNumber(dayData.crash_events)}건
                     </Text>
+                    <ChangeIndicator 
+                      current={dayData.crash_events} 
+                      previous={previousDayData?.crash_events}
+                      unit="건"
+                    />
                   </div>
                   <IconBug size={32} color="blue" />
                 </Group>
@@ -367,6 +450,11 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Text size="xl" fw={700} c="violet.6">
                       {formatNumber(dayData.unique_issues || dayData.issues_count)}개
                     </Text>
+                    <ChangeIndicator 
+                      current={dayData.unique_issues || dayData.issues_count} 
+                      previous={previousDayData?.unique_issues || previousDayData?.issues_count}
+                      unit="개"
+                    />
                   </div>
                   <IconBug size={32} color="violet" />
                 </Group>
@@ -383,6 +471,11 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Text size="xl" fw={700} c="red.6">
                       {formatNumber(dayData.impacted_users)}명
                     </Text>
+                    <ChangeIndicator 
+                      current={dayData.impacted_users} 
+                      previous={previousDayData?.impacted_users}
+                      unit="명"
+                    />
                   </div>
                   <IconUsers size={32} color="red" />
                 </Group>
