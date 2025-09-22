@@ -496,7 +496,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
       }}>
         <Group justify="space-between" align="center" mb="lg">
           <div>
-            <Title order={3} c={`${config.color}.6`}>🎯 {platform.toUpperCase()} 현황</Title>
+            <Title order={3} c={`${config.color}.6`}>🎯 기간별 현황</Title>
             <Text size="xs" c="dimmed" mt={4}>
               {periodSummary ? 
                 `기간별 집계 데이터 (${periodSummary.actualReportCount}개 리포트)` : 
@@ -511,8 +511,8 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
         
         <Grid>
           <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-            <Card withBorder p="md" style={{ backgroundColor: `rgba(${platform === 'android' ? '34, 197, 94' : '59, 130, 246'}, 0.05)` }}>
-              <Group justify="space-between" align="center">
+            <Card withBorder p="md" style={{ backgroundColor: `rgba(${platform === 'android' ? '34, 197, 94' : '59, 130, 246'}, 0.05)`, minHeight: '100px' }}>
+              <Group justify="space-between" align="center" h="100%">
                 <div>
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
                     Crash Free Rate
@@ -531,34 +531,34 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-            <Card withBorder p="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)' }}>
-              <Group justify="space-between" align="center">
+            <Card withBorder p="md" style={{ backgroundColor: 'rgba(34, 197, 94, 0.05)', minHeight: '100px' }}>
+              <Group justify="space-between" align="center" h="100%">
                 <div>
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                    Critical 이슈
+                    고유 이슈
                   </Text>
-                  <Text size="xl" fw={700} c="red.6">
-                    {displayData.criticalIssues}개
+                  <Text size="xl" fw={700} c="green.6">
+                    {displayData.totalIssues}개
                   </Text>
                 </div>
-                <IconAlertTriangle size={32} color="red" />
+                <IconBug size={32} color="green" />
               </Group>
             </Card>
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-            <Card withBorder p="md" style={{ backgroundColor: 'rgba(168, 85, 247, 0.05)' }}>
-              <Group justify="space-between" align="center">
+            <Card withBorder p="md" style={{ backgroundColor: 'rgba(168, 85, 247, 0.05)', minHeight: '100px' }}>
+              <Group justify="space-between" align="center" h="100%">
                 <div>
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
                     영향 받은 사용자
                   </Text>
-                  <Group gap={4}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Text size="xl" fw={700} c="violet.6">
                       {formatNumber(displayData.affectedUsers)}명
                     </Text>
                     {platformInfo && getTrendIcon(platformInfo.trend, 20)}
-                  </Group>
+                  </div>
                 </div>
                 <IconUsers size={32} color="violet" />
               </Group>
@@ -566,8 +566,8 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-            <Card withBorder p="md" style={{ backgroundColor: platform === 'android' ? 'rgba(59, 130, 246, 0.05)' : 'rgba(16, 185, 129, 0.05)' }}>
-              <Group justify="space-between" align="center">
+            <Card withBorder p="md" style={{ backgroundColor: platform === 'android' ? 'rgba(59, 130, 246, 0.05)' : 'rgba(16, 185, 129, 0.05)', minHeight: '100px' }}>
+              <Group justify="space-between" align="center" h="100%">
                 <div>
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
                     총 이벤트
@@ -607,7 +607,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           <Group gap="md">
             <IconChartLine size={20} color={config.chartColor} />
             <div>
-              <Title order={4}>{platform.toUpperCase()} 이슈 발생 트렌드</Title>
+              <Title order={4}>이슈 발생 트렌드</Title>
               <Text size="xs" c="dimmed" mt={2}>
                 생성된 일간 리포트 데이터 기반 ({trendDays}일간)
               </Text>
@@ -712,6 +712,73 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           </div>
         )}
         
+      </Card>
+
+      {/* Critical 이슈 섹션 */}
+      <Card withBorder p="lg" mt="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.02)' }}>
+        <Group justify="space-between" align="center" mb="md">
+          <div>
+            <Group gap="xs" align="center">
+              <IconAlertTriangle size={20} color="red" />
+              <Title order={4} c="red.7">Critical 이슈</Title>
+            </Group>
+            <Text size="xs" c="dimmed" mt={2}>
+              즉시 처리가 필요한 높은 우선순위 이슈들 (사용자 100명 이상 또는 이벤트 500건 이상)
+            </Text>
+          </div>
+          <Badge color="red" variant="light" size="lg">
+            {criticalIssuesCount}개
+          </Badge>
+        </Group>
+
+        {criticalIssuesCount > 0 ? (
+          <Stack gap="xs">
+            {data?.recentIssues
+              .filter(issue => issue.severity === 'critical')
+              .map((issue, index) => (
+                <Card key={issue.id} withBorder p="md" style={{ backgroundColor: 'rgba(255, 255, 255, 0.5)' }}>
+                  <Group justify="space-between" align="flex-start">
+                    <div style={{ flex: 1 }}>
+                      <Text fw={500} size="sm" c="red.8" mb={4}>
+                        {issue.title}
+                      </Text>
+                      <Group gap="md" wrap="nowrap">
+                        <Text size="xs" c="dimmed">
+                          <IconUsers size={12} style={{ display: 'inline', marginRight: 4 }} />
+                          영향받은 사용자: {issue.affectedUsers.toLocaleString()}명
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          <IconBug size={12} style={{ display: 'inline', marginRight: 4 }} />
+                          이벤트 수: {issue.events.toLocaleString()}건
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          최초 발견: {new Date(issue.firstSeen).toLocaleDateString('ko-KR')}
+                        </Text>
+                      </Group>
+                    </div>
+                    <div>
+                      <Badge 
+                        color="red" 
+                        variant="filled" 
+                        size="sm"
+                        leftSection={<IconAlertTriangle size={12} />}
+                      >
+                        CRITICAL
+                      </Badge>
+                    </div>
+                  </Group>
+                </Card>
+              ))
+            }
+          </Stack>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '2rem' }}>
+            <IconShield size={48} color="green" style={{ opacity: 0.5, marginBottom: '1rem' }} />
+            <Text c="dimmed" size="sm">
+              현재 Critical 이슈가 없습니다
+            </Text>
+          </div>
+        )}
       </Card>
     </div>
   )
