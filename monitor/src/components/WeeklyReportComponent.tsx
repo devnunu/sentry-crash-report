@@ -26,7 +26,10 @@ import {
   IconAlertTriangle,
   IconShield,
   IconFileAnalytics,
-  IconList
+  IconList,
+  IconTrendingUp,
+  IconTrendingDown,
+  IconMinus
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -100,6 +103,78 @@ const formatPercent = (value?: number | null) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   const percent = value <= 1 ? value * 100 : value
   return `${percent.toFixed(1)}%`
+}
+
+// 변동률 계산
+const calculateChange = (current: number | null | undefined, previous: number | null | undefined) => {
+  const curr = Number(current) || 0
+  const prev = Number(previous) || 0
+  
+  if (prev === 0) {
+    return curr > 0 ? { percent: 100, trend: 'up' as const } : { percent: 0, trend: 'stable' as const }
+  }
+  
+  const change = ((curr - prev) / prev) * 100
+  if (Math.abs(change) < 1) return { percent: Math.abs(change), trend: 'stable' as const }
+  
+  return {
+    percent: Math.abs(change),
+    trend: change > 0 ? 'up' as const : 'down' as const
+  }
+}
+
+// 변동률 표시 컴포넌트
+const ChangeIndicator = ({ current, previous, unit = '', isCrashFreeRate = false }: { 
+  current: number | null | undefined, 
+  previous: number | null | undefined, 
+  unit?: string,
+  isCrashFreeRate?: boolean 
+}) => {
+  const { percent, trend } = calculateChange(current, previous)
+  
+  const curr = Number(current) || 0
+  const prev = Number(previous) || 0
+  const absoluteChange = curr - prev
+  const sign = trend === 'up' ? '+' : ''
+  
+  // 변동 없음 표시
+  if (trend === 'stable') {
+    return (
+      <Group gap={4} align="center">
+        <IconMinus size={14} color="gray" />
+        <Text size="xs" c="gray" fw={600}>
+          변동없음
+        </Text>
+      </Group>
+    )
+  }
+  
+  const color = trend === 'up' ? 'red' : 'green'
+  const Icon = trend === 'up' ? IconTrendingUp : IconTrendingDown
+  
+  // Crash Free Rate의 경우 퍼센트 포인트만 표시
+  if (isCrashFreeRate) {
+    return (
+      <Group gap={4} align="center">
+        <Icon size={14} color={color} />
+        <Text size="xs" c={color} fw={600}>
+          {sign}{Math.abs(absoluteChange).toFixed(2)}%p
+        </Text>
+      </Group>
+    )
+  }
+  
+  // 일반 지표의 경우 절대값과 백분율 모두 표시
+  const displayValue = formatNumber(Math.abs(absoluteChange))
+  
+  return (
+    <Group gap={4} align="center">
+      <Icon size={14} color={color} />
+      <Text size="xs" c={color} fw={600}>
+        {displayValue}{unit}({sign}{percent.toFixed(1)}%)
+      </Text>
+    </Group>
+  )
 }
 
 const normalizeWeeklyIssues = (items?: WeeklyIssue[]): NormalizedIssue[] => {
@@ -372,7 +447,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
 
           <Grid>
             <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '80px' }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '100px' }}>
                 <Group justify="space-between" align="center" h="100%">
                   <div>
                     <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
@@ -397,7 +472,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
             </Grid.Col>
 
             <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '80px' }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '100px' }}>
                 <Group justify="space-between" align="center" h="100%">
                   <div>
                     <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
@@ -406,6 +481,11 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
                     <Text size="xl" fw={700} c="blue.6">
                       {formatNumber(payload.this_week?.events)}건
                     </Text>
+                    <ChangeIndicator 
+                      current={payload.this_week?.events} 
+                      previous={payload.prev_week?.events}
+                      unit="건"
+                    />
                   </div>
                   <IconBug size={32} color="blue" />
                 </Group>
@@ -413,7 +493,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
             </Grid.Col>
 
             <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '80px' }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '100px' }}>
                 <Group justify="space-between" align="center" h="100%">
                   <div>
                     <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
@@ -422,6 +502,11 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
                     <Text size="xl" fw={700} c="violet.6">
                       {formatNumber(payload.this_week?.issues)}개
                     </Text>
+                    <ChangeIndicator 
+                      current={payload.this_week?.issues} 
+                      previous={payload.prev_week?.issues}
+                      unit="개"
+                    />
                   </div>
                   <IconBug size={32} color="violet" />
                 </Group>
@@ -429,7 +514,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
             </Grid.Col>
 
             <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '80px' }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '100px' }}>
                 <Group justify="space-between" align="center" h="100%">
                   <div>
                     <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
@@ -438,6 +523,11 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
                     <Text size="xl" fw={700} c="red.6">
                       {formatNumber(payload.this_week?.users)}명
                     </Text>
+                    <ChangeIndicator 
+                      current={payload.this_week?.users} 
+                      previous={payload.prev_week?.users}
+                      unit="명"
+                    />
                   </div>
                   <IconUsers size={32} color="red" />
                 </Group>
@@ -553,7 +643,30 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
               <Card key={issue.issueId} withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-5)' }}>
                 <Group justify="space-between" align="flex-start">
                   <div style={{ flex: 1 }}>
-                    <Text fw={500} size="sm" c="red.8" mb={4}>
+                    <Text 
+                      fw={500} 
+                      size="sm" 
+                      c="red.8" 
+                      mb={4}
+                      component={issue.link ? "a" : "div"}
+                      href={issue.link || undefined}
+                      target={issue.link ? "_blank" : undefined}
+                      style={{
+                        cursor: issue.link ? 'pointer' : 'default',
+                        textDecoration: 'none',
+                        color: issue.link ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-red-8)'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (issue.link) {
+                          e.currentTarget.style.textDecoration = 'underline'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (issue.link) {
+                          e.currentTarget.style.textDecoration = 'none'
+                        }
+                      }}
+                    >
                       {issue.title}
                     </Text>
                     <Group gap="md" wrap="nowrap">
@@ -612,7 +725,29 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
           <Stack gap="xs">
             {newIssues.slice(0, 5).map((issue, idx) => (
               <Card key={issue.issueId} withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
-                <Text fw={500} size="sm" mb={4}>
+                <Text 
+                  fw={500} 
+                  size="sm" 
+                  mb={4}
+                  component={issue.link ? "a" : "div"}
+                  href={issue.link || undefined}
+                  target={issue.link ? "_blank" : undefined}
+                  style={{
+                    cursor: issue.link ? 'pointer' : 'default',
+                    textDecoration: 'none',
+                    color: issue.link ? 'var(--mantine-color-green-6)' : 'inherit'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (issue.link) {
+                      e.currentTarget.style.textDecoration = 'underline'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (issue.link) {
+                      e.currentTarget.style.textDecoration = 'none'
+                    }
+                  }}
+                >
                   {idx + 1}. {issue.title}
                 </Text>
                 <Text size="xs" c="dimmed">
@@ -645,7 +780,29 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
           <Stack gap="xs">
             {surgeIssues.slice(0, 5).map((issue, idx) => (
               <Card key={issue.issueId} withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
-                <Text fw={500} size="sm" mb={4}>
+                <Text 
+                  fw={500} 
+                  size="sm" 
+                  mb={4}
+                  component={issue.link ? "a" : "div"}
+                  href={issue.link || undefined}
+                  target={issue.link ? "_blank" : undefined}
+                  style={{
+                    cursor: issue.link ? 'pointer' : 'default',
+                    textDecoration: 'none',
+                    color: issue.link ? 'var(--mantine-color-orange-6)' : 'inherit'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (issue.link) {
+                      e.currentTarget.style.textDecoration = 'underline'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (issue.link) {
+                      e.currentTarget.style.textDecoration = 'none'
+                    }
+                  }}
+                >
                   {idx + 1}. {issue.title}
                 </Text>
                 <Text size="xs" c="dimmed">

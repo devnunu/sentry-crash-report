@@ -115,28 +115,48 @@ const calculateChange = (current: number | null | undefined, previous: number | 
 }
 
 // 변동률 표시 컴포넌트
-const ChangeIndicator = ({ current, previous, unit = '', isPercentage = false }: { 
+const ChangeIndicator = ({ current, previous, unit = '', isCrashFreeRate = false }: { 
   current: number | null | undefined, 
   previous: number | null | undefined, 
   unit?: string,
-  isPercentage?: boolean 
+  isCrashFreeRate?: boolean 
 }) => {
   const { percent, trend } = calculateChange(current, previous)
-  
-  if (trend === 'stable') return null
   
   const curr = Number(current) || 0
   const prev = Number(previous) || 0
   const absoluteChange = curr - prev
   const sign = trend === 'up' ? '+' : ''
   
+  // 변동 없음 표시
+  if (trend === 'stable') {
+    return (
+      <Group gap={4} align="center">
+        <IconMinus size={14} color="gray" />
+        <Text size="xs" c="gray" fw={600}>
+          변동없음
+        </Text>
+      </Group>
+    )
+  }
+  
   const color = trend === 'up' ? 'red' : 'green'
   const Icon = trend === 'up' ? IconTrendingUp : IconTrendingDown
   
-  // 퍼센트 값인 경우 특별 처리
-  const displayValue = isPercentage ? 
-    Math.abs(absoluteChange * 100).toFixed(2) : 
-    formatNumber(Math.abs(absoluteChange))
+  // Crash Free Rate의 경우 퍼센트 포인트만 표시
+  if (isCrashFreeRate) {
+    return (
+      <Group gap={4} align="center">
+        <Icon size={14} color={color} />
+        <Text size="xs" c={color} fw={600}>
+          {sign}{Math.abs(absoluteChange).toFixed(2)}%p
+        </Text>
+      </Group>
+    )
+  }
+  
+  // 일반 지표의 경우 절대값과 백분율 모두 표시
+  const displayValue = formatNumber(Math.abs(absoluteChange))
   
   return (
     <Group gap={4} align="center">
@@ -434,12 +454,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Text size="xl" fw={700} c={`${config.color}.6`}>
                       {toPercent(dayData.crash_free_sessions_pct)}
                     </Text>
-                    <ChangeIndicator 
-                      current={dayData.crash_free_sessions_pct} 
-                      previous={previousDayData?.crash_free_sessions_pct}
-                      unit="%p"
-                      isPercentage={true}
-                    />
                   </div>
                   <RingProgress
                     size={60}
