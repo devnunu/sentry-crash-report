@@ -4,7 +4,7 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AppShell, Burger, Group, Title, ScrollArea, NavLink, Box } from '@mantine/core'
-import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable, IconDashboard } from '@tabler/icons-react'
+import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable, IconDashboard, IconSearch } from '@tabler/icons-react'
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [opened, setOpened] = React.useState(false)
@@ -111,6 +111,13 @@ export default function DashboardShell({ children }: { children: React.ReactNode
               label="리포트 실행 내역"
               leftSection={<IconHistory size={16} />}
               active={pathname?.startsWith('/monitor/history')}
+            />
+            <NavLink
+              component={Link}
+              href="/monitor/sentry-analysis"
+              label="Sentry 이슈 분석"
+              leftSection={<IconSearch size={16} />}
+              active={pathname?.startsWith('/monitor/sentry-analysis')}
             />
             <NavLink
               label="설정"

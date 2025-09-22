@@ -220,3 +220,37 @@ WHERE report_type = 'daily' AND slack_days IS NULL;
 UPDATE report_settings 
 SET slack_days = ARRAY['mon'] 
 WHERE report_type = 'weekly' AND slack_days IS NULL;
+
+-- Sentry 이슈 분석 결과 저장 테이블
+CREATE TABLE IF NOT EXISTS sentry_issue_analyses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  issue_id TEXT NOT NULL, -- 정규화된 이슈 ID (숫자만)
+  issue_short_id TEXT, -- FINDA-IOS-ABC 형태
+  sentry_url TEXT, -- 원본 Sentry URL
+  issue_title TEXT NOT NULL,
+  issue_level TEXT, -- WARNING, ERROR, FATAL 등
+  issue_status TEXT, -- resolved, unresolved
+  event_count INTEGER DEFAULT 0,
+  user_count INTEGER DEFAULT 0,
+  first_seen TIMESTAMPTZ,
+  last_seen TIMESTAMPTZ,
+  ai_analysis JSONB NOT NULL, -- AI 분석 결과 전체
+  analysis_version TEXT DEFAULT 'v1', -- 분석 버전 (추후 재분석 필요 여부 판단)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(issue_id)
+);
+
+-- 인덱스 생성
+CREATE INDEX IF NOT EXISTS idx_sentry_analyses_issue_id ON sentry_issue_analyses(issue_id);
+CREATE INDEX IF NOT EXISTS idx_sentry_analyses_short_id ON sentry_issue_analyses(issue_short_id);
+CREATE INDEX IF NOT EXISTS idx_sentry_analyses_created_at ON sentry_issue_analyses(created_at DESC);
+
+-- RLS 정책
+ALTER TABLE sentry_issue_analyses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all access to sentry_issue_analyses" ON sentry_issue_analyses FOR ALL USING (true);
+
+-- updated_at 트리거
+CREATE TRIGGER update_sentry_issue_analyses_updated_at 
+  BEFORE UPDATE ON sentry_issue_analyses 
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
