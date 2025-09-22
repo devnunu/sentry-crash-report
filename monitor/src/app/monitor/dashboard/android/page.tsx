@@ -61,6 +61,16 @@ interface DashboardData {
   lastUpdated: string
 }
 
+interface PeriodSummary {
+  crashFreeRate: number
+  totalEvents: number
+  totalIssues: number
+  criticalIssues: number
+  affectedUsers: number
+  dateRange: string
+  reportCount: number
+}
+
 interface ApiResponse<T> {
   success: boolean
   data?: T
@@ -117,8 +127,10 @@ const getTrendIcon = (trend: string, size = 16) => {
 export default function AndroidDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [trendData, setTrendData] = useState<TrendData[]>([])
+  const [periodSummary, setPeriodSummary] = useState<PeriodSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [trendLoading, setTrendLoading] = useState(true)
+  const [summaryLoading, setSummaryLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [trendDays, setTrendDays] = useState<'7' | '14' | '30'>('7')
@@ -163,27 +175,85 @@ export default function AndroidDashboardPage() {
     }
   }
 
+  const fetchPeriodSummary = async () => {
+    try {
+      setSummaryLoading(true)
+      const response = await fetch(`/api/dashboard/period-summary?days=${trendDays}&platform=android`)
+      const result: ApiResponse<PeriodSummary> = await response.json()
+      
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Failed to fetch period summary')
+      }
+      
+      setPeriodSummary(result.data)
+    } catch (err) {
+      console.error('Failed to fetch period summary:', err)
+      // Generate summary from trend data as fallback
+      generateSummaryFromTrendData()
+    } finally {
+      setSummaryLoading(false)
+    }
+  }
+
+  const generateSummaryFromTrendData = () => {
+    if (trendData.length === 0) return
+    
+    const androidData = trendData.map(d => d.android)
+    const validData = androidData.filter(d => d.crashFreeRate > 0)
+    
+    if (validData.length === 0) return
+    
+    const totalEvents = androidData.reduce((sum, d) => sum + d.events, 0)
+    const totalIssues = androidData.reduce((sum, d) => sum + d.issues, 0)
+    const totalUsers = androidData.reduce((sum, d) => sum + d.users, 0)
+    const avgCrashFreeRate = validData.reduce((sum, d) => sum + d.crashFreeRate, 0) / validData.length
+    
+    const firstDate = trendData[0]?.date
+    const lastDate = trendData[trendData.length - 1]?.date
+    const dateRange = firstDate && lastDate ? `${firstDate} ~ ${lastDate}` : ''
+    
+    setPeriodSummary({
+      crashFreeRate: Number(avgCrashFreeRate.toFixed(2)),
+      totalEvents,
+      totalIssues,
+      criticalIssues: 0, // Cannot determine from trend data
+      affectedUsers: totalUsers,
+      dateRange,
+      reportCount: trendData.length
+    })
+  }
+
   const handleRefresh = async () => {
     setLoading(true)
-    await Promise.all([fetchDashboardData(), fetchTrendData()])
+    await Promise.all([fetchDashboardData(), fetchTrendData(), fetchPeriodSummary()])
   }
 
   // 초기 데이터 로드
   useEffect(() => {
     fetchDashboardData()
     fetchTrendData()
+    fetchPeriodSummary()
   }, [])
 
-  // 트렌드 기간 변경 시 트렌드 데이터 다시 로드
+  // 트렌드 기간 변경 시 데이터 다시 로드
   useEffect(() => {
     fetchTrendData()
+    fetchPeriodSummary()
   }, [trendDays])
+
+  // 트렌드 데이터가 변경되면 기간별 요약 생성
+  useEffect(() => {
+    if (trendData.length > 0 && !periodSummary) {
+      generateSummaryFromTrendData()
+    }
+  }, [trendData, periodSummary])
 
   // 자동 새로고침 (5분마다)
   useEffect(() => {
     const interval = setInterval(() => {
       fetchDashboardData()
       fetchTrendData()
+      fetchPeriodSummary()
     }, 5 * 60 * 1000) // 5분
 
     return () => clearInterval(interval)
@@ -202,6 +272,17 @@ export default function AndroidDashboardPage() {
 
   const criticalIssuesCount = data?.recentIssues.filter(issue => issue.severity === 'critical').length || 0
   const androidPlatform = data?.platforms.find(p => p.platform === 'android')
+  
+  // 기간별 데이터 또는 기본 데이터 사용
+  const displayData = periodSummary || {
+    crashFreeRate: androidPlatform?.crashFreeRate || 0,
+    totalEvents: androidPlatform?.totalEvents || 0,
+    totalIssues: androidPlatform?.totalIssues || 0,
+    criticalIssues: androidPlatform?.criticalIssues || 0,
+    affectedUsers: androidPlatform?.affectedUsers || 0,
+    dateRange: data?.lastUpdated ? new Date(data.lastUpdated).toLocaleDateString('ko-KR') : '',
+    reportCount: 1
+  }
 
   // 로딩 상태
   if (loading && !data) {
@@ -278,6 +359,48 @@ export default function AndroidDashboardPage() {
         </Group>
       </Group>
 
+      {/* 기간 선택기 */}
+      <Card withBorder radius="lg" p="md" mb="lg" style={{
+        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(37, 99, 235, 0.05) 100%)',
+        borderColor: 'rgba(59, 130, 246, 0.2)'
+      }}>
+        <Group justify="space-between" align="center">
+          <div>
+            <Group gap="md">
+              <IconChartLine size={20} color="var(--mantine-color-blue-6)" />
+              <div>
+                <Text fw={600} size="sm">분석 기간 선택</Text>
+                <Text size="xs" c="dimmed">
+                  선택된 기간의 일간 리포트 데이터를 집계하여 표시
+                </Text>
+              </div>
+            </Group>
+          </div>
+          <Group gap="md">
+            <SegmentedControl
+              value={trendDays}
+              onChange={(value) => setTrendDays(value as typeof trendDays)}
+              data={[
+                { label: '7일', value: '7' },
+                { label: '14일', value: '14' },
+                { label: '30일', value: '30' }
+              ]}
+              size="sm"
+            />
+            {periodSummary && (
+              <Badge color="blue" size="md" variant="light">
+                {periodSummary.reportCount}개 리포트
+              </Badge>
+            )}
+          </Group>
+        </Group>
+        {periodSummary?.dateRange && (
+          <Text size="xs" c="dimmed" ta="center" mt="sm">
+            표시 기간: {periodSummary.dateRange}
+          </Text>
+        )}
+      </Card>
+
       {/* Critical Alerts */}
       {criticalIssuesCount > 0 && (
         <Alert 
@@ -310,13 +433,16 @@ export default function AndroidDashboardPage() {
       }}>
         <Group justify="space-between" align="center" mb="lg">
           <div>
-            <Title order={3} c="green.6">🎯 Android 현황</Title>
+            <Title order={3} c="green.6">🎯 Android 현황 ({trendDays}일간)</Title>
             <Text size="xs" c="dimmed" mt={4}>
-              {data.lastUpdated ? `최신 리포트 기준 (${new Date(data.lastUpdated).toLocaleDateString('ko-KR')})` : '데이터 수집 중'}
+              {periodSummary ? 
+                `기간별 집계 데이터 (${periodSummary.reportCount}개 리포트)` : 
+                '데이터 수집 중'
+              }
             </Text>
           </div>
-          <Badge color="green" size="md" variant="light">
-            리포트 기반
+          <Badge color={periodSummary ? "blue" : "green"} size="md" variant="light">
+            {periodSummary ? '기간 집계' : '리포트 기반'}
           </Badge>
         </Group>
         
@@ -329,13 +455,18 @@ export default function AndroidDashboardPage() {
                     Crash Free Rate
                   </Text>
                   <Text size="xl" fw={700} c="green.6">
-                    {androidPlatform.crashFreeRate}%
+                    {displayData.crashFreeRate}%
                   </Text>
+                  {periodSummary && (
+                    <Text size="xs" c="dimmed">
+                      {trendDays}일 평균
+                    </Text>
+                  )}
                 </div>
                 <RingProgress
                   size={60}
                   thickness={6}
-                  sections={[{ value: androidPlatform.crashFreeRate, color: 'green' }]}
+                  sections={[{ value: displayData.crashFreeRate, color: 'green' }]}
                 />
               </Group>
             </Card>
@@ -349,8 +480,13 @@ export default function AndroidDashboardPage() {
                     Critical 이슈
                   </Text>
                   <Text size="xl" fw={700} c="red.6">
-                    {androidPlatform.criticalIssues}개
+                    {displayData.criticalIssues}개
                   </Text>
+                  {periodSummary && (
+                    <Text size="xs" c="dimmed">
+                      {trendDays}일 합계
+                    </Text>
+                  )}
                 </div>
                 <IconAlertTriangle size={32} color="red" />
               </Group>
@@ -366,9 +502,9 @@ export default function AndroidDashboardPage() {
                   </Text>
                   <Group gap={4}>
                     <Text size="xl" fw={700} c="violet.6">
-                      {formatNumber(androidPlatform.affectedUsers)}명
+                      {formatNumber(displayData.affectedUsers)}명
                     </Text>
-                    {getTrendIcon(androidPlatform.trend, 20)}
+                    {androidPlatform && getTrendIcon(androidPlatform.trend, 20)}
                   </Group>
                 </div>
                 <IconUsers size={32} color="violet" />
@@ -384,8 +520,13 @@ export default function AndroidDashboardPage() {
                     총 이벤트
                   </Text>
                   <Text size="xl" fw={700} c="blue.6">
-                    {formatNumber(androidPlatform.totalEvents)}건
+                    {formatNumber(displayData.totalEvents)}건
                   </Text>
+                  {periodSummary && (
+                    <Text size="xs" c="dimmed">
+                      {trendDays}일 합계
+                    </Text>
+                  )}
                 </div>
                 <IconBug size={32} color="blue" />
               </Group>
@@ -393,9 +534,16 @@ export default function AndroidDashboardPage() {
           </Grid.Col>
         </Grid>
 
-        <Text size="xs" c="dimmed" ta="center" mt="md">
-          📈 트렌드: {androidPlatform.trendPercent.toFixed(1)}% {androidPlatform.trend === 'up' ? '증가' : androidPlatform.trend === 'down' ? '감소' : '안정'}
-        </Text>
+        {androidPlatform && (
+          <Text size="xs" c="dimmed" ta="center" mt="md">
+            📈 트렌드: {androidPlatform.trendPercent.toFixed(1)}% {androidPlatform.trend === 'up' ? '증가' : androidPlatform.trend === 'down' ? '감소' : '안정'}
+          </Text>
+        )}
+        {periodSummary && (
+          <Text size="xs" c="dimmed" ta="center" mt="md">
+            📈 총 이슈: {formatNumber(displayData.totalIssues)}건 | 데이터 수집: {periodSummary.reportCount}개 리포트
+          </Text>
+        )}
       </Card>
 
       {/* Trend Chart */}
@@ -419,16 +567,6 @@ export default function AndroidDashboardPage() {
                 { label: '이슈', value: 'issues' },
                 { label: '사용자', value: 'users' },
                 { label: 'Crash Free %', value: 'crashFreeRate' }
-              ]}
-              size="xs"
-            />
-            <SegmentedControl
-              value={trendDays}
-              onChange={(value) => setTrendDays(value as typeof trendDays)}
-              data={[
-                { label: '7일', value: '7' },
-                { label: '14일', value: '14' },
-                { label: '30일', value: '30' }
               ]}
               size="xs"
             />
