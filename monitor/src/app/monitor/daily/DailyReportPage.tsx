@@ -415,7 +415,7 @@ export default function DailyReportPage({ platform, title, description, cardTitl
                 {issueAnalysis?.summary ? (
                   <Text style={{ lineHeight: 1.6 }}>{renderAnalysis(issueAnalysis.summary) as any}</Text>
                 ) : (
-                  <Text c="dimmed" size="sm">아직 분석되지 않았습니다. 아래의 "AI 분석" 버튼을 눌러 분석을 실행하세요.</Text>
+                  <Text c="dimmed" size="sm">아직 분석되지 않았습니다. 아래의 &quot;AI 분석&quot; 버튼을 눌러 분석을 실행하세요.</Text>
                 )}
               </div>
             </div>
