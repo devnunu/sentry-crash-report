@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import SlackPreview from '@/lib/SlackPreview'
 import { Button, Card, Group, Modal, Select, Stack, Table, Text, Title, useMantineTheme } from '@mantine/core'
 import TableWrapper from '@/components/TableWrapper'
@@ -21,6 +22,8 @@ interface ApiResponse<T> {
 }
 
 export default function ReportHistoryPage() {
+  const router = useRouter()
+  
   // 상태 관리
   const [reports, setReports] = useState<ReportExecution[]>([])
   const [loading, setLoading] = useState(false)
@@ -114,16 +117,32 @@ export default function ReportHistoryPage() {
     fetchReports()
   }, [fetchReports])
 
-  // 결과 보기
+  // 결과 보기 - 적절한 리포트 페이지로 이동
   const handleViewReport = (report: ReportExecution) => {
-    setSelectedReport(report)
-    setShowModal(true)
-    // 모달 열 때마다 섹션 초기화
-    setExpandedSections({
-      logs: false,
-      data: false,
-      slack: false
-    })
+    const reportTypeFromData = (report as any).report_type
+    const reportType = reportTypeFromData || 'daily' // 기본값은 daily
+    const platform = report.platform || 'android' // 기본값은 android
+    const targetDate = report.target_date
+    
+    // 쿼리 파라미터로 날짜 전달
+    const searchParams = new URLSearchParams()
+    if (targetDate) {
+      searchParams.set('date', targetDate)
+    }
+    
+    const queryString = searchParams.toString()
+    const queryPath = queryString ? `?${queryString}` : ''
+    
+    if (reportType === 'daily') {
+      // 일간 리포트 페이지로 이동
+      router.push(`/monitor/daily/${platform}${queryPath}`)
+    } else if (reportType === 'weekly') {
+      // 주간 리포트 페이지로 이동
+      router.push(`/monitor/weekly/${platform}${queryPath}`)
+    } else {
+      // 일간 리포트를 기본값으로
+      router.push(`/monitor/daily/${platform}${queryPath}`)
+    }
   }
 
   // 섹션 토글

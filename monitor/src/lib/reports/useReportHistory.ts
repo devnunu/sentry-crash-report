@@ -25,6 +25,7 @@ export interface ReportHistoryState {
   hasNewer: boolean
   goOlder: () => void
   goNewer: () => void
+  goToDate: (targetDate: string) => boolean
   refresh: () => Promise<void>
 }
 
@@ -105,6 +106,15 @@ export function useReportHistory({ reportType, platform, limit = 20 }: UseReport
     })
   }, [])
 
+  const goToDate = useCallback((targetDate: string) => {
+    const targetIndex = reports.findIndex(report => report.target_date === targetDate)
+    if (targetIndex >= 0) {
+      setSelectedIndex(targetIndex)
+      return true
+    }
+    return false
+  }, [reports])
+
   const selectedReport = reports[selectedIndex] ?? null
   const hasOlder = selectedIndex < reports.length - 1
   const hasNewer = selectedIndex > 0
@@ -119,6 +129,7 @@ export function useReportHistory({ reportType, platform, limit = 20 }: UseReport
     hasNewer,
     goOlder,
     goNewer,
+    goToDate,
     refresh: fetchHistory,
   }
 }

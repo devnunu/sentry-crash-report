@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { 
   ActionIcon, 
   Badge, 
@@ -219,6 +220,9 @@ const buildWeeklyDateKey = (report?: ReportExecution) => {
 }
 
 export default function WeeklyReportComponent({ platform }: WeeklyReportComponentProps) {
+  const searchParams = useSearchParams()
+  const targetDate = searchParams.get('date')
+  
   const {
     reports,
     selectedReport,
@@ -229,6 +233,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     hasNewer,
     goOlder,
     goNewer,
+    goToDate,
     refresh,
   } = useReportHistory({ reportType: 'weekly', platform, limit: 20 })
 
@@ -239,6 +244,13 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
   const [issueError, setIssueError] = useState('')
 
   const config = getPlatformConfig(platform)
+
+  // URL 파라미터로 전달된 날짜로 이동
+  useEffect(() => {
+    if (targetDate && reports.length > 0) {
+      goToDate(targetDate)
+    }
+  }, [targetDate, reports, goToDate])
 
   const payload = useMemo<WeeklyReportPayload>(() => {
     if (!selectedReport?.result_data) return undefined

@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { 
   ActionIcon, 
   Badge, 
@@ -185,6 +186,9 @@ function normalizeTopIssues(items?: any[]): NormalizedIssue[] {
 }
 
 export default function DailyReportComponent({ platform }: DailyReportComponentProps) {
+  const searchParams = useSearchParams()
+  const targetDate = searchParams.get('date')
+  
   const {
     reports,
     selectedReport,
@@ -195,6 +199,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     hasNewer,
     goOlder,
     goNewer,
+    goToDate,
     refresh,
   } = useReportHistory({ reportType: 'daily', platform, limit: 20 })
 
@@ -205,6 +210,13 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   const [issueError, setIssueError] = useState('')
 
   const config = getPlatformConfig(platform)
+
+  // URL 파라미터로 전달된 날짜로 이동
+  useEffect(() => {
+    if (targetDate && reports.length > 0) {
+      goToDate(targetDate)
+    }
+  }, [targetDate, reports, goToDate])
 
   const payload = useMemo<DailyReportPayload>(() => {
     if (!selectedReport?.result_data) return undefined
