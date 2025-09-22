@@ -512,7 +512,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
               <Group justify="space-between" align="center" h="100%">
                 <div>
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                    Crash Free Rate
+                    Crash Free Rate (세션)
                   </Text>
                   <Text size="xl" fw={700} c={`${config.color}.6`}>
                     {displayData.crashFreeRate}%
@@ -528,17 +528,17 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-            <Card withBorder p="md" style={{ backgroundColor: 'rgba(34, 197, 94, 0.05)', minHeight: '100px' }}>
+            <Card withBorder p="md" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)', minHeight: '100px' }}>
               <Group justify="space-between" align="center" h="100%">
                 <div>
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                    고유 이슈
+                    총 이벤트
                   </Text>
-                  <Text size="xl" fw={700} c="green.6">
-                    {displayData.totalIssues}개
+                  <Text size="xl" fw={700} c="blue.6">
+                    {formatNumber(displayData.totalEvents)}건
                   </Text>
                 </div>
-                <IconBug size={32} color="green" />
+                <IconBug size={32} color="blue" />
               </Group>
             </Card>
           </Grid.Col>
@@ -548,32 +548,32 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
               <Group justify="space-between" align="center" h="100%">
                 <div>
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                    영향 받은 사용자
+                    고유 이슈
                   </Text>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Text size="xl" fw={700} c="violet.6">
-                      {formatNumber(displayData.affectedUsers)}명
-                    </Text>
-                    {platformInfo && getTrendIcon(platformInfo.trend, 20)}
-                  </div>
+                  <Text size="xl" fw={700} c="violet.6">
+                    {displayData.totalIssues}개
+                  </Text>
                 </div>
-                <IconUsers size={32} color="violet" />
+                <IconBug size={32} color="violet" />
               </Group>
             </Card>
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-            <Card withBorder p="md" style={{ backgroundColor: platform === 'android' ? 'rgba(59, 130, 246, 0.05)' : 'rgba(16, 185, 129, 0.05)', minHeight: '100px' }}>
+            <Card withBorder p="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', minHeight: '100px' }}>
               <Group justify="space-between" align="center" h="100%">
                 <div>
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                    총 이벤트
+                    영향받은 사용자
                   </Text>
-                  <Text size="xl" fw={700} c={config.eventsColor}>
-                    {formatNumber(displayData.totalEvents)}건
-                  </Text>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Text size="xl" fw={700} c="red.6">
+                      {formatNumber(displayData.affectedUsers)}명
+                    </Text>
+                    {platformInfo && getTrendIcon(platformInfo.trend, 20)}
+                  </div>
                 </div>
-                <IconBug size={32} color={platform === 'android' ? 'blue' : 'teal'} />
+                <IconUsers size={32} color="red" />
               </Group>
             </Card>
           </Grid.Col>
