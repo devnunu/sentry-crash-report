@@ -120,7 +120,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     refresh,
   } = useReportHistory({ reportType: 'daily', platform, limit: 20 })
 
-  const [detailsReport, setDetailsReport] = useState<ReportExecution | null>(null)
   const [expandedSections, setExpandedSections] = useState({ logs: false, data: false, slack: false })
   const [issueModal, setIssueModal] = useState<{ open: boolean; item?: NormalizedIssue; dateKey?: string }>({ open: false })
   const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
@@ -152,9 +151,11 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   const dateLabel = formatDateLabel(selectedReport?.target_date)
 
   const handleOpenDetails = () => {
-    if (!selectedReport) return
-    setDetailsReport(selectedReport)
-    setExpandedSections({ logs: false, data: false, slack: false })
+    // 섹션으로 스크롤
+    const element = document.querySelector('[data-testid="report-details-section"]')
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   }
 
   const toggleSection = (section: 'logs' | 'data' | 'slack') => {
@@ -277,7 +278,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
             </div>
             <Group gap="xs" wrap="nowrap">
               <Button variant="light" size="sm" onClick={handleOpenDetails}>
-                리포트 상세
+                실행 결과 보기
               </Button>
               <ActionIcon
                 variant="default"
@@ -511,6 +512,133 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         )}
       </Card>
 
+      {/* 리포트 실행 결과 섹션 */}
+      {selectedReport && (
+        <Card withBorder radius="lg" p="lg" mt="lg" style={{ backgroundColor: 'rgba(99, 102, 241, 0.02)' }} data-testid="report-details-section">
+          <Group justify="space-between" align="center" mb="lg">
+            <div>
+              <Title order={4} c="indigo.7">📋 리포트 실행 결과</Title>
+              <Text size="xs" c="dimmed" mt={2}>
+                리포트 생성 과정 및 결과 상세 정보
+              </Text>
+            </div>
+          </Group>
+
+          {/* 실행 정보 카드 */}
+          <Grid mb="lg">
+            <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)', minHeight: '80px' }}>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>실행 상태</Text>
+                <Text fw={600} c={selectedReport.status === 'success' ? 'green.6' : selectedReport.status === 'error' ? 'red.6' : 'yellow.6'}>
+                  {selectedReport.status === 'success' ? '✅ 성공' : selectedReport.status === 'error' ? '❌ 실패' : '🔄 실행중'}
+                </Text>
+              </Card>
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)', minHeight: '80px' }}>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>실행 방식</Text>
+                <Text fw={600} c="blue.6">
+                  {selectedReport.trigger_type === 'scheduled' ? '🤖 자동' : '🧪 수동'}
+                </Text>
+              </Card>
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)', minHeight: '80px' }}>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>실행 시간</Text>
+                <Text fw={600} c="violet.6">
+                  {formatExecutionTime(selectedReport.execution_time_ms)}
+                </Text>
+              </Card>
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)', minHeight: '80px' }}>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Slack 전송</Text>
+                <Text fw={600} c={selectedReport.slack_sent ? 'green.6' : 'red.6'}>
+                  {selectedReport.slack_sent ? '✅ 성공' : '❌ 실패'}
+                </Text>
+              </Card>
+            </Grid.Col>
+          </Grid>
+
+          {/* 오류 메시지 */}
+          {selectedReport.error_message && (
+            <Alert icon={<IconAlertTriangle size={16} />} color="red" mb="lg">
+              <Text fw={600} mb={4}>오류 메시지</Text>
+              <Text size="sm">{selectedReport.error_message}</Text>
+            </Alert>
+          )}
+
+          {/* 실행 로그 */}
+          {Array.isArray(selectedReport.execution_logs) && selectedReport.execution_logs.length > 0 && (
+            <Card withBorder p="md" mb="lg" style={{ backgroundColor: 'var(--mantine-color-dark-8)' }}>
+              <SectionToggle open={expandedSections.logs} onClick={() => toggleSection('logs')} label="실행 로그" />
+              {expandedSections.logs && (
+                <pre
+                  style={{
+                    marginTop: 8,
+                    padding: 12,
+                    borderRadius: 8,
+                    fontSize: 11,
+                    overflow: 'auto',
+                    maxHeight: 400,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    background: 'var(--mantine-color-dark-7)',
+                    color: 'var(--mantine-color-gray-3)',
+                  }}
+                >
+                  {(selectedReport.execution_logs as string[]).join('\n')}
+                </pre>
+              )}
+            </Card>
+          )}
+
+          {/* 리포트 데이터 */}
+          {selectedReport.result_data && (
+            <Card withBorder p="md" mb="lg" style={{ backgroundColor: 'var(--mantine-color-dark-8)' }}>
+              <SectionToggle open={expandedSections.data} onClick={() => toggleSection('data')} label="리포트 원본 데이터" />
+              {expandedSections.data && (
+                <pre
+                  style={{
+                    marginTop: 8,
+                    padding: 12,
+                    borderRadius: 8,
+                    fontSize: 12,
+                    overflow: 'auto',
+                    maxHeight: 300,
+                    background: 'var(--mantine-color-dark-7)',
+                    color: 'var(--mantine-color-gray-3)',
+                  }}
+                >
+                  {JSON.stringify(selectedReport.result_data, null, 2)}
+                </pre>
+              )}
+            </Card>
+          )}
+
+          {/* Slack 미리보기 */}
+          {selectedReport.result_data && (
+            <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
+              <SectionToggle open={expandedSections.slack} onClick={() => toggleSection('slack')} label="Slack 메시지 미리보기" />
+              {expandedSections.slack && (
+                <Card withBorder radius="md" p="md" mt={8} style={{ backgroundColor: 'var(--mantine-color-gray-1)' }}>
+                  {(() => {
+                    const blocks = (selectedReport.result_data as any)?.slack_blocks
+                    if (Array.isArray(blocks) && blocks.length > 0) {
+                      return <SlackPreview blocks={blocks} />
+                    }
+                    return <Text c="dimmed" size="sm">Slack 메시지 미리보기를 생성할 수 없습니다.</Text>
+                  })()}
+                </Card>
+              )}
+            </Card>
+          )}
+        </Card>
+      )}
+
       {/* 이슈 분석 모달 */}
       <Modal opened={issueModal.open} onClose={handleCloseIssueModal} title="이슈 상세 분석" size="lg" centered>
         {issueModal.item && (
@@ -546,105 +674,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         )}
       </Modal>
 
-      {/* 리포트 상세 모달 */}
-      <Modal
-        opened={!!detailsReport}
-        onClose={() => setDetailsReport(null)}
-        title={`리포트 결과 - ${detailsReport?.target_date ?? ''}`}
-        size="lg"
-        centered
-      >
-        {detailsReport && (
-          <Stack gap="sm">
-            <div>
-              <Text>
-                <Text span fw={600}>상태:</Text>{' '}
-                {detailsReport.status === 'success' ? '✅ 성공' : detailsReport.status === 'error' ? '❌ 실패' : '🔄 실행중'}
-              </Text>
-              <Text>
-                <Text span fw={600}>실행 방식:</Text>{' '}
-                {detailsReport.trigger_type === 'scheduled' ? '자동' : '수동'}
-              </Text>
-              <Text>
-                <Text span fw={600}>실행 시간:</Text>{' '}
-                {formatExecutionTime(detailsReport.execution_time_ms)}
-              </Text>
-              <Text>
-                <Text span fw={600}>Slack 전송:</Text>{' '}
-                {detailsReport.slack_sent ? '✅ 성공' : '❌ 실패'}
-              </Text>
-            </div>
-
-            {detailsReport.error_message && (
-              <div>
-                <Text fw={700} c="red">오류 메시지:</Text>
-                <Text size="sm" c="red">{detailsReport.error_message}</Text>
-              </div>
-            )}
-
-            {Array.isArray(detailsReport.execution_logs) && detailsReport.execution_logs.length > 0 && (
-              <div>
-                <SectionToggle open={expandedSections.logs} onClick={() => toggleSection('logs')} label="실행 로그" />
-                {expandedSections.logs && (
-                  <pre
-                    style={{
-                      marginTop: 8,
-                      padding: 12,
-                      borderRadius: 8,
-                      fontSize: 11,
-                      overflow: 'auto',
-                      maxHeight: 400,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      background: 'var(--mantine-color-dark-7)',
-                    }}
-                  >
-                    {(detailsReport.execution_logs as string[]).join('\n')}
-                  </pre>
-                )}
-              </div>
-            )}
-
-            {detailsReport.result_data && (
-              <div>
-                <SectionToggle open={expandedSections.data} onClick={() => toggleSection('data')} label="리포트 데이터" />
-                {expandedSections.data && (
-                  <pre
-                    style={{
-                      marginTop: 8,
-                      padding: 12,
-                      borderRadius: 8,
-                      fontSize: 12,
-                      overflow: 'auto',
-                      maxHeight: 300,
-                      background: 'var(--mantine-color-dark-7)',
-                    }}
-                  >
-                    {JSON.stringify(detailsReport.result_data, null, 2)}
-                  </pre>
-                )}
-              </div>
-            )}
-
-            {detailsReport.result_data && (
-              <div>
-                <SectionToggle open={expandedSections.slack} onClick={() => toggleSection('slack')} label="Slack 메시지 미리보기" />
-                {expandedSections.slack && (
-                  <Card withBorder radius="md" p="md" mt={8}>
-                    {(() => {
-                      const blocks = (detailsReport.result_data as any)?.slack_blocks
-                      if (Array.isArray(blocks) && blocks.length > 0) {
-                        return <SlackPreview blocks={blocks} />
-                      }
-                      return 'Slack 메시지 미리보기를 생성할 수 없습니다.'
-                    })()}
-                  </Card>
-                )}
-              </div>
-            )}
-          </Stack>
-        )}
-      </Modal>
     </div>
   )
 }
