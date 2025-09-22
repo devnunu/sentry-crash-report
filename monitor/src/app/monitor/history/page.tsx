@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import SlackPreview from '@/lib/SlackPreview'
-import { Badge, Button, Card, Group, Modal, Select, Stack, Table, Text, Title, useMantineTheme } from '@mantine/core'
+import { Badge, Button, Card, Group, Modal, Pagination, Select, Stack, Table, Text, Title, useMantineTheme } from '@mantine/core'
 import TableWrapper from '@/components/TableWrapper'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -25,9 +25,13 @@ export default function ReportHistoryPage() {
   const router = useRouter()
   
   // 상태 관리
-  const [reports, setReports] = useState<ReportExecution[]>([])
+  const [allReports, setAllReports] = useState<ReportExecution[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  
+  // 페이지네이션 상태
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
   
   // 결과 모달 상태
   const [selectedReport, setSelectedReport] = useState<ReportExecution | null>(null)
@@ -56,8 +60,8 @@ export default function ReportHistoryPage() {
   // 실행 방식 Badge 생성
   const getTriggerBadge = (triggerType: string) => {
     const isScheduled = triggerType === 'scheduled'
-    const label = isScheduled ? '🤖 자동 실행' : '🧪 테스트 실행'
-    const color = isScheduled ? 'blue' : 'pink'
+    const label = isScheduled ? '자동' : '수동'
+    const color = isScheduled ? 'blue' : 'gray'
     
     return (
       <Badge color={color} size="sm" variant="filled" radius="sm">
@@ -77,10 +81,10 @@ export default function ReportHistoryPage() {
       // 플랫폼 필터 구성
       const platformQuery = historyPlatform === 'all' ? '' : `&platform=${historyPlatform}`
       
-      // 리포트 타입별로 API 호출
+      // 리포트 타입별로 API 호출 (모든 데이터 가져오기)
       if (reportType === 'all' || reportType === 'daily') {
         try {
-          const dailyResponse = await fetch(`/api/reports/daily/history?limit=25${platformQuery}`)
+          const dailyResponse = await fetch(`/api/reports/daily/history?limit=100${platformQuery}`)
           const dailyResult: ApiResponse<{ reports: ReportExecution[] }> = await dailyResponse.json()
           if (dailyResult.success && dailyResult.data) {
             // 일간 리포트에 타입 정보 추가
@@ -97,7 +101,7 @@ export default function ReportHistoryPage() {
       
       if (reportType === 'all' || reportType === 'weekly') {
         try {
-          const weeklyResponse = await fetch(`/api/reports/weekly/history?limit=25${platformQuery}`)
+          const weeklyResponse = await fetch(`/api/reports/weekly/history?limit=100${platformQuery}`)
           const weeklyResult: ApiResponse<{ reports: ReportExecution[] }> = await weeklyResponse.json()
           if (weeklyResult.success && weeklyResult.data) {
             // 주간 리포트에 타입 정보 추가
@@ -115,8 +119,7 @@ export default function ReportHistoryPage() {
       // 생성 일시 기준으로 정렬 (최신순)
       allReports.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       
-      // 최대 50개로 제한
-      setReports(allReports.slice(0, 50))
+      setAllReports(allReports)
       
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류')
@@ -129,6 +132,26 @@ export default function ReportHistoryPage() {
   useEffect(() => {
     fetchReports()
   }, [fetchReports])
+
+  // 필터 변경 시 첫 페이지로 이동
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [reportType, historyPlatform])
+
+  // 페이지 변경 핸들러
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  // 현재 페이지에 표시할 리포트 계산
+  const paginatedReports = allReports.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  )
+  
+  // 페이지네이션 정보 계산
+  const totalPages = Math.ceil(allReports.length / pageSize)
+  const totalCount = allReports.length
 
   // 결과 보기 - 적절한 리포트 페이지로 이동
   const handleViewReport = (report: ReportExecution) => {
@@ -285,10 +308,10 @@ export default function ReportHistoryPage() {
       {/* 통계 요약 */}
       <StatsCards
         items={[
-          { label: '총 실행', value: reports.length },
-          { label: '성공', value: reports.filter(r => r.status === 'success').length, color: 'green' },
-          { label: '실패', value: reports.filter(r => r.status === 'error').length, color: 'red' },
-          { label: '실행중', value: reports.filter(r => r.status === 'running').length, color: 'yellow' },
+          { label: '총 실행', value: totalCount },
+          { label: '성공', value: allReports.filter(r => r.status === 'success').length, color: 'green' },
+          { label: '실패', value: allReports.filter(r => r.status === 'error').length, color: 'red' },
+          { label: '실행중', value: allReports.filter(r => r.status === 'running').length, color: 'yellow' },
         ]}
       />
 
@@ -327,11 +350,11 @@ export default function ReportHistoryPage() {
 
         {error && (<Text c="red">⚠️ {error}</Text>)}
 
-        {reports.length === 0 && !loading && !error && (
+        {allReports.length === 0 && !loading && !error && (
           <Text c="dimmed" ta="center" py="xl">실행 내역이 없습니다.</Text>
         )}
 
-        {reports.length > 0 && (
+        {allReports.length > 0 && (
           <>
             {/* 데스크톱 테이블 */}
             {!isMobile && (
@@ -351,7 +374,7 @@ export default function ReportHistoryPage() {
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {reports.map((report) => {
+                    {paginatedReports.map((report) => {
                       const reportTypeText = (report as any).report_type === 'daily' ? '일간' : '주간'
                       return (
                         <Table.Tr key={report.id}>
@@ -377,7 +400,7 @@ export default function ReportHistoryPage() {
           {/* 모바일 카드 */}
           {isMobile && (
           <div className="mobile-cards" style={{ marginTop: 16 }}>
-            {reports.map((report) => {
+            {paginatedReports.map((report) => {
               const reportTypeText = (report as any).report_type === 'daily' ? '일간' : '주간'
               return (
                 <Card key={report.id} withBorder radius="md" p="md" style={{ marginBottom: 12 }}>
@@ -407,6 +430,22 @@ export default function ReportHistoryPage() {
           </div>
           )}
           </>
+        )}
+
+        {/* 페이지네이션 */}
+        {totalPages > 1 && (
+          <Group justify="center" mt="lg">
+            <Pagination
+              value={currentPage}
+              onChange={handlePageChange}
+              total={totalPages}
+              size="sm"
+              withEdges
+            />
+            <Text size="sm" c="dimmed">
+              총 {totalCount}개 중 {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalCount)}개 표시
+            </Text>
+          </Group>
         )}
       </Card>
 
