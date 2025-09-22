@@ -279,11 +279,6 @@ export default function DailyReportPage({ platform, title, description, cardTitl
           <Title order={2}>{title}</Title>
           <Text c="dimmed" size="sm">{description}</Text>
         </div>
-        {selectedReport && (
-          <Badge color={triggerColor} size="lg" variant="filled" radius="sm">
-            {triggerLabel}
-          </Badge>
-        )}
         <Button
           variant="default"
           size="xs"
@@ -300,7 +295,12 @@ export default function DailyReportPage({ platform, title, description, cardTitl
         <Card withBorder radius="lg" p="xl" mt="md" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(59, 130, 246, 0.05) 100%)', borderColor: 'rgba(34, 197, 94, 0.2)' }}>
           <Group justify="space-between" align="center" mb="lg">
             <div>
-              <Title order={3} c="green.6" mb={4}>📊 리포트 개요</Title>
+              <Group align="center" gap="md" mb={4}>
+                <Title order={3} c="green.6">📊 리포트 개요</Title>
+                <Badge color={triggerColor} size="md" variant="filled" radius="sm">
+                  {triggerLabel}
+                </Badge>
+              </Group>
               <Text c="dimmed" size="sm">
 {dateLabel} 기준 크래시 데이터 요약 (총 {reports.length}건 중 {selectedIndex + 1}번째)
               </Text>

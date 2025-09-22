@@ -227,29 +227,25 @@ export default function TestExecutionPage() {
                     </div>
                   </Group>
                   
-                  <Group grow>
-                    <TextInput
-                      label="대상 날짜"
-                      description="비워두면 어제 날짜로 자동 설정됩니다"
-                      placeholder="YYYY-MM-DD (예: 2024-01-15)"
-                      value={targetDate}
-                      onChange={(e) => setTargetDate(e.currentTarget.value)}
-                      size="md"
-                    />
-                    <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                      <Button 
-                        type="submit" 
-                        loading={loading} 
-                        color="green"
-                        size="md"
-                        leftSection="🚀"
-                        fullWidth
-                        style={{ minHeight: 42 }}
-                      >
-                        {loading ? '생성 중...' : '일간 리포트 생성'}
-                      </Button>
-                    </div>
-                  </Group>
+                  <TextInput
+                    label="대상 날짜"
+                    description="비워두면 어제 날짜로 자동 설정됩니다"
+                    placeholder="YYYY-MM-DD (예: 2024-01-15)"
+                    value={targetDate}
+                    onChange={(e) => setTargetDate(e.currentTarget.value)}
+                    size="md"
+                  />
+                  
+                  <Button 
+                    type="submit" 
+                    loading={loading} 
+                    color="green"
+                    size="md"
+                    leftSection="🚀"
+                    fullWidth
+                  >
+                    {loading ? '생성 중...' : '일간 리포트 생성'}
+                  </Button>
                   
                   {message && (
                     <Card withBorder p="md" style={{ 
