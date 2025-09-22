@@ -9,6 +9,8 @@ interface PeriodSummary {
   affectedUsers: number
   dateRange: string
   reportCount: number
+  actualReportCount: number
+  missingDates: string[]
 }
 
 export async function GET(request: NextRequest) {
@@ -43,7 +45,8 @@ export async function GET(request: NextRequest) {
     let summary: PeriodSummary
 
     if (platform === 'android') {
-      const androidData = trendData.map((d: any) => d.android).filter((d: any) => d.crashFreeRate > 0)
+      const androidDataWithReports = trendData.filter((d: any) => d.android.events > 0 || d.android.issues > 0 || d.android.users > 0)
+      const androidData = androidDataWithReports.map((d: any) => d.android).filter((d: any) => d.crashFreeRate > 0)
       
       if (androidData.length === 0) {
         throw new Error('No Android data available for the selected period')
@@ -53,6 +56,11 @@ export async function GET(request: NextRequest) {
       const totalIssues = trendData.reduce((sum: number, d: any) => sum + d.android.issues, 0)
       const totalUsers = trendData.reduce((sum: number, d: any) => sum + d.android.users, 0)
       const avgCrashFreeRate = androidData.reduce((sum: number, d: any) => sum + d.crashFreeRate, 0) / androidData.length
+
+      // 리포트가 없는 날짜 찾기
+      const missingDates = trendData
+        .filter((d: any) => d.android.events === 0 && d.android.issues === 0 && d.android.users === 0)
+        .map((d: any) => d.date)
 
       // Critical 이슈는 별도 API에서 가져와야 하므로 임시로 0으로 설정
       const criticalIssues = 0
@@ -70,10 +78,13 @@ export async function GET(request: NextRequest) {
         criticalIssues,
         affectedUsers: totalUsers,
         dateRange,
-        reportCount: trendData.length
+        reportCount: trendData.length,
+        actualReportCount: androidDataWithReports.length,
+        missingDates
       }
     } else if (platform === 'ios') {
-      const iosData = trendData.map((d: any) => d.ios).filter((d: any) => d.crashFreeRate > 0)
+      const iosDataWithReports = trendData.filter((d: any) => d.ios.events > 0 || d.ios.issues > 0 || d.ios.users > 0)
+      const iosData = iosDataWithReports.map((d: any) => d.ios).filter((d: any) => d.crashFreeRate > 0)
       
       if (iosData.length === 0) {
         throw new Error('No iOS data available for the selected period')
@@ -83,6 +94,11 @@ export async function GET(request: NextRequest) {
       const totalIssues = trendData.reduce((sum: number, d: any) => sum + d.ios.issues, 0)
       const totalUsers = trendData.reduce((sum: number, d: any) => sum + d.ios.users, 0)
       const avgCrashFreeRate = iosData.reduce((sum: number, d: any) => sum + d.crashFreeRate, 0) / iosData.length
+
+      // 리포트가 없는 날짜 찾기
+      const missingDates = trendData
+        .filter((d: any) => d.ios.events === 0 && d.ios.issues === 0 && d.ios.users === 0)
+        .map((d: any) => d.date)
 
       const criticalIssues = 0
 
@@ -99,7 +115,9 @@ export async function GET(request: NextRequest) {
         criticalIssues,
         affectedUsers: totalUsers,
         dateRange,
-        reportCount: trendData.length
+        reportCount: trendData.length,
+        actualReportCount: iosDataWithReports.length,
+        missingDates
       }
     } else {
       // 통합 데이터
