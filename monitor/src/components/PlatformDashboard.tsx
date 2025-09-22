@@ -30,6 +30,7 @@ import {
 } from '@tabler/icons-react'
 import Link from 'next/link'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
+import LoadingScreen from '@/components/LoadingScreen'
 
 interface DashboardData {
   overall: {
@@ -359,15 +360,11 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
 
   if (loading && !data) {
     return (
-      <div className="container">
-        <Group justify="center" align="center" style={{ minHeight: '400px' }}>
-          <Stack align="center" gap="md">
-            {config.icon}
-            <Text size="lg">{config.title} 데이터를 불러오는 중...</Text>
-            <Text size="sm" c="dimmed">최신 리포트 데이터를 분석하고 있습니다</Text>
-          </Stack>
-        </Group>
-      </div>
+      <LoadingScreen
+        icon={config.icon}
+        title={`${config.title} 데이터를 불러오는 중...`}
+        subtitle="최신 리포트 데이터를 분석하고 있습니다"
+      />
     )
   }
 

@@ -34,6 +34,7 @@ import {
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
 import SlackPreview from '@/lib/SlackPreview'
+import LoadingScreen from '@/components/LoadingScreen'
 import { formatExecutionTime, formatKST } from '@/lib/utils'
 import { useReportHistory } from '@/lib/reports/useReportHistory'
 import type { Platform } from '@/lib/types'
@@ -303,6 +304,41 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
 
   const triggerLabel = selectedReport?.trigger_type === 'scheduled' ? '🤖 자동 실행' : '🧪 테스트 실행'
   const triggerColor = selectedReport?.trigger_type === 'scheduled' ? 'blue' : 'pink'
+
+  // 초기 로딩 상태
+  if (isLoading && !reports.length) {
+    return (
+      <LoadingScreen
+        icon={config.icon}
+        title={`${config.title} 데이터를 불러오는 중...`}
+        subtitle="최신 일간 리포트 데이터를 분석하고 있습니다"
+      />
+    )
+  }
+
+  // 에러 상태
+  if (error && !reports.length) {
+    return (
+      <div className="container">
+        <Alert icon={<IconAlertTriangle size={16} />} color="red" mb="lg">
+          <Text fw={600} mb={4}>⚠️ 데이터 로딩 오류</Text>
+          <Text size="sm">{error}</Text>
+        </Alert>
+      </div>
+    )
+  }
+
+  // 리포트가 없는 상태
+  if (!isLoading && !reports.length) {
+    return (
+      <div className="container">
+        <Alert icon={<IconAlertTriangle size={16} />} color="yellow" mb="lg">
+          <Text fw={600} mb={4}>📋 리포트가 없습니다</Text>
+          <Text size="sm">{platform.toUpperCase()} 일간 리포트가 아직 생성되지 않았습니다.</Text>
+        </Alert>
+      </div>
+    )
+  }
 
   return (
     <div className="container">
