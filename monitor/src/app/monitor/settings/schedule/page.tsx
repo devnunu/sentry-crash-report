@@ -53,7 +53,8 @@ export default function ScheduleSettingsPage() {
   // 일간 리포트 설정
   const [dailyAutoEnabled, setDailyAutoEnabled] = useState(false)
   const [dailyAiEnabled, setDailyAiEnabled] = useState(true)
-  const [dailyScheduleDays, setDailyScheduleDays] = useState<WeekDay[]>(['mon', 'tue', 'wed', 'thu', 'fri'])
+  const [dailyScheduleDays, setDailyScheduleDays] = useState<WeekDay[]>(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])
+  const [dailySlackDays, setDailySlackDays] = useState<WeekDay[]>(['tue', 'wed', 'thu', 'fri'])
   const [dailyScheduleTime, setDailyScheduleTime] = useState('09:00')
   const [dailyTestMode, setDailyTestMode] = useState(false)
   
@@ -61,6 +62,7 @@ export default function ScheduleSettingsPage() {
   const [weeklyAutoEnabled, setWeeklyAutoEnabled] = useState(false)
   const [weeklyAiEnabled, setWeeklyAiEnabled] = useState(true)
   const [weeklyScheduleDays, setWeeklyScheduleDays] = useState<WeekDay[]>(['mon'])
+  const [weeklySlackDays, setWeeklySlackDays] = useState<WeekDay[]>(['mon'])
   const [weeklyScheduleTime, setWeeklyScheduleTime] = useState('09:00')
   const [weeklyTestMode, setWeeklyTestMode] = useState(false)
 
@@ -86,7 +88,8 @@ export default function ScheduleSettingsPage() {
         const settings = dailyResult.data.settings
         setDailyAutoEnabled(settings.auto_enabled)
         setDailyAiEnabled(settings.ai_enabled)
-        setDailyScheduleDays(settings.schedule_days || ['mon', 'tue', 'wed', 'thu', 'fri'])
+        setDailyScheduleDays(settings.schedule_days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])
+        setDailySlackDays(settings.slack_days || ['tue', 'wed', 'thu', 'fri'])
         setDailyScheduleTime(settings.schedule_time || '09:00')
         setDailyTestMode(settings.is_test_mode || false)
       }
@@ -100,6 +103,7 @@ export default function ScheduleSettingsPage() {
         setWeeklyAutoEnabled(settings.auto_enabled)
         setWeeklyAiEnabled(settings.ai_enabled)
         setWeeklyScheduleDays(settings.schedule_days || ['mon'])
+        setWeeklySlackDays(settings.slack_days || ['mon'])
         setWeeklyScheduleTime(settings.schedule_time || '09:00')
         setWeeklyTestMode(settings.is_test_mode || false)
       }
@@ -140,6 +144,7 @@ export default function ScheduleSettingsPage() {
     const autoEnabled = isDaily ? dailyAutoEnabled : weeklyAutoEnabled
     const aiEnabled = isDaily ? dailyAiEnabled : weeklyAiEnabled
     const scheduleDays = isDaily ? dailyScheduleDays : weeklyScheduleDays
+    const slackDays = isDaily ? dailySlackDays : weeklySlackDays
     const scheduleTime = isDaily ? dailyScheduleTime : weeklyScheduleTime
     const testMode = isDaily ? dailyTestMode : weeklyTestMode
     
@@ -160,6 +165,7 @@ export default function ScheduleSettingsPage() {
           auto_enabled: autoEnabled,
           ai_enabled: aiEnabled,
           schedule_days: scheduleDays,
+          slack_days: slackDays,
           schedule_time: scheduleTime,
           is_test_mode: testMode
         })
@@ -211,12 +217,14 @@ export default function ScheduleSettingsPage() {
   const currentAutoEnabled = reportType === 'daily' ? dailyAutoEnabled : weeklyAutoEnabled
   const currentAiEnabled = reportType === 'daily' ? dailyAiEnabled : weeklyAiEnabled
   const currentScheduleDays = reportType === 'daily' ? dailyScheduleDays : weeklyScheduleDays
+  const currentSlackDays = reportType === 'daily' ? dailySlackDays : weeklySlackDays
   const currentScheduleTime = reportType === 'daily' ? dailyScheduleTime : weeklyScheduleTime
   const currentTestMode = reportType === 'daily' ? dailyTestMode : weeklyTestMode
   
   const setCurrentAutoEnabled = reportType === 'daily' ? setDailyAutoEnabled : setWeeklyAutoEnabled
   const setCurrentAiEnabled = reportType === 'daily' ? setDailyAiEnabled : setWeeklyAiEnabled
   const setCurrentScheduleDays = reportType === 'daily' ? setDailyScheduleDays : setWeeklyScheduleDays
+  const setCurrentSlackDays = reportType === 'daily' ? setDailySlackDays : setWeeklySlackDays
   const setCurrentScheduleTime = reportType === 'daily' ? setDailyScheduleTime : setWeeklyScheduleTime
   const setCurrentTestMode = reportType === 'daily' ? setDailyTestMode : setWeeklyTestMode
 
@@ -303,7 +311,10 @@ export default function ScheduleSettingsPage() {
             <Card withBorder p="lg" radius="md" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
               <Stack gap="lg">
                 <div>
-                  <Text fw={600} mb="md" c="blue.6">📅 실행 요일 선택</Text>
+                  <Text fw={600} mb="md" c="blue.6">📅 리포트 생성 요일</Text>
+                  <Text size="sm" c="dimmed" mb="xs">
+                    {reportType === 'daily' ? '대시보드 데이터 제공을 위해 매일 생성하는 것을 권장합니다.' : '주간 리포트를 생성할 요일을 선택하세요.'}
+                  </Text>
                   <Chip.Group multiple value={currentScheduleDays as any} onChange={(v) => setCurrentScheduleDays(v as any)}>
                     <Group gap={12} justify="center">
                       {weekDays.map(({ key, label }) => (
@@ -316,6 +327,25 @@ export default function ScheduleSettingsPage() {
                       <Text size="sm" c="red" fw={500}>⚠️ 최소 1개 이상의 요일을 선택해주세요.</Text>
                     </Card>
                   )}
+                </div>
+
+                <div>
+                  <Text fw={600} mb="md" c="green.6">📤 슬랙 전송 요일</Text>
+                  <Text size="sm" c="dimmed" mb="xs">
+                    {reportType === 'daily' 
+                      ? '슬랙으로 알림을 받을 요일을 선택하세요. (토일월 제외 권장)' 
+                      : '주간 리포트를 슬랙으로 전송할 요일을 선택하세요.'}
+                  </Text>
+                  <Chip.Group multiple value={currentSlackDays as any} onChange={(v) => setCurrentSlackDays(v as any)}>
+                    <Group gap={12} justify="center">
+                      {weekDays.map(({ key, label }) => (
+                        <Chip key={`slack-${key}`} value={key} variant="light" size="md" color="green">{label}요일</Chip>
+                      ))}
+                    </Group>
+                  </Chip.Group>
+                  <Text size="xs" c="dimmed" mt="xs">
+                    💡 슬랙 전송 없이 리포트만 생성하려면 모든 요일을 해제하세요.
+                  </Text>
                 </div>
                 
                 <div>

@@ -256,7 +256,7 @@ export default function AndroidDashboardPage() {
         <Group gap="md">
           <IconBrandAndroid size={32} color="green" />
           <div>
-            <Title order={2}>🤖 Android 대시보드</Title>
+            <Title order={2}>Android 대시보드</Title>
             <Text c="dimmed" size="sm">
               Android 플랫폼 크래시 모니터링 및 이슈 추이 분석
             </Text>

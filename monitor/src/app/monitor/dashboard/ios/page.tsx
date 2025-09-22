@@ -256,7 +256,7 @@ export default function IOSDashboardPage() {
         <Group gap="md">
           <IconBrandApple size={32} color="blue" />
           <div>
-            <Title order={2}>🍎 iOS 대시보드</Title>
+            <Title order={2}>iOS 대시보드</Title>
             <Text c="dimmed" size="sm">
               iOS 플랫폼 크래시 모니터링 및 이슈 추이 분석
             </Text>

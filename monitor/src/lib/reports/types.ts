@@ -30,6 +30,7 @@ export interface ReportSettings {
   auto_enabled: boolean
   schedule_time: string
   schedule_days: WeekDay[]
+  slack_days?: WeekDay[]
   ai_enabled: boolean
   is_test_mode?: boolean
   created_at: string
@@ -193,6 +194,7 @@ export const UpdateReportSettingsSchema = z.object({
   auto_enabled: z.boolean().optional(),
   schedule_time: z.string().optional(),
   schedule_days: z.array(z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])).optional(),
+  slack_days: z.array(z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])).optional(),
   ai_enabled: z.boolean().optional(),
   is_test_mode: z.boolean().optional()
 })

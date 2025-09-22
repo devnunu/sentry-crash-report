@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS report_settings (
   auto_enabled BOOLEAN NOT NULL DEFAULT false,
   schedule_time TIME NOT NULL DEFAULT '09:00',
   schedule_days TEXT[] DEFAULT ARRAY[]::TEXT[],
+  slack_days TEXT[] DEFAULT NULL,
   ai_enabled BOOLEAN NOT NULL DEFAULT true,
   is_test_mode BOOLEAN NOT NULL DEFAULT false,
   qstash_schedule_id TEXT,
@@ -136,10 +137,10 @@ CREATE TRIGGER update_report_settings_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- 기본 리포트 설정 데이터 삽입 (요일 기본값 포함)
-INSERT INTO report_settings (report_type, auto_enabled, schedule_time, schedule_days, ai_enabled, is_test_mode) 
+INSERT INTO report_settings (report_type, auto_enabled, schedule_time, schedule_days, slack_days, ai_enabled, is_test_mode) 
 VALUES 
-  ('daily', true, '09:00', ARRAY['mon','tue','wed','thu','fri']::TEXT[], true, false),
-  ('weekly', true, '09:00', ARRAY['mon']::TEXT[], true, false)
+  ('daily', true, '09:00', ARRAY['mon','tue','wed','thu','fri','sat','sun']::TEXT[], ARRAY['tue','wed','thu','fri']::TEXT[], true, false),
+  ('weekly', true, '09:00', ARRAY['mon']::TEXT[], ARRAY['mon']::TEXT[], true, false)
 ON CONFLICT (report_type) DO NOTHING;
 
 -- 이슈별 AI 분석 결과 저장 테이블
@@ -179,10 +180,11 @@ ALTER TABLE report_executions
 
 ALTER TABLE report_settings 
   ADD COLUMN IF NOT EXISTS schedule_days TEXT[] DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN IF NOT EXISTS slack_days TEXT[] DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS is_test_mode BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS qstash_schedule_id TEXT;
 
--- schedule_days 제약조건 재보장(존재하지 않을 경우만)
+-- schedule_days와 slack_days 제약조건 재보장(존재하지 않을 경우만)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -196,4 +198,25 @@ BEGIN
         OR schedule_days <@ ARRAY['mon','tue','wed','thu','fri','sat','sun']::TEXT[]
       );
   END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'chk_report_settings_slack_days_valid'
+  ) THEN
+    ALTER TABLE report_settings
+      ADD CONSTRAINT chk_report_settings_slack_days_valid
+      CHECK (
+        slack_days IS NULL
+        OR slack_days <@ ARRAY['mon','tue','wed','thu','fri','sat','sun']::TEXT[]
+      );
+  END IF;
 END $$;
+
+-- 기존 데이터에 slack_days 기본값 설정
+UPDATE report_settings 
+SET slack_days = ARRAY['tue', 'wed', 'thu', 'fri'] 
+WHERE report_type = 'daily' AND slack_days IS NULL;
+
+UPDATE report_settings 
+SET slack_days = ARRAY['mon'] 
+WHERE report_type = 'weekly' AND slack_days IS NULL;
