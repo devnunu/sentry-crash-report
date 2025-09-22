@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import SlackPreview from '@/lib/SlackPreview'
-import { Button, Card, Group, Modal, Select, Stack, Table, Text, Title, useMantineTheme } from '@mantine/core'
+import { Badge, Button, Card, Group, Modal, Select, Stack, Table, Text, Title, useMantineTheme } from '@mantine/core'
 import TableWrapper from '@/components/TableWrapper'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -51,6 +51,19 @@ export default function ReportHistoryPage() {
     // start_date/target_date는 'YYYY-MM-DD' 형태이므로 자정 UTC를 붙여 KST로 보정
     const kst = formatKST(`${dateStr}T00:00:00Z`)
     return kst.slice(0, 10)
+  }
+
+  // 실행 방식 Badge 생성
+  const getTriggerBadge = (triggerType: string) => {
+    const isScheduled = triggerType === 'scheduled'
+    const label = isScheduled ? '🤖 자동 실행' : '🧪 테스트 실행'
+    const color = isScheduled ? 'blue' : 'pink'
+    
+    return (
+      <Badge color={color} size="sm" variant="filled" radius="sm">
+        {label}
+      </Badge>
+    )
   }
 
   // 히스토리 조회
@@ -346,7 +359,7 @@ export default function ReportHistoryPage() {
                           <Table.Td>{toKstDate(report.target_date)}</Table.Td>
                           <Table.Td>{report.platform ? report.platform.toUpperCase() : '-'}</Table.Td>
                           <Table.Td><StatusBadge kind="report" status={report.status} /></Table.Td>
-                          <Table.Td>{report.trigger_type === 'scheduled' ? '자동' : '수동'}</Table.Td>
+                          <Table.Td>{getTriggerBadge(report.trigger_type)}</Table.Td>
                           <Table.Td>{formatExecutionTime(report.execution_time_ms)}</Table.Td>
                           <Table.Td>{report.slack_sent ? '✅' : '❌'}</Table.Td>
                           <Table.Td>{formatKST(report.created_at)}</Table.Td>
@@ -380,7 +393,7 @@ export default function ReportHistoryPage() {
                     <Text size="xs" c="dimmed">플랫폼</Text>
                     <Text size="sm">{report.platform ? report.platform.toUpperCase() : '-'}</Text>
                     <Text size="xs" c="dimmed">실행 방식</Text>
-                    <Text size="sm">{report.trigger_type === 'scheduled' ? '자동' : '수동'}</Text>
+                    <div>{getTriggerBadge(report.trigger_type)}</div>
                     <Text size="xs" c="dimmed">실행 시간</Text>
                     <Text size="sm">{formatExecutionTime(report.execution_time_ms)}</Text>
                     <Text size="xs" c="dimmed">Slack 전송</Text>
