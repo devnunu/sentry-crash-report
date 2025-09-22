@@ -135,54 +135,41 @@ export async function GET(request: NextRequest) {
       dateMap.get(date)!.ios = metrics
     })
 
-    // 트렌드 데이터 생성 (최근 날짜부터 정렬)
-    const trendData: TrendData[] = Array.from(dateMap.entries())
-      .sort(([a], [b]) => b.localeCompare(a))
-      .slice(0, days)
-      .reverse() // 차트에서는 시간순으로 표시
-      .map(([date, platforms]) => {
-        const android = platforms.android || { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
-        const ios = platforms.ios || { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
-        
-        // 전체 총계 계산
-        const total = {
-          events: android.events + ios.events,
-          issues: android.issues + ios.issues,
-          users: android.users + ios.users,
-          crashFreeRate: android.users + ios.users > 0 
-            ? (android.crashFreeRate * android.users + ios.crashFreeRate * ios.users) / (android.users + ios.users)
-            : 100
-        }
-
-        return {
-          date,
-          android,
-          ios,
-          total
-        }
-      })
-
-    // 빈 날짜가 있으면 기본값으로 채우기
-    if (trendData.length < days) {
-      const today = new Date()
-      const missingDays = days - trendData.length
-      
-      for (let i = missingDays; i > 0; i--) {
-        const date = new Date(today)
-        date.setDate(date.getDate() - i)
-        const dateStr = date.toISOString().split('T')[0]
-        
-        // 이미 해당 날짜 데이터가 있는지 확인
-        if (!trendData.find(d => d.date === dateStr)) {
-          trendData.unshift({
-            date: dateStr,
-            android: { events: 0, issues: 0, users: 0, crashFreeRate: 100 },
-            ios: { events: 0, issues: 0, users: 0, crashFreeRate: 100 },
-            total: { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
-          })
-        }
-      }
+    // 요청된 일수만큼 정확히 생성하기 위해 모든 날짜를 먼저 생성
+    const today = new Date()
+    const allDates: string[] = []
+    
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(today)
+      date.setDate(date.getDate() - i)
+      allDates.push(date.toISOString().split('T')[0])
     }
+    
+    // 각 날짜에 대해 데이터 생성
+    const trendData: TrendData[] = allDates.map(date => {
+      const platforms = dateMap.get(date) || {}
+      const android = platforms.android || { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
+      const ios = platforms.ios || { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
+      
+      // 전체 총계 계산
+      const total = {
+        events: android.events + ios.events,
+        issues: android.issues + ios.issues,
+        users: android.users + ios.users,
+        crashFreeRate: android.users + ios.users > 0 
+          ? (android.crashFreeRate * android.users + ios.crashFreeRate * ios.users) / (android.users + ios.users)
+          : 100
+      }
+
+      return {
+        date,
+        android,
+        ios,
+        total
+      }
+    })
+
+    // 이제 모든 날짜가 정확히 생성되었으므로 추가 로직 불필요
 
     console.log(`[API] Final trend data (${trendData.length} entries):`, trendData)
     return NextResponse.json(createApiResponse(trendData))

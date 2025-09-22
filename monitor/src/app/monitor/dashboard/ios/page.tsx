@@ -394,11 +394,6 @@ export default function IOSDashboardPage() {
             )}
           </Group>
         </Group>
-        {periodSummary?.dateRange && (
-          <Text size="xs" c="dimmed" ta="center" mt="sm">
-            표시 기간: {periodSummary.dateRange}
-          </Text>
-        )}
       </Card>
 
       {/* Critical Alerts */}
@@ -433,7 +428,7 @@ export default function IOSDashboardPage() {
       }}>
         <Group justify="space-between" align="center" mb="lg">
           <div>
-            <Title order={3} c="blue.6">🎯 iOS 현황 ({trendDays}일간)</Title>
+            <Title order={3} c="blue.6">🎯 iOS 현황</Title>
             <Text size="xs" c="dimmed" mt={4}>
               {periodSummary ? 
                 `기간별 집계 데이터 (${periodSummary.reportCount}개 리포트)` : 
@@ -457,11 +452,6 @@ export default function IOSDashboardPage() {
                   <Text size="xl" fw={700} c="blue.6">
                     {displayData.crashFreeRate}%
                   </Text>
-                  {periodSummary && (
-                    <Text size="xs" c="dimmed">
-                      {trendDays}일 평균
-                    </Text>
-                  )}
                 </div>
                 <RingProgress
                   size={60}
@@ -482,11 +472,6 @@ export default function IOSDashboardPage() {
                   <Text size="xl" fw={700} c="red.6">
                     {displayData.criticalIssues}개
                   </Text>
-                  {periodSummary && (
-                    <Text size="xs" c="dimmed">
-                      {trendDays}일 합계
-                    </Text>
-                  )}
                 </div>
                 <IconAlertTriangle size={32} color="red" />
               </Group>
@@ -522,11 +507,6 @@ export default function IOSDashboardPage() {
                   <Text size="xl" fw={700} c="teal.6">
                     {formatNumber(displayData.totalEvents)}건
                   </Text>
-                  {periodSummary && (
-                    <Text size="xs" c="dimmed">
-                      {trendDays}일 합계
-                    </Text>
-                  )}
                 </div>
                 <IconBug size={32} color="teal" />
               </Group>
