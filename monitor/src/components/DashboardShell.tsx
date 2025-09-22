@@ -4,13 +4,14 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AppShell, Burger, Group, Title, ScrollArea, NavLink, Box } from '@mantine/core'
-import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable } from '@tabler/icons-react'
+import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable, IconDashboard } from '@tabler/icons-react'
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [opened, setOpened] = React.useState(false)
   const [settingsOpened, setSettingsOpened] = React.useState(false)
   const [dailyOpened, setDailyOpened] = React.useState(false)
   const [weeklyOpened, setWeeklyOpened] = React.useState(false)
+  const [dashboardOpened, setDashboardOpened] = React.useState(false)
   const pathname = usePathname()
   
   return (
@@ -31,6 +32,28 @@ export default function DashboardShell({ children }: { children: React.ReactNode
       <AppShell.Navbar p="sm">
         <AppShell.Section grow component={ScrollArea}>
           <Box>
+            <NavLink
+              label="통합 대시보드"
+              leftSection={<IconDashboard size={16} />}
+              opened={dashboardOpened}
+              onClick={() => setDashboardOpened(!dashboardOpened)}
+              childrenOffset={28}
+            >
+              <NavLink
+                component={Link}
+                href="/monitor/dashboard/android"
+                label="Android"
+                leftSection={<IconBrandAndroid size={14} />}
+                active={pathname?.startsWith('/monitor/dashboard/android')}
+              />
+              <NavLink
+                component={Link}
+                href="/monitor/dashboard/ios"
+                label="iOS"
+                leftSection={<IconBrandApple size={14} />}
+                active={pathname?.startsWith('/monitor/dashboard/ios')}
+              />
+            </NavLink>
             <NavLink
               component={Link}
               href="/monitor"
