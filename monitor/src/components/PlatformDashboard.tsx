@@ -310,6 +310,40 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
       }))
   }, [trendData, chartMetric, platform])
 
+  // Crash Free Rate 차트용 동적 Y축 범위 계산
+  const crashFreeRateRange = useMemo(() => {
+    if (chartMetric !== 'crashFreeRate' || chartData.length === 0) {
+      return [95, 100]
+    }
+    
+    const values = chartData
+      .map(item => item[platform === 'android' ? 'Android' : 'iOS'] as number)
+      .filter(val => val > 0 && val <= 100)
+    
+    if (values.length === 0) {
+      return [95, 100]
+    }
+    
+    const min = Math.min(...values)
+    const max = Math.max(...values)
+    const range = max - min
+    
+    // 범위가 너무 작으면 최소 1% 정도의 여백을 둠
+    const minRange = 1
+    const actualRange = Math.max(range, minRange)
+    
+    // 위아래로 10% 정도 여백 추가
+    const padding = actualRange * 0.1
+    const yMin = Math.max(0, min - padding)
+    const yMax = Math.min(100, max + padding)
+    
+    // 소수점 한 자리로 반올림
+    return [
+      Math.floor(yMin * 10) / 10,
+      Math.ceil(yMax * 10) / 10
+    ]
+  }, [chartData, chartMetric, platform])
+
   const criticalIssuesCount = data?.recentIssues.filter(issue => issue.severity === 'critical').length || 0
   const platformInfo = data?.platforms.find(p => p.platform === platform)
   
@@ -548,16 +582,6 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           </Grid.Col>
         </Grid>
 
-        {platformInfo && (
-          <Text size="xs" c="dimmed" ta="center" mt="md">
-            📈 트렌드: {platformInfo.trendPercent.toFixed(1)}% {platformInfo.trend === 'up' ? '증가' : platformInfo.trend === 'down' ? '감소' : '안정'}
-          </Text>
-        )}
-        {periodSummary && (
-          <Text size="xs" c="dimmed" ta="center" mt="md">
-            📈 총 이슈: {formatNumber(displayData.totalIssues)}건 | 데이터 수집: {periodSummary.actualReportCount}개 리포트
-          </Text>
-        )}
       </Card>
 
       {/* 리포트 누락 일자 알림 */}
@@ -631,7 +655,8 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
                   <YAxis 
                     stroke="var(--mantine-color-gray-6)"
                     fontSize={12}
-                    domain={[95, 100]}
+                    domain={crashFreeRateRange}
+                    tickFormatter={(value) => `${value.toFixed(1)}%`}
                   />
                   <Tooltip 
                     contentStyle={{
