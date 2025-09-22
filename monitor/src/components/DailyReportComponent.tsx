@@ -269,16 +269,11 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                 <Badge color={triggerColor} size="md" variant="filled" radius="sm">
                   {triggerLabel}
                 </Badge>
+                <StatusBadge kind="report" status={selectedReport.status} />
               </Group>
               <Text c="dimmed" size="sm">
                 {dateLabel} 기준 크래시 데이터 요약 (총 {reports.length}건 중 {selectedIndex + 1}번째)
               </Text>
-              <Group gap={8} mt={8}>
-                <StatusBadge kind="report" status={selectedReport.status} />
-                <Text size="xs" c="dimmed">
-                  {selectedReport.trigger_type === 'scheduled' ? '자동 실행' : '수동 실행'} · {formatExecutionTime(selectedReport.execution_time_ms)}
-                </Text>
-              </Group>
             </div>
             <Group gap="xs" wrap="nowrap">
               <Button variant="light" size="sm" onClick={handleOpenDetails}>
@@ -416,7 +411,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
               <Text c="dimmed" ta="center" py="xl">Top 5 이슈 데이터가 없습니다.</Text>
             ) : (
               topIssues.map((issue, idx) => (
-                <Card key={issue.issueId || idx} withBorder p="md" style={{ backgroundColor: 'rgba(255, 255, 255, 0.5)' }}>
+                <Card key={issue.issueId || idx} withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
                   <Group justify="space-between" align="flex-start">
                     <div style={{ flex: 1 }}>
                       <Text fw={500} size="sm" mb={4}>
@@ -473,7 +468,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         {criticalIssues.length > 0 ? (
           <Stack gap="xs">
             {criticalIssues.map((issue, index) => (
-              <Card key={issue.issueId} withBorder p="md" style={{ backgroundColor: 'rgba(255, 255, 255, 0.5)' }}>
+              <Card key={issue.issueId} withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-5)' }}>
                 <Group justify="space-between" align="flex-start">
                   <div style={{ flex: 1 }}>
                     <Text fw={500} size="sm" c="red.8" mb={4}>
