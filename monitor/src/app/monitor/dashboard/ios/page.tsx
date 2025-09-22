@@ -191,11 +191,13 @@ export default function IOSDashboardPage() {
 
   // 차트 데이터 포맷팅 (iOS만)
   const chartData = useMemo(() => {
-    return trendData.map(item => ({
-      date: new Date(item.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
-      fullDate: item.date,
-      iOS: item.ios[chartMetric]
-    }))
+    return trendData
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(item => ({
+        date: new Date(item.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
+        fullDate: item.date,
+        iOS: item.ios[chartMetric]
+      }))
   }, [trendData, chartMetric])
 
   const criticalIssuesCount = data?.recentIssues.filter(issue => issue.severity === 'critical').length || 0
@@ -402,7 +404,7 @@ export default function IOSDashboardPage() {
           <Group gap="md">
             <IconChartLine size={20} color="var(--mantine-color-blue-6)" />
             <div>
-              <Title order={4}>📈 iOS 이슈 발생 트렌드</Title>
+              <Title order={4}>iOS 이슈 발생 트렌드</Title>
               <Text size="xs" c="dimmed" mt={2}>
                 생성된 일간 리포트 데이터 기반 ({trendDays}일간)
               </Text>
@@ -439,7 +441,12 @@ export default function IOSDashboardPage() {
           </Group>
         ) : chartData.length === 0 ? (
           <Group justify="center" align="center" style={{ height: '300px' }}>
-            <Text c="dimmed">표시할 트렌드 데이터가 없습니다</Text>
+            <Stack align="center" gap="sm">
+              <Text c="dimmed">표시할 트렌드 데이터가 없습니다</Text>
+              <Text size="xs" c="dimmed">
+                iOS 일간 리포트가 생성되지 않았거나 데이터가 없습니다
+              </Text>
+            </Stack>
           </Group>
         ) : (
           <div style={{ height: '300px', width: '100%' }}>
