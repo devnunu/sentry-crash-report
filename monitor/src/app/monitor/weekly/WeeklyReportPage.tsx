@@ -346,135 +346,152 @@ export default function WeeklyReportPage({ platform, title, description, cardTit
         </Button>
       </Group>
 
-      <Card withBorder radius="lg" p="lg" mt="md">
-        <Group justify="space-between" align="center" mb="md" wrap="wrap">
-          <div>
-            <Title order={4}>{cardTitle}</Title>
-            <Text c="dimmed" size="sm">
-              {selectedReport ? `${weekRangeLabel} (총 ${reports.length}건 중 ${selectedIndex + 1}번째)` : '리포트가 없습니다.'}
-            </Text>
-            {selectedReport && (
-              <Group gap={8} mt={4} wrap="wrap">
+      {/* 리포트 현황 개요 */}
+      {selectedReport && (
+        <Card withBorder radius="lg" p="xl" mt="md" style={{ background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(59, 130, 246, 0.05) 100%)', borderColor: 'rgba(168, 85, 247, 0.2)' }}>
+          <Group justify="space-between" align="center" mb="lg">
+            <div>
+              <Title order={3} c="violet.6" mb={4}>📊 리포트 개요</Title>
+              <Text c="dimmed" size="sm">
+                {weekRangeLabel} 크래시 데이터 요약 (총 {reports.length}건 중 {selectedIndex + 1}번째)
+              </Text>
+              <Group gap={8} mt={8}>
                 <StatusBadge kind="report" status={selectedReport.status} />
                 <Text size="xs" c="dimmed">
                   {selectedReport.trigger_type === 'scheduled' ? '자동 실행' : '수동 실행'} · {formatExecutionTime(selectedReport.execution_time_ms)}
                 </Text>
               </Group>
-            )}
-          </div>
-          <Group gap="xs" wrap="nowrap">
-            <Button variant="light" size="xs" onClick={handleOpenDetails} disabled={!selectedReport}>
-              리포트 상세
-            </Button>
-            <ActionIcon
-              variant="default"
-              aria-label="최근 리포트"
-              onClick={goNewer}
-              disabled={!hasNewer || isLoading}
-            >
-              <IconChevronLeft size={16} />
-            </ActionIcon>
-            <ActionIcon
-              variant="default"
-              aria-label="이전 리포트"
-              onClick={goOlder}
-              disabled={!hasOlder || isLoading}
-            >
-              <IconChevronRight size={16} />
-            </ActionIcon>
+            </div>
+            <Group gap="xs" wrap="nowrap">
+              <Button variant="light" size="sm" onClick={handleOpenDetails}>
+                리포트 상세
+              </Button>
+              <ActionIcon
+                variant="default"
+                aria-label="최근 리포트"
+                onClick={goNewer}
+                disabled={!hasNewer || isLoading}
+                size="lg"
+              >
+                <IconChevronLeft size={16} />
+              </ActionIcon>
+              <ActionIcon
+                variant="default"
+                aria-label="이전 리포트"
+                onClick={goOlder}
+                disabled={!hasOlder || isLoading}
+                size="lg"
+              >
+                <IconChevronRight size={16} />
+              </ActionIcon>
+            </Group>
           </Group>
+
+          {error && (
+            <Card withBorder p="md" mb="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+              <Text c="red" size="sm" fw={500}>⚠️ {error}</Text>
+            </Card>
+          )}
+
+          {selectedReport.status === 'error' && (
+            <Card withBorder p="md" mb="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+              <Text c="red" size="sm" fw={500}>⚠️ 이 실행은 실패했습니다. 상세 화면에서 오류 메시지를 확인하세요.</Text>
+            </Card>
+          )}
+
+          {summaryItems.length > 0 && <StatsCards items={summaryItems} />}
+
+          {prevSummaryText && (
+            <Text size="xs" c="dimmed" ta="center" mt="md">
+              📅 {prevSummaryText}
+            </Text>
+          )}
+        </Card>
+      )}
+
+      {/* Top 5 이슈 섹션 */}
+      <Card withBorder radius="lg" p="lg" mt="md">
+        <Group justify="space-between" align="center" mb="md">
+          <Title order={4}>{cardTitle}</Title>
         </Group>
 
-        {error && (
-          <Text c="red" size="sm" mb="sm">
-            ⚠️ {error}
-          </Text>
-        )}
-
         {isLoading && !selectedReport ? (
-          <Text c="dimmed">불러오는 중…</Text>
+          <Text c="dimmed" ta="center" py="xl">불러오는 중…</Text>
         ) : !selectedReport ? (
-          <Text c="dimmed">표시할 리포트가 없습니다.</Text>
+          <Text c="dimmed" ta="center" py="xl">표시할 리포트가 없습니다.</Text>
         ) : (
-          <Stack gap="md">
-            {selectedReport.status === 'error' && (
-              <Text c="red" size="sm">
-                ⚠️ 이 실행은 실패했습니다. 상세 화면에서 오류 메시지를 확인하세요.
-              </Text>
-            )}
+          <Stack gap={12}>
 
-            {summaryItems.length > 0 && <StatsCards items={summaryItems} />}
-
-            {prevSummaryText && (
-              <Text size="xs" c="dimmed">
-                {prevSummaryText}
-              </Text>
-            )}
-
-            <Stack gap={8}>
-              {topIssues.length === 0 ? (
-                <Text c="dimmed">Top 5 이슈 데이터가 없습니다.</Text>
-              ) : (
-                topIssues.map((issue, idx) => (
-                  <Card key={issue.issueId || idx} withBorder radius="md" p="sm">
-                    <Group justify="space-between" align="center" wrap="wrap">
-                      <div style={{ maxWidth: '70%' }}>
-                        <Text fw={600} size="sm" mb={4}>
-                          {idx + 1}. {issue.title}
-                        </Text>
-                        <Text c="dimmed" size="xs">
-                          📈 {issue.events}건 · 👥 {issue.users}명
-                        </Text>
-                      </div>
-                      <Group gap={8}>
-                        {issue.link && (
-                          <Button component="a" href={issue.link} target="_blank" variant="light" size="xs">
-                            Sentry
-                          </Button>
-                        )}
-                        <Button variant="light" size="xs" onClick={() => openIssue(issue)}>
-                          상세보기
+            {topIssues.length === 0 ? (
+              <Text c="dimmed" ta="center" py="xl">Top 5 이슈 데이터가 없습니다.</Text>
+            ) : (
+              topIssues.map((issue, idx) => (
+                <Card key={issue.issueId || idx} withBorder radius="md" p="md" style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)' }}>
+                  <Group justify="space-between" align="center" wrap="wrap">
+                    <div style={{ maxWidth: '70%' }}>
+                      <Text fw={600} size="sm" mb={6}>
+                        {idx + 1}. {issue.title}
+                      </Text>
+                      <Text c="dimmed" size="xs">
+                        📈 {issue.events}건 · 👥 {issue.users}명
+                      </Text>
+                    </div>
+                    <Group gap={8}>
+                      {issue.link && (
+                        <Button component="a" href={issue.link} target="_blank" variant="light" size="xs">
+                          Sentry
                         </Button>
-                      </Group>
+                      )}
+                      <Button variant="light" size="xs" onClick={() => openIssue(issue)}>
+                        상세보기
+                      </Button>
                     </Group>
-                  </Card>
-                ))
-              )}
-            </Stack>
-
-            {newIssues.length > 0 && (
-              <div>
-                <Text fw={600} size="sm" mb={4}>
-                  🆕 신규 이슈 ({newIssues.length}개)
-                </Text>
-                <Stack gap={6}>
-                  {newIssues.slice(0, 5).map((issue) => (
-                    <Text key={issue.issueId} size="sm">
-                      • {issue.title}
-                      {issue.events != null ? ` (이벤트 ${issue.events}건)` : ''}
-                    </Text>
-                  ))}
-                </Stack>
-              </div>
+                  </Group>
+                </Card>
+              ))
             )}
 
-            {surgeIssues.length > 0 && (
-              <div>
-                <Text fw={600} size="sm" mb={4}>
-                  📈 급증 이슈 ({surgeIssues.length}개)
-                </Text>
-                <Stack gap={6}>
-                  {surgeIssues.slice(0, 5).map((issue) => (
-                    <Text key={issue.issueId} size="sm">
-                      • {issue.title} (이번 주 {issue.events}건 · 지난 주 {issue.prevEvents}건 · ×{issue.growth.toFixed(1)})
-                    </Text>
-                  ))}
-                </Stack>
-              </div>
-            )}
           </Stack>
         )}
       </Card>
+
+      {/* 신규 이슈 섹션 */}
+      {newIssues.length > 0 && (
+        <Card withBorder radius="lg" p="lg" mt="md" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%)', borderColor: 'rgba(34, 197, 94, 0.2)' }}>
+          <Title order={4} c="green.6" mb="md">🆕 신규 이슈 ({newIssues.length}개)</Title>
+          <Stack gap={8}>
+            {newIssues.slice(0, 5).map((issue, idx) => (
+              <Card key={issue.issueId} withBorder radius="md" p="md" style={{ backgroundColor: 'rgba(34, 197, 94, 0.02)' }}>
+                <Text fw={600} size="sm" mb={4}>
+                  {idx + 1}. {issue.title}
+                </Text>
+                <Text c="dimmed" size="xs">
+                  {issue.events != null ? `📈 이벤트 ${issue.events}건` : '📈 이벤트 수 미집계'}
+                </Text>
+              </Card>
+            ))}
+          </Stack>
+        </Card>
+      )}
+
+      {/* 급증 이슈 섹션 */}
+      {surgeIssues.length > 0 && (
+        <Card withBorder radius="lg" p="lg" mt="md" style={{ background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(245, 101, 101, 0.05) 100%)', borderColor: 'rgba(239, 68, 68, 0.2)' }}>
+          <Title order={4} c="red.6" mb="md">📈 급증 이슈 ({surgeIssues.length}개)</Title>
+          <Stack gap={8}>
+            {surgeIssues.slice(0, 5).map((issue, idx) => (
+              <Card key={issue.issueId} withBorder radius="md" p="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.02)' }}>
+                <Text fw={600} size="sm" mb={4}>
+                  {idx + 1}. {issue.title}
+                </Text>
+                <Text c="dimmed" size="xs">
+                  📈 이번 주 {issue.events}건 · 지난 주 {issue.prevEvents}건 · ×{issue.growth.toFixed(1)} 증가
+                </Text>
+              </Card>
+            ))}
+          </Stack>
+        </Card>
+      )}
 
       <Modal opened={issueModal.open} onClose={handleCloseIssueModal} title="이슈 상세" size="lg" centered>
         {issueModal.item && (
