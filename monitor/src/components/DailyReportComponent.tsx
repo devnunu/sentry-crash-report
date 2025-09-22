@@ -24,7 +24,9 @@ import {
   IconBug,
   IconUsers,
   IconAlertTriangle,
-  IconShield
+  IconShield,
+  IconFileAnalytics,
+  IconList
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -120,7 +122,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     refresh,
   } = useReportHistory({ reportType: 'daily', platform, limit: 20 })
 
-  const [expandedSections, setExpandedSections] = useState({ logs: false, data: false, slack: false })
+  const [expandedSections, setExpandedSections] = useState({ logs: false, data: false, slack: false, report: false })
   const [issueModal, setIssueModal] = useState<{ open: boolean; item?: NormalizedIssue; dateKey?: string }>({ open: false })
   const [issueAnalysis, setIssueAnalysis] = useState<any | null>(null)
   const [issueLoading, setIssueLoading] = useState(false)
@@ -158,7 +160,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     }
   }
 
-  const toggleSection = (section: 'logs' | 'data' | 'slack') => {
+  const toggleSection = (section: 'logs' | 'data' | 'slack' | 'report') => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }))
   }
 
@@ -260,45 +262,50 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         </Alert>
       )}
 
+      {/* 일자 표시 */}
+      {selectedReport && (
+        <Group justify="space-between" align="center" mb="md">
+          <Title order={2} c={`${config.color}.7`}>{dateLabel}</Title>
+          <Group gap="xs" wrap="nowrap">
+            <ActionIcon
+              variant="default"
+              aria-label="최근 리포트"
+              onClick={goNewer}
+              disabled={!hasNewer || isLoading}
+              size="lg"
+            >
+              <IconChevronLeft size={16} />
+            </ActionIcon>
+            <ActionIcon
+              variant="default"
+              aria-label="이전 리포트"
+              onClick={goOlder}
+              disabled={!hasOlder || isLoading}
+              size="lg"
+            >
+              <IconChevronRight size={16} />
+            </ActionIcon>
+          </Group>
+        </Group>
+      )}
+
       {/* 현황 카드 */}
       {selectedReport && dayData && (
         <Card withBorder radius="lg" p="lg" mb="lg" style={{ background: config.gradient, borderColor: config.borderColor }}>
           <Group justify="space-between" align="center" mb="lg">
             <div>
               <Group align="center" gap="md" mb={4}>
-                <Title order={3} c={`${config.color}.6`}>📊 일간 현황</Title>
+                <IconFileAnalytics size={20} color={config.color} />
+                <Title order={3} c={`${config.color}.6`}>리포트 요약</Title>
                 <Badge color={triggerColor} size="md" variant="filled" radius="sm">
                   {triggerLabel}
                 </Badge>
                 <StatusBadge kind="report" status={selectedReport.status} />
               </Group>
               <Text c="dimmed" size="sm">
-                {dateLabel} 기준 크래시 데이터 요약 (총 {reports.length}건 중 {selectedIndex + 1}번째)
+                크래시 데이터 요약 (총 {reports.length}건 중 {selectedIndex + 1}번째)
               </Text>
             </div>
-            <Group gap="xs" wrap="nowrap">
-              <Button variant="light" size="sm" onClick={handleOpenDetails}>
-                실행 결과 보기
-              </Button>
-              <ActionIcon
-                variant="default"
-                aria-label="최근 리포트"
-                onClick={goNewer}
-                disabled={!hasNewer || isLoading}
-                size="lg"
-              >
-                <IconChevronLeft size={16} />
-              </ActionIcon>
-              <ActionIcon
-                variant="default"
-                aria-label="이전 리포트"
-                onClick={goOlder}
-                disabled={!hasOlder || isLoading}
-                size="lg"
-              >
-                <IconChevronRight size={16} />
-              </ActionIcon>
-            </Group>
           </Group>
 
           {selectedReport.status === 'error' && (
@@ -395,7 +402,10 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
       <Card withBorder radius="lg" p="lg" mb="lg">
         <Group justify="space-between" align="center" mb="lg">
           <div>
-            <Title order={4}>🏅 Top 5 이슈</Title>
+            <Group align="center" gap="xs" mb={2}>
+              <IconList size={20} color="orange" />
+              <Title order={4}>Top 5 이슈</Title>
+            </Group>
             <Text size="xs" c="dimmed" mt={2}>
               발생 빈도가 높은 상위 5개 이슈
             </Text>
@@ -415,7 +425,29 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                 <Card key={issue.issueId || idx} withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
                   <Group justify="space-between" align="flex-start">
                     <div style={{ flex: 1 }}>
-                      <Text fw={500} size="sm" mb={4}>
+                      <Text 
+                        fw={500} 
+                        size="sm" 
+                        mb={4}
+                        component={issue.link ? "a" : "div"}
+                        href={issue.link || undefined}
+                        target={issue.link ? "_blank" : undefined}
+                        style={{
+                          cursor: issue.link ? 'pointer' : 'default',
+                          textDecoration: 'none',
+                          color: issue.link ? 'var(--mantine-color-blue-6)' : 'inherit'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (issue.link) {
+                            e.currentTarget.style.textDecoration = 'underline'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (issue.link) {
+                            e.currentTarget.style.textDecoration = 'none'
+                          }
+                        }}
+                      >
                         {idx + 1}. {issue.title}
                       </Text>
                       <Group gap="md" wrap="nowrap">
@@ -432,11 +464,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                       </Group>
                     </div>
                     <Group gap={8}>
-                      {issue.link && (
-                        <Button component="a" href={issue.link} target="_blank" variant="light" size="xs">
-                          Sentry
-                        </Button>
-                      )}
                       <Button variant="light" size="xs" onClick={() => openIssue(issue)}>
                         AI 분석
                       </Button>
@@ -517,17 +544,19 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         <Card withBorder radius="lg" p="lg" mt="lg" style={{ backgroundColor: 'rgba(99, 102, 241, 0.02)' }} data-testid="report-details-section">
           <Group justify="space-between" align="center" mb="lg">
             <div>
-              <Title order={4} c="indigo.7">📋 리포트 실행 결과</Title>
+              <SectionToggle open={expandedSections.report} onClick={() => toggleSection('report')} label="📋 리포트 실행 결과" />
               <Text size="xs" c="dimmed" mt={2}>
                 리포트 생성 과정 및 결과 상세 정보
               </Text>
             </div>
           </Group>
 
-          {/* 실행 정보 카드 */}
-          <Grid mb="lg">
+          {expandedSections.report && (
+            <>
+              {/* 실행 정보 카드 */}
+              <Grid mb="lg">
             <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)', minHeight: '80px' }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '80px' }}>
                 <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>실행 상태</Text>
                 <Text fw={600} c={selectedReport.status === 'success' ? 'green.6' : selectedReport.status === 'error' ? 'red.6' : 'yellow.6'}>
                   {selectedReport.status === 'success' ? '✅ 성공' : selectedReport.status === 'error' ? '❌ 실패' : '🔄 실행중'}
@@ -536,7 +565,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
             </Grid.Col>
 
             <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)', minHeight: '80px' }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '80px' }}>
                 <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>실행 방식</Text>
                 <Text fw={600} c="blue.6">
                   {selectedReport.trigger_type === 'scheduled' ? '🤖 자동' : '🧪 수동'}
@@ -545,7 +574,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
             </Grid.Col>
 
             <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)', minHeight: '80px' }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '80px' }}>
                 <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>실행 시간</Text>
                 <Text fw={600} c="violet.6">
                   {formatExecutionTime(selectedReport.execution_time_ms)}
@@ -554,7 +583,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
             </Grid.Col>
 
             <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)', minHeight: '80px' }}>
+              <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)', minHeight: '80px' }}>
                 <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Slack 전송</Text>
                 <Text fw={600} c={selectedReport.slack_sent ? 'green.6' : 'red.6'}>
                   {selectedReport.slack_sent ? '✅ 성공' : '❌ 실패'}
@@ -573,7 +602,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
 
           {/* 실행 로그 */}
           {Array.isArray(selectedReport.execution_logs) && selectedReport.execution_logs.length > 0 && (
-            <Card withBorder p="md" mb="lg" style={{ backgroundColor: 'var(--mantine-color-dark-8)' }}>
+            <Card withBorder p="md" mb="lg" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
               <SectionToggle open={expandedSections.logs} onClick={() => toggleSection('logs')} label="실행 로그" />
               {expandedSections.logs && (
                 <pre
@@ -598,7 +627,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
 
           {/* 리포트 데이터 */}
           {selectedReport.result_data && (
-            <Card withBorder p="md" mb="lg" style={{ backgroundColor: 'var(--mantine-color-dark-8)' }}>
+            <Card withBorder p="md" mb="lg" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
               <SectionToggle open={expandedSections.data} onClick={() => toggleSection('data')} label="리포트 원본 데이터" />
               {expandedSections.data && (
                 <pre
@@ -621,7 +650,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
 
           {/* Slack 미리보기 */}
           {selectedReport.result_data && (
-            <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
+            <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
               <SectionToggle open={expandedSections.slack} onClick={() => toggleSection('slack')} label="Slack 메시지 미리보기" />
               {expandedSections.slack && (
                 <Card withBorder radius="md" p="md" mt={8} style={{ backgroundColor: 'var(--mantine-color-gray-1)' }}>
@@ -635,6 +664,8 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                 </Card>
               )}
             </Card>
+          )}
+            </>
           )}
         </Card>
       )}

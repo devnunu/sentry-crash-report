@@ -1,12 +1,22 @@
 'use client'
 
-import { Button } from '@mantine/core'
+import { Text } from '@mantine/core'
 
 export default function SectionToggle({ open, onClick, label }: { open: boolean; onClick: () => void; label: string }) {
   return (
-    <Button variant="subtle" onClick={onClick} style={{ paddingLeft: 0 }}>
+    <Text 
+      onClick={onClick} 
+      style={{ 
+        cursor: 'pointer', 
+        userSelect: 'none',
+        textAlign: 'left',
+        fontSize: '14px',
+        fontWeight: 600
+      }}
+      c="dimmed"
+    >
       {open ? '▼' : '▶'} {label}
-    </Button>
+    </Text>
   )
 }
 
