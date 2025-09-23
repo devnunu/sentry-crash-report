@@ -3,10 +3,12 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import SlackPreview from '@/lib/SlackPreview'
-import { Badge, Button, Card, Group, Modal, Pagination, Select, Stack, Table, Text, Title, useMantineTheme } from '@mantine/core'
+import { Badge, Button, Card, Group, Modal, Pagination, Select, Stack, Table, Text, Title, useMantineTheme, Alert } from '@mantine/core'
+import { IconFileAnalytics, IconHistory, IconAlertTriangle } from '@tabler/icons-react'
 import TableWrapper from '@/components/TableWrapper'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
+import LoadingScreen from '@/components/LoadingScreen'
 import { useMediaQuery } from '@mantine/hooks'
 import StatsCards from '@/components/StatsCards'
 import { formatKST, formatExecutionTime } from '@/lib/utils'
@@ -294,16 +296,39 @@ export default function ReportHistoryPage() {
     }
   }
 
+  // 초기 로딩 상태
+  if (loading && allReports.length === 0) {
+    return (
+      <LoadingScreen
+        icon={<IconFileAnalytics size={32} color="blue" />}
+        title="리포트 실행 내역을 불러오는 중..."
+        subtitle="일간 및 주간 리포트의 실행 히스토리를 분석하고 있습니다"
+      />
+    )
+  }
+
   return (
     <div className="container">
-      <Group justify="space-between" align="flex-start" mb="sm">
+      {/* 헤더 */}
+      <Group justify="space-between" align="flex-start" mb="lg">
         <div>
-          <Title order={2}>📋 리포트 실행 내역</Title>
+          <Group gap="md" align="center" mb={4}>
+            <IconHistory size={32} color="blue" />
+            <Title order={2} c="blue.6">📋 리포트 실행 내역</Title>
+          </Group>
           <Text c="dimmed" size="sm">
             일간 및 주간 리포트의 실행 내역을 조회하고 관리합니다.
           </Text>
         </div>
       </Group>
+
+      {/* 에러 알림 */}
+      {error && (
+        <Alert icon={<IconAlertTriangle size={16} />} color="red" mb="lg">
+          <Text fw={600} mb={4}>⚠️ 데이터 로딩 오류</Text>
+          <Text size="sm">{error}</Text>
+        </Alert>
+      )}
 
       {/* 통계 요약 */}
       <StatsCards
@@ -316,10 +341,20 @@ export default function ReportHistoryPage() {
       />
 
       {/* 실행 히스토리 */}
-      <Card withBorder radius="lg" p="lg" mt="md">
+      <Card withBorder radius="lg" p="lg" mt="md" style={{ background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 51, 234, 0.05) 100%)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
         <Group justify="space-between" align="center" mb="md">
-          <Title order={4}>📋 실행 내역</Title>
-          <Group gap={12} align="center">
+          <div>
+            <Group align="center" gap="xs" mb={2}>
+              <IconFileAnalytics size={20} color="blue" />
+              <Title order={4} c="blue.6">📋 실행 내역</Title>
+            </Group>
+            <Text size="xs" c="dimmed" mt={2}>
+              리포트 실행 기록 및 상태 관리
+            </Text>
+          </div>
+        </Group>
+        
+        <Group gap={12} align="center" justify="flex-end" mb="md">
             <Select
               placeholder="리포트 타입"
               data={[
@@ -345,13 +380,13 @@ export default function ReportHistoryPage() {
               w={160}
             />
             <Button onClick={fetchReports} loading={loading} variant="light">새로고침</Button>
-          </Group>
         </Group>
 
-        {error && (<Text c="red">⚠️ {error}</Text>)}
-
         {allReports.length === 0 && !loading && !error && (
-          <Text c="dimmed" ta="center" py="xl">실행 내역이 없습니다.</Text>
+          <Alert icon={<IconAlertTriangle size={16} />} color="yellow" mb="lg">
+            <Text fw={600} mb={4}>📋 실행 내역이 없습니다</Text>
+            <Text size="sm">아직 실행된 리포트가 없습니다. 리포트를 생성해보세요.</Text>
+          </Alert>
         )}
 
         {allReports.length > 0 && (
