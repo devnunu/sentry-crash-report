@@ -101,6 +101,14 @@ const formatNumber = (value: number | null | undefined): string => {
   return value.toLocaleString()
 }
 
+const formatWeekLabel = (report?: ReportExecution) => {
+  if (!report) return ''
+  if (report.start_date && report.end_date) {
+    return `${report.start_date}~${report.end_date}`
+  }
+  return report.target_date ?? ''
+}
+
 const formatPercent = (value?: number | null) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   const percent = value <= 1 ? value * 100 : value

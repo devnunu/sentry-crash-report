@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react'
 import { ActionIcon, Badge, Button, Card, Group, Modal, Stack, Text, Title } from '@mantine/core'
-import { IconChevronLeft, IconChevronRight, IconRefresh } from '@tabler/icons-react'
+import { IconChevronLeft, IconChevronRight, IconRefresh, IconBrandAndroid, IconBrandApple } from '@tabler/icons-react'
 import StatsCards from '@/components/StatsCards'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -133,10 +133,34 @@ export default function WeeklyReportPage({ platform, title, description, cardTit
   const newIssues = useMemo(() => normalizeNewIssues(payload?.new_issues), [payload])
   const surgeIssues = useMemo(() => normalizeSurgeIssues(payload?.surge_issues), [payload])
 
+  // AI 코멘트 추출
+  const aiComment = useMemo(() => {
+    if (!selectedReport) return null
+    
+    // AI 분석 데이터는 selectedReport.ai_analysis 필드에 저장됨
+    const aiAnalysis = selectedReport.ai_analysis as any
+    if (!aiAnalysis) return null
+    
+    // newsletter_summary 필드가 AI 코멘트
+    const comment = aiAnalysis.newsletter_summary
+    
+    return comment || null
+  }, [selectedReport])
+
+  // AI 오늘의 액션 추출
+  const aiActions = useMemo(() => {
+    if (!selectedReport) return []
+    
+    const aiAnalysis = selectedReport.ai_analysis as any
+    if (!aiAnalysis || !aiAnalysis.today_actions) return []
+    
+    return aiAnalysis.today_actions
+  }, [selectedReport])
+
   const summaryItems = useMemo(() => {
     if (!payload) return []
     return [
-      { label: '이번 주 이벤트', value: formatCount(payload.this_week?.events) },
+      { label: '이번 주 이벤트', value: formatCount(paylad.this_week?.events) },
       { label: '이번 주 이슈', value: formatCount(payload.this_week?.issues) },
       { label: '이번 주 사용자', value: formatCount(payload.this_week?.users) },
       { label: 'Crash Free(세션)', value: formatPercent(payload.this_week?.crash_free_sessions) },
@@ -405,6 +429,63 @@ export default function WeeklyReportPage({ platform, title, description, cardTit
             <Text size="xs" c="dimmed" ta="center" mt="md">
               📅 {prevSummaryText}
             </Text>
+          )}
+        </Card>
+      )}
+
+      {/* AI 분석 섹션 */}
+      {(aiComment || aiActions.length > 0) && (
+        <Card withBorder radius="lg" p="lg" mt="md" style={{ backgroundColor: 'rgba(16, 185, 129, 0.02)' }}>
+          <Group justify="space-between" align="center" mb="lg">
+            <div>
+              <Group align="center" gap="xs" mb={2}>
+                <IconBrandApple size={20} color="teal" style={{ display: platform === 'android' ? 'none' : 'block' }} />
+                <IconBrandAndroid size={20} color="teal" style={{ display: platform === 'ios' ? 'none' : 'block' }} />
+                <Title order={4} c="teal.7">AI 분석</Title>
+              </Group>
+              <Text size="xs" c="dimmed" mt={2}>
+                AI가 분석한 이번 주 크래시 현황 및 권장 액션
+              </Text>
+            </div>
+          </Group>
+
+          {/* AI 코멘트 */}
+          {aiComment && (
+            <Card withBorder p="md" mb="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
+              <Group align="center" gap="xs" mb="xs">
+                <Text size="sm" fw={600} c="teal.6">💬 분석 코멘트</Text>
+              </Group>
+              <Text style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap' }} size="sm">
+                {typeof aiComment === 'string' ? aiComment : JSON.stringify(aiComment, null, 2)}
+              </Text>
+            </Card>
+          )}
+
+          {/* 오늘의 액션 */}
+          {aiActions.length > 0 && (
+            <div>
+              <Group align="center" gap="xs" mb="md">
+                <Text size="sm" fw={600} c="teal.6">📋 이번 주 권장 액션</Text>
+                <Badge size="sm" color="teal" variant="light">{aiActions.length}개</Badge>
+              </Group>
+              <Grid>
+                {aiActions.map((action: any, index: number) => (
+                  <Grid.Col span={12} key={index}>
+                    <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
+                      <Text size="sm" fw={600} mb="xs" c="blue.4">
+                        {action.title}
+                      </Text>
+                      <Text size="xs" c="dimmed" mb="xs">
+                        👤 {action.owner_role} • {action.why}
+                      </Text>
+                      <Text size="sm" style={{ lineHeight: 1.5 }}>
+                        {action.suggestion}
+                      </Text>
+                    </Card>
+                  </Grid.Col>
+                ))}
+              </Grid>
+            </div>
           )}
         </Card>
       )}

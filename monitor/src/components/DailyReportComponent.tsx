@@ -258,6 +258,30 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     return topIssues.filter(issue => issue.events > 500 || (issue.users && issue.users > 100))
   }, [topIssues])
 
+  // AI 코멘트 추출
+  const aiComment = useMemo(() => {
+    if (!selectedReport) return null
+    
+    // AI 분석 데이터는 selectedReport.ai_analysis 필드에 저장됨
+    const aiAnalysis = selectedReport.ai_analysis as any
+    if (!aiAnalysis) return null
+    
+    // newsletter_summary 필드가 AI 코멘트
+    const comment = aiAnalysis.newsletter_summary
+    
+    return comment || null
+  }, [selectedReport])
+
+  // AI 오늘의 액션 추출
+  const aiActions = useMemo(() => {
+    if (!selectedReport) return []
+    
+    const aiAnalysis = selectedReport.ai_analysis as any
+    if (!aiAnalysis || !aiAnalysis.today_actions) return []
+    
+    return aiAnalysis.today_actions
+  }, [selectedReport])
+
   const dateLabel = formatDateLabel(selectedReport?.target_date)
 
   const handleOpenDetails = () => {
@@ -591,6 +615,63 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
             <Text size="xs" c="dimmed" ta="center" mt="lg">
               📅 집계 구간 (KST 기준): {formatKST(dayData.window_utc.start)} ~ {formatKST(dayData.window_utc.end)}
             </Text>
+          )}
+        </Card>
+      )}
+
+      {/* AI 분석 섹션 */}
+      {(aiComment || aiActions.length > 0) && (
+        <Card withBorder radius="lg" p="lg" mb="lg" style={{ backgroundColor: 'rgba(16, 185, 129, 0.02)' }}>
+          <Group justify="space-between" align="center" mb="lg">
+            <div>
+              <Group align="center" gap="xs" mb={2}>
+                <IconBrandApple size={20} color="teal" style={{ display: platform === 'android' ? 'none' : 'block' }} />
+                <IconBrandAndroid size={20} color="teal" style={{ display: platform === 'ios' ? 'none' : 'block' }} />
+                <Title order={4} c="teal.7">AI 분석</Title>
+              </Group>
+              <Text size="xs" c="dimmed" mt={2}>
+                AI가 분석한 오늘의 크래시 현황 및 권장 액션
+              </Text>
+            </div>
+          </Group>
+
+          {/* AI 코멘트 */}
+          {aiComment && (
+            <Card withBorder p="md" mb="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
+              <Group align="center" gap="xs" mb="xs">
+                <Text size="sm" fw={600} c="teal.6">💬 분석 코멘트</Text>
+              </Group>
+              <Text style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap' }} size="sm">
+                {typeof aiComment === 'string' ? aiComment : JSON.stringify(aiComment, null, 2)}
+              </Text>
+            </Card>
+          )}
+
+          {/* 오늘의 액션 */}
+          {aiActions.length > 0 && (
+            <div>
+              <Group align="center" gap="xs" mb="md">
+                <Text size="sm" fw={600} c="teal.6">📋 오늘의 권장 액션</Text>
+                <Badge size="sm" color="teal" variant="light">{aiActions.length}개</Badge>
+              </Group>
+              <Grid>
+                {aiActions.map((action: any, index: number) => (
+                  <Grid.Col span={12} key={index}>
+                    <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
+                      <Text size="sm" fw={600} mb="xs" c="blue.4">
+                        {action.title}
+                      </Text>
+                      <Text size="xs" c="dimmed" mb="xs">
+                        👤 {action.owner_role} • {action.why}
+                      </Text>
+                      <Text size="sm" style={{ lineHeight: 1.5 }}>
+                        {action.suggestion}
+                      </Text>
+                    </Card>
+                  </Grid.Col>
+                ))}
+              </Grid>
+            </div>
           )}
         </Card>
       )}
