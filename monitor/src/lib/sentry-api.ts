@@ -152,8 +152,18 @@ class SentryAPI {
 }
 
 // Short ID를 숫자 ID로 변환하는 함수 (기존 로직 개선)
-export function parseIssueInput(input: string): { issueId: string; shortId?: string; url?: string } {
+export function parseIssueInput(input: string): { issueId: string; shortId?: string; url?: string; projectSlug?: string } {
   const trimmed = input.trim()
+  
+  // URL 형식에서 프로젝트 정보 추출: https://finda-b2c.sentry.io/projects/finda-android/issues/4567891234/
+  const urlWithProjectMatch = trimmed.match(/https?:\/\/[^\/]+\/projects\/([^\/]+)\/issues\/(\d+)\/?/)
+  if (urlWithProjectMatch) {
+    return {
+      issueId: urlWithProjectMatch[2],
+      url: trimmed,
+      projectSlug: urlWithProjectMatch[1]
+    }
+  }
   
   // URL 형식: https://finda-b2c.sentry.io/issues/4567891234/
   const urlMatch = trimmed.match(/https?:\/\/[^\/]+\/issues\/(\d+)\/?/)
@@ -172,8 +182,19 @@ export function parseIssueInput(input: string): { issueId: string; shortId?: str
     }
   }
   
-  // Short ID 형식: FINDA-IOS-ABC 또는 ABC 형태
-  const shortIdMatch = trimmed.match(/^(?:FINDA-(?:IOS|ANDROID)-)?([A-Z0-9]+)$/i)
+  // Short ID 형식에서 프로젝트 추정: FINDA-IOS-ABC, FINDA-ANDROID-ABC 
+  const shortIdWithProjectMatch = trimmed.match(/^FINDA-(IOS|ANDROID|WEB|BACKEND)-([A-Z0-9]+)$/i)
+  if (shortIdWithProjectMatch) {
+    const projectType = shortIdWithProjectMatch[1].toLowerCase()
+    return {
+      issueId: '', // API에서 resolve 필요
+      shortId: trimmed,
+      projectSlug: `finda-${projectType}`
+    }
+  }
+  
+  // Short ID 형식: ABC 형태 (프로젝트 불명)
+  const shortIdMatch = trimmed.match(/^[A-Z0-9]+$/i)
   if (shortIdMatch) {
     return {
       issueId: '', // API에서 resolve 필요
@@ -181,7 +202,7 @@ export function parseIssueInput(input: string): { issueId: string; shortId?: str
     }
   }
   
-  throw new Error('지원하지 않는 이슈 ID 형식입니다. 지원 형식: FINDA-IOS-ABC, 4567891234, https://sentry.io/issues/4567891234/')
+  throw new Error('지원하지 않는 이슈 ID 형식입니다. 지원 형식: FINDA-ANDROID-ABC, 4567891234, https://sentry.io/projects/finda-android/issues/4567891234/')
 }
 
 export async function fetchSentryIssueData(issueId: string, shortId?: string): Promise<{

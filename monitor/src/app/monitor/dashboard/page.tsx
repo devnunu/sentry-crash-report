@@ -16,6 +16,7 @@ import {
   Alert,
   SegmentedControl
 } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
 import { 
   IconRefresh, 
   IconTrendingUp, 
@@ -28,7 +29,12 @@ import {
   IconBug,
   IconShield,
   IconArrowRight,
-  IconChartLine
+  IconChartLine,
+  IconBrain,
+  IconWebhook,
+  IconRobot,
+  IconTarget,
+  IconEye
 } from '@tabler/icons-react'
 import Link from 'next/link'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
@@ -44,6 +50,35 @@ interface PlatformMetrics {
   trendPercent: number
 }
 
+interface MonitoringStats {
+  totalAnalyzed: number
+  enhancedAnalyses: number
+  recentChecks: number
+}
+
+interface MonitoringConfig {
+  enabled: boolean
+  projectSlugs: string[]
+  minLevel: string
+  autoAnalyze: boolean
+  maxIssuesPerCheck: number
+  checkIntervalMinutes: number
+}
+
+interface WebhookStats {
+  total: number
+  successful: number
+  failed: number
+  byAction: Record<string, number>
+}
+
+interface AIMonitoringData {
+  monitoringStats: MonitoringStats
+  monitoringConfig: MonitoringConfig
+  webhookStats: WebhookStats
+  lastCheck: string | null
+}
+
 interface DashboardData {
   overall: {
     crashFreeRate: number
@@ -52,6 +87,7 @@ interface DashboardData {
     criticalIssues: number
     affectedUsers: number
   }
+  aiMonitoring?: AIMonitoringData
   platforms: PlatformMetrics[]
   recentIssues: Array<{
     id: string
@@ -128,6 +164,11 @@ export default function DashboardPage() {
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [trendDays, setTrendDays] = useState<'7' | '14' | '30'>('7')
   const [chartMetric, setChartMetric] = useState<'events' | 'issues' | 'users' | 'crashFreeRate'>('events')
+  
+  // AI 모니터링 관련 상태
+  const [aiMonitoringData, setAiMonitoringData] = useState<AIMonitoringData | null>(null)
+  const [aiMonitoringLoading, setAiMonitoringLoading] = useState(false)
+  const [manualCheckLoading, setManualCheckLoading] = useState(false)
 
   const fetchDashboardData = async () => {
     try {
@@ -147,6 +188,58 @@ export default function DashboardPage() {
       console.error('Failed to fetch dashboard data:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // AI 모니터링 데이터 가져오기
+  const fetchAiMonitoringData = async () => {
+    try {
+      setAiMonitoringLoading(true)
+      
+      // 모니터링 상태 가져오기
+      const monitoringResponse = await fetch('/api/sentry/monitor')
+      const monitoringResult = await monitoringResponse.json()
+      
+      // 웹훅 상태 가져오기  
+      const webhookResponse = await fetch('/api/sentry/webhook')
+      const webhookResult = await webhookResponse.json()
+      
+      if (monitoringResult.success && webhookResult.success) {
+        setAiMonitoringData({
+          monitoringStats: monitoringResult.data.stats,
+          monitoringConfig: monitoringResult.data.config,
+          webhookStats: webhookResult.data.statistics,
+          lastCheck: monitoringResult.data.lastCheck
+        })
+      }
+    } catch (error) {
+      console.error('Failed to fetch AI monitoring data:', error)
+    } finally {
+      setAiMonitoringLoading(false)
+    }
+  }
+
+  // 수동 모니터링 체크 실행
+  const runManualCheck = async () => {
+    try {
+      setManualCheckLoading(true)
+      
+      const response = await fetch('/api/sentry/monitor', {
+        method: 'POST'
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        // 성공 시 데이터 새로고침
+        await fetchAiMonitoringData()
+      }
+      
+      return result
+    } catch (error) {
+      console.error('Failed to run manual check:', error)
+      throw error
+    } finally {
+      setManualCheckLoading(false)
     }
   }
 
@@ -182,6 +275,7 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchDashboardData()
     fetchTrendData()
+    fetchAiMonitoringData()
   }, [])
 
   // 트렌드 기간 변경 시 트렌드 데이터 다시 로드
@@ -194,6 +288,7 @@ export default function DashboardPage() {
     const interval = setInterval(() => {
       fetchDashboardData()
       fetchTrendData()
+      fetchAiMonitoringData()
     }, 5 * 60 * 1000) // 5분
 
     return () => clearInterval(interval)
@@ -651,6 +746,106 @@ export default function DashboardPage() {
           ))}
         </Grid>
       </Card>
+
+      {/* AI 모니터링 섹션 */}
+      {aiMonitoringData && (
+        <Card withBorder radius="lg" p="lg" mt="lg" style={{ 
+          background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(59, 130, 246, 0.05) 100%)', 
+          borderColor: 'rgba(168, 85, 247, 0.2)' 
+        }}>
+          <Group justify="space-between" align="center" mb="lg">
+            <div>
+              <Title order={4} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <IconBrain size={20} color="violet" />
+                🤖 AI 모니터링
+              </Title>
+              <Text size="sm" c="dimmed">실시간 AI 기반 Sentry 이슈 분석</Text>
+            </div>
+            <Group gap="xs">
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconRobot size={14} />}
+                loading={manualCheckLoading}
+                onClick={async () => {
+                  try {
+                    await runManualCheck()
+                    notifications.show({
+                      color: 'green',
+                      message: '수동 모니터링 체크가 완료되었습니다'
+                    })
+                  } catch (error) {
+                    notifications.show({
+                      color: 'red', 
+                      message: '모니터링 체크에 실패했습니다'
+                    })
+                  }
+                }}
+              >
+                수동 체크
+              </Button>
+              <ActionIcon
+                variant="light"
+                onClick={fetchAiMonitoringData}
+                loading={aiMonitoringLoading}
+              >
+                <IconRefresh size={16} />
+              </ActionIcon>
+            </Group>
+          </Group>
+
+          <Grid gutter="md">
+            {/* AI 분석 통계 */}
+            <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
+              <Card withBorder p="sm" style={{ backgroundColor: 'rgba(34, 197, 94, 0.05)' }}>
+                <Stack align="center" gap="xs">
+                  <Text size="xl" fw={700} c="green">{aiMonitoringData.monitoringStats.totalAnalyzed}</Text>
+                  <Text size="xs" c="dimmed">총 분석 완료</Text>
+                </Stack>
+              </Card>
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
+              <Card withBorder p="sm" style={{ backgroundColor: 'rgba(168, 85, 247, 0.05)' }}>
+                <Stack align="center" gap="xs">
+                  <Text size="xl" fw={700} c="violet">{aiMonitoringData.monitoringStats.enhancedAnalyses}</Text>
+                  <Text size="xs" c="dimmed">고도화 분석</Text>
+                </Stack>
+              </Card>
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
+              <Card withBorder p="sm" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)' }}>
+                <Stack align="center" gap="xs">
+                  <Text size="xl" fw={700} c="blue">{aiMonitoringData.webhookStats.total}</Text>
+                  <Text size="xs" c="dimmed">웹훅 수신</Text>
+                </Stack>
+              </Card>
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
+              <Card withBorder p="sm" style={{ backgroundColor: 'rgba(245, 158, 11, 0.05)' }}>
+                <Stack align="center" gap="xs">
+                  <Badge 
+                    color={aiMonitoringData.monitoringConfig.enabled ? 'green' : 'red'} 
+                    variant="filled"
+                    size="sm"
+                  >
+                    {aiMonitoringData.monitoringConfig.enabled ? '활성' : '비활성'}
+                  </Badge>
+                  <Text size="xs" c="dimmed">모니터링 상태</Text>
+                </Stack>
+              </Card>
+            </Grid.Col>
+          </Grid>
+
+          {aiMonitoringData.lastCheck && (
+            <Text size="xs" c="dimmed" mt="md">
+              🕒 마지막 체크: {new Date(aiMonitoringData.lastCheck).toLocaleString('ko-KR')}
+            </Text>
+          )}
+        </Card>
+      )}
 
       {/* Quick Actions */}
       <Card withBorder radius="lg" p="lg" mt="lg" style={{ 

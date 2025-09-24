@@ -4,7 +4,7 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AppShell, Burger, Group, Title, ScrollArea, NavLink, Box } from '@mantine/core'
-import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable, IconDashboard, IconSearch } from '@tabler/icons-react'
+import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable, IconDashboard, IconSearch, IconRobot, IconWebhook } from '@tabler/icons-react'
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [opened, setOpened] = React.useState(false)
@@ -57,7 +57,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <NavLink
               component={Link}
               href="/monitor"
-              label="버전별 모니터링"
+              label="버전별 모니터링 & AI 분석"
               leftSection={<IconActivity size={16} />}
               active={pathname === '/monitor'}
             />

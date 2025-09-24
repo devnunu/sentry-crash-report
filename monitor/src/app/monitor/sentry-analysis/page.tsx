@@ -15,7 +15,8 @@ import {
   Divider,
   Code,
   List,
-  Anchor
+  Anchor,
+  Checkbox
 } from '@mantine/core'
 import { 
   IconSearch, 
@@ -129,6 +130,7 @@ export default function SentryAnalysisPage() {
   const [result, setResult] = useState<AnalysisResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showDetailedEvidence, setShowDetailedEvidence] = useState(false)
+  const [forceNewAnalysis, setForceNewAnalysis] = useState(false)
 
   const handleAnalyze = async () => {
     if (!input.trim()) {
@@ -147,7 +149,10 @@ export default function SentryAnalysisPage() {
       const response = await fetch('/api/sentry/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: input.trim() })
+        body: JSON.stringify({ 
+          input: input.trim(),
+          forceNewAnalysis: forceNewAnalysis
+        })
       })
 
       const data = await response.json()
@@ -251,6 +256,12 @@ export default function SentryAnalysisPage() {
             >
               {loading ? '분석 중...' : '분석 시작'}
             </Button>
+            <Checkbox
+              label="새로 분석"
+              description="기존 분석 결과가 있어도 새로 AI 분석을 수행합니다"
+              checked={forceNewAnalysis}
+              onChange={(event) => setForceNewAnalysis(event.currentTarget.checked)}
+            />
           </Group>
         </Stack>
       </Card>
