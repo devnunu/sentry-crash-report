@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useMemo, useState } from 'react'
-import { ActionIcon, Badge, Button, Card, Group, Modal, Stack, Text, Title } from '@mantine/core'
+import { ActionIcon, Badge, Button, Card, Grid, Group, Modal, Stack, Text, Title } from '@mantine/core'
 import { IconChevronLeft, IconChevronRight, IconRefresh, IconBrandAndroid, IconBrandApple } from '@tabler/icons-react'
 import StatsCards from '@/components/StatsCards'
 import StatusBadge from '@/components/StatusBadge'
