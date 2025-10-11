@@ -1,24 +1,40 @@
 import { Client, Receiver } from '@upstash/qstash'
 
+// 로컬 개발용 스케줄러 인터페이스
+interface LocalScheduler {
+  scheduleId: string
+  jobId: string
+  endpoint: string
+  cron: string
+  intervalId?: NodeJS.Timeout
+}
+
 export class QStashService {
-  private client: Client
-  private receiver: Receiver
+  private client?: Client
+  private receiver?: Receiver
   private baseUrl: string
+  private isLocalMode: boolean
+  private localSchedulers: Map<string, LocalScheduler> = new Map()
 
   constructor() {
-    const token = process.env.QSTASH_TOKEN
-    const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY
-    const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY
+    // 로컬 모드 확인 (환경 변수로 제어)
+    this.isLocalMode = process.env.NODE_ENV === 'development' && process.env.QSTASH_LOCAL_MODE === 'true'
+    
+    if (!this.isLocalMode) {
+      const token = process.env.QSTASH_TOKEN
+      const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY
+      const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY
 
-    if (!token || !currentSigningKey) {
-      throw new Error('QSTASH_TOKEN and QSTASH_CURRENT_SIGNING_KEY are required')
+      if (!token || !currentSigningKey) {
+        throw new Error('QSTASH_TOKEN and QSTASH_CURRENT_SIGNING_KEY are required')
+      }
+
+      this.client = new Client({ token })
+      this.receiver = new Receiver({
+        currentSigningKey,
+        nextSigningKey
+      })
     }
-
-    this.client = new Client({ token })
-    this.receiver = new Receiver({
-      currentSigningKey,
-      nextSigningKey
-    })
 
     // 환경에 따른 베이스 URL 설정 (서버 우선)
     const appBase = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
@@ -29,6 +45,41 @@ export class QStashService {
       this.baseUrl = 'http://localhost:3000'
     } else {
       this.baseUrl = appBase
+    }
+
+    console.log(`[QStash] Initialized in ${this.isLocalMode ? 'LOCAL' : 'CLOUD'} mode`)
+  }
+
+  // 로컬 모드용 cron 파서 (간단한 분 단위만 지원)
+  private parseSimpleCron(cron: string): number {
+    // "*/5 * * * *" -> 5분마다
+    if (cron.startsWith('*/')) {
+      const minutes = parseInt(cron.split(' ')[0].substring(2))
+      return minutes * 60 * 1000 // 밀리초로 변환
+    }
+    // 기본값: 5분
+    return 5 * 60 * 1000
+  }
+
+  // 로컬 모드용 HTTP 요청 실행
+  private async executeLocalJob(scheduler: LocalScheduler, body: any) {
+    try {
+      console.log(`[QStash-Local] Executing job: ${scheduler.jobId}`)
+      const response = await fetch(`${this.baseUrl}${scheduler.endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-QStash-Job-ID': scheduler.jobId
+        },
+        body: JSON.stringify({
+          ...body,
+          qstashJobId: scheduler.jobId,
+          triggeredBy: 'qstash-local'
+        })
+      })
+      console.log(`[QStash-Local] Job ${scheduler.jobId} response: ${response.status}`)
+    } catch (error) {
+      console.error(`[QStash-Local] Failed to execute job ${scheduler.jobId}:`, error)
     }
   }
 
@@ -45,6 +96,44 @@ export class QStashService {
     console.log(`[QStash] Scheduling job: ${jobId}`)
     console.log(`  - Endpoint: ${this.baseUrl}${endpoint}`)
     console.log(`  - Cron: ${cron}`)
+    console.log(`  - Mode: ${this.isLocalMode ? 'LOCAL' : 'CLOUD'}`)
+
+    if (this.isLocalMode) {
+      // 로컬 모드: 단순 setInterval 사용
+      const scheduleId = `local-${jobId}-${Date.now()}`
+      const interval = this.parseSimpleCron(cron)
+      
+      const scheduler: LocalScheduler = {
+        scheduleId,
+        jobId,
+        endpoint,
+        cron
+      }
+      
+      // 즉시 한 번 실행
+      await this.executeLocalJob(scheduler, body)
+      
+      // 주기적 실행 설정
+      scheduler.intervalId = setInterval(() => {
+        this.executeLocalJob(scheduler, body)
+      }, interval)
+      
+      this.localSchedulers.set(scheduleId, scheduler)
+      
+      console.log(`[QStash-Local] Job scheduled successfully: ${scheduleId} (every ${interval}ms)`)
+      return {
+        success: true,
+        scheduleId,
+        jobId,
+        endpoint,
+        cron
+      }
+    }
+
+    // 클라우드 모드: 기존 QStash 사용
+    if (!this.client) {
+      throw new Error('QStash client not initialized')
+    }
 
     try {
       const result = await this.client.schedules.create({
@@ -82,6 +171,27 @@ export class QStashService {
   async deleteSchedule(scheduleId: string) {
     console.log(`[QStash] Deleting schedule: ${scheduleId}`)
     
+    if (this.isLocalMode) {
+      // 로컬 모드: interval 정리
+      const scheduler = this.localSchedulers.get(scheduleId)
+      if (scheduler) {
+        if (scheduler.intervalId) {
+          clearInterval(scheduler.intervalId)
+        }
+        this.localSchedulers.delete(scheduleId)
+        console.log(`[QStash-Local] Schedule deleted successfully: ${scheduleId}`)
+        return { success: true, scheduleId }
+      } else {
+        console.log(`[QStash-Local] Schedule not found: ${scheduleId}`)
+        return { success: false, scheduleId }
+      }
+    }
+
+    // 클라우드 모드: 기존 QStash 사용
+    if (!this.client) {
+      throw new Error('QStash client not initialized')
+    }
+    
     try {
       await this.client.schedules.delete(scheduleId)
       console.log(`[QStash] Schedule deleted successfully: ${scheduleId}`)
@@ -94,6 +204,23 @@ export class QStashService {
 
   // 모든 스케줄 조회
   async listSchedules() {
+    if (this.isLocalMode) {
+      // 로컬 모드: 메모리의 스케줄러 반환
+      const schedules = Array.from(this.localSchedulers.values()).map(scheduler => ({
+        scheduleId: scheduler.scheduleId,
+        jobId: scheduler.jobId,
+        destination: `${this.baseUrl}${scheduler.endpoint}`,
+        cron: scheduler.cron,
+        mode: 'local'
+      }))
+      return schedules
+    }
+
+    // 클라우드 모드: 기존 QStash 사용
+    if (!this.client) {
+      throw new Error('QStash client not initialized')
+    }
+    
     try {
       const schedules = await this.client.schedules.list()
       return schedules
@@ -105,6 +232,26 @@ export class QStashService {
 
   // 특정 스케줄 조회
   async getSchedule(scheduleId: string) {
+    if (this.isLocalMode) {
+      // 로컬 모드: 메모리에서 조회
+      const scheduler = this.localSchedulers.get(scheduleId)
+      if (scheduler) {
+        return {
+          scheduleId: scheduler.scheduleId,
+          jobId: scheduler.jobId,
+          destination: `${this.baseUrl}${scheduler.endpoint}`,
+          cron: scheduler.cron,
+          mode: 'local'
+        }
+      }
+      throw new Error(`Schedule not found: ${scheduleId}`)
+    }
+
+    // 클라우드 모드: 기존 QStash 사용
+    if (!this.client) {
+      throw new Error('QStash client not initialized')
+    }
+    
     try {
       const schedule = await this.client.schedules.get(scheduleId)
       return schedule
@@ -116,6 +263,17 @@ export class QStashService {
 
   // webhook 서명 검증
   async verifySignature(signature: string, body: string, url?: string, method?: string): Promise<boolean> {
+    if (this.isLocalMode) {
+      // 로컬 모드: 서명 검증 생략 (로컬 테스트용)
+      console.log('[QStash-Local] Signature verification skipped in local mode')
+      return true
+    }
+
+    // 클라우드 모드: 기존 QStash 사용
+    if (!this.receiver) {
+      throw new Error('QStash receiver not initialized')
+    }
+    
     try {
       const isValid = await this.receiver.verify({
         signature,
