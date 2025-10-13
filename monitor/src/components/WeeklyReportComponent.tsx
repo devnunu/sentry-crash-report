@@ -230,7 +230,7 @@ const buildWeeklyDateKey = (report?: ReportExecution) => {
 
 export default function WeeklyReportComponent({ platform }: WeeklyReportComponentProps) {
   const searchParams = useSearchParams()
-  const targetDate = searchParams.get('date')
+  const targetDate = searchParams.get('date') || searchParams.get('startDate')
   
   const {
     reports,

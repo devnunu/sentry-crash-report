@@ -1,5 +1,6 @@
 import { reportsDb } from './database'
 import { getPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl } from '../utils'
+import { buildWeeklyReportUrl } from '../url-utils'
 import type { Platform } from '../types'
 import type { WeeklyReportData, WeeklyIssue, NewIssue, WeeklySurgeIssue, ReleaseFix, AIAnalysis } from './types'
 
@@ -983,7 +984,7 @@ export class WeeklyReportService {
     this.log('[13/13] Slack 전송 완료.')
   }
   
-  // Python 스크립트의 build_weekly_blocks와 동일한 Slack 메시지 구성
+  // Python 스크립트의 build_weekly_blocks와 동일한 Slack 메시지 구성 (요약만 표시)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private buildWeeklyBlocks(
     payload: WeeklyReportData,
@@ -1000,20 +1001,20 @@ export class WeeklyReportService {
       type: 'header',
       text: { type: 'plain_text', text: slackTitle, emoji: true }
     })
-    
+
     const sumThis = payload.this_week
     const sumPrev = payload.prev_week
-    
+
     const events = sumThis.events
     const issues = sumThis.issues
     const users = sumThis.users
     const prevEvents = sumPrev.events
     const prevIssues = sumPrev.issues
     const prevUsers = sumPrev.users
-    
+
     const cfS = sumThis.crash_free_sessions
     const cfU = sumThis.crash_free_users
-    
+
     const summaryLines = [
       this.bold(':memo: Summary'),
       `• 💥 *총 이벤트 발생 건수*: ${this.diffLine(events, prevEvents, '건')}`,
@@ -1022,87 +1023,28 @@ export class WeeklyReportService {
       `• 🛡️ *Crash Free 세션(주간 평균)*: ${this.fmtPctTrunc2(cfS)} / *Crash Free 사용자*: ${this.fmtPctTrunc2(cfU)}`
     ]
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: summaryLines.join('\n') } })
-    
+
     blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `*집계 구간*: ${payload.this_week_range_kst}` }] })
     if (envLabel) {
       blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `*환경*: ${envLabel}` }] })
     }
-    blocks.push({ type: 'divider' })
-    
-    const topThis = payload.top5_events || []
-    const prevMap = new Map((payload.prev_top_events || []).map(x => [String(x.issue_id), x]))
-    if (topThis.length) {
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: this.bold(':sports_medal: 상위 5개 이슈(이벤트)') } })
-      const lines = topThis.slice(0, WEEKLY_TOP_LIMIT).map(x => this.issueLineWithPrev(x, prevMap))
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } })
-      blocks.push({ type: 'divider' })
-    }
-    
-    const newItems = payload.new_issues || []
-    if (newItems.length) {
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: this.bold(':new: 주간 신규 발생 이슈') } })
-      const lines = newItems.map(x => {
-        const title = this.truncate(x.title, TITLE_MAX)
-        const link = x.link || '#'
-        const count = x.count || 0
-        return `• <${link}|${title}> · ${count}건`
-      })
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } })
-      blocks.push({ type: 'divider' })
-    }
-    
-    const surges = payload.surge_issues || []
-    if (surges.length) {
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: this.bold(':chart_with_upwards_trend: 급증(서지) 이슈') } })
-      const lines: string[] = []
-      for (const s of surges) {
-        const title = this.truncate(s.title, TITLE_MAX)
-        const link = s.link || '#'
-        const head = `• <${link}|${title}> · ${s.event_count}건`
-        const tail = `  ↳ 전주 ${s.prev_count}건 → 이번주 ${s.event_count}건. 판정 근거: ${this.surgeReasonKo(s.reasons || [])}`
-        lines.push(head + '\n' + tail)
-      }
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } })
-      blocks.push({ type: 'divider' })
-    }
-    
-    const rfix = payload.this_week_release_fixes || []
-    if (rfix.length) {
-      const grp = rfix[0]
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: this.bold('📦 최신 릴리즈에서 해소된 이슈') } })
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: this.bold(`• ${grp.release}`) } })
-      
-      const disappeared = grp.disappeared || []
-      const decreased = grp.decreased || []
-      
-      if (disappeared.length) {
-        const rows = [this.bold('  ◦ 사라진 이슈(전후 7일 비교: 0건 & 현재 Resolved)')]
-        for (const it of disappeared) {
-          const title = this.truncate(it.title, TITLE_MAX)
-          rows.push(`    • <${it.link}|${title}> — 전 7일 ${it.pre_7d_events}건 → 후 7일 0건`)
+
+    // === 상세 리포트 페이지로 이동하는 버튼 추가 ===
+    const detailPageUrl = this.buildWeeklyReportPageUrl(payload.this_week_range_kst)
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: '📊 상세 리포트 보기'
+          },
+          url: detailPageUrl
         }
-        blocks.push({ type: 'section', text: { type: 'mrkdwn', text: rows.join('\n') } })
-      }
-      
-      if (decreased.length) {
-        const rows = [this.bold('  ◦ 많이 감소한 이슈(전후 7일 -80%p 이상)')]
-        for (const it of decreased) {
-          const title = this.truncate(it.title, TITLE_MAX)
-          rows.push(`    • <${it.link}|${title}> — 전 7일 ${it.pre_7d_events}건 → 후 7일 ${it.post_7d_events}건 (${it.delta_pct}pp)`)
-        }
-        blocks.push({ type: 'section', text: { type: 'mrkdwn', text: rows.join('\n') } })
-      }
-      
-      blocks.push({ type: 'divider' })
-    }
-    
-    try {
-      const actionsBlock = this.buildFooterActionsBlock(org, projectId, envLabel, weekWindowUtc)
-      blocks.push(actionsBlock)
-    } catch (error) {
-      // 액션 블록 실패는 무시하고 계속 진행
-    }
-    
+      ]
+    })
+
     return blocks
   }
   
@@ -1204,7 +1146,7 @@ export class WeeklyReportService {
     } else {
       dashboardUrl = `https://sentry.io/organizations/${org}/projects/`
     }
-    
+
     // 2) 이슈 목록 URL
     const base = `https://sentry.io/organizations/${org}/issues/`
     const qParts = ['level:[error,fatal]']
@@ -1215,11 +1157,19 @@ export class WeeklyReportService {
     const s = encodeURIComponent(startIsoUtc)
     const e = encodeURIComponent(endIsoUtc)
     const issuesFilteredUrl = `${base}?project=${projectId}&query=${q}&start=${s}&end=${e}`
-    
+
     return {
       dashboard_url: dashboardUrl,
       issues_filtered_url: issuesFilteredUrl
     }
+  }
+
+  private buildWeeklyReportPageUrl(weekRangeKst: string): string {
+    // 주간 범위에서 시작 날짜 추출 (ex: "2024-01-01 ~ 2024-01-07 (KST)" -> "2024-01-01")
+    const startDate = weekRangeKst.split(' ~ ')[0]
+
+    // 동적 URL 생성 유틸리티 사용
+    return buildWeeklyReportUrl(this.platform, startDate)
   }
 }
 

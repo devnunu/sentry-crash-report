@@ -2,9 +2,9 @@ import { reportsDb } from './database'
 import { aiAnalysisService } from './ai-analysis'
 import { createSlackService } from '../slack'
 import { createSentryService } from '../sentry'
-import { 
-  getKSTDayBounds, 
-  getYesterday, 
+import {
+  getKSTDayBounds,
+  getYesterday,
   formatKSTDate,
   mean,
   std,
@@ -13,14 +13,15 @@ import {
   calculateZScore,
   calculateMADScore
 } from './utils'
-import type { 
-  DailyReportData, 
-  TopIssue, 
-  NewIssue, 
-  SurgeIssue, 
-  AIAnalysis 
+import type {
+  DailyReportData,
+  TopIssue,
+  NewIssue,
+  SurgeIssue,
+  AIAnalysis
 } from './types'
 import { getRequiredEnv, getPlatformEnv, getRequiredPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl } from '../utils'
+import { buildDailyReportUrl } from '../url-utils'
 import type { Platform } from '../types'
 
 export interface DailyReportOptions {
@@ -897,7 +898,7 @@ export class DailyReportService {
     const envDash = getPlatformEnv(this.platform, 'DASHBOARD_URL')
     const dashId = getPlatformEnv(this.platform, 'DASH_BOARD_ID')
     let dashboardUrl: string
-    
+
     if (envDash) {
       dashboardUrl = envDash
     } else if (dashId) {
@@ -921,6 +922,11 @@ export class DailyReportService {
       dashboard_url: dashboardUrl,
       issues_filtered_url: issuesFilteredUrl
     }
+  }
+
+  private buildDailyReportPageUrl(dateLabel: string): string {
+    // 동적 URL 생성 유틸리티 사용
+    return buildDailyReportUrl(this.platform, dateLabel)
   }
 
   private normTitle(s: string): string {
@@ -1065,85 +1071,24 @@ export class DailyReportService {
           type: 'mrkdwn',
           text: `*집계 구간*: ${kstWindow}`
         }]
-      },
-      { type: 'divider' }
+      }
     ]
 
-    // === 여기서 AI 섹션 삽입 ===
-    if (aiBlocks) {
-      blocks.push(...aiBlocks)
-    }
-
-    // 아래는 기존 섹션: 타이틀은 이모지 + 굵게 유지
-    const top = dayObj.top_5_issues || []
-    if (top.length > 0) {
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*:sports_medal: 상위 5개 이슈*'
+    // === 상세 리포트 페이지로 이동하는 버튼 추가 ===
+    const detailPageUrl = this.buildDailyReportPageUrl(dateLabel)
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: '📊 상세 리포트 보기'
+          },
+          url: detailPageUrl
         }
-      })
-      const mergedLines = aiData ? this.renderTop5WithAi(top, aiData) : top.map((x: TopIssue) => this.issueLineKr(x)).join('\n')
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: mergedLines
-        }
-      })
-      blocks.push({ type: 'divider' })
-    }
-
-    const newIssues = (dayObj.new_issues || []).slice(0, SLACK_MAX_NEW)
-    if (newIssues.length > 0) {
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*:new: 신규 발생 이슈*'
-        }
-      })
-      const lines = newIssues.map((x: NewIssue) => this.issueLineKr(x)).join('\n')
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: lines
-        }
-      })
-      blocks.push({ type: 'divider' })
-    }
-
-    const surge = (dayObj.surge_issues || []).filter((x: SurgeIssue) => parseInt(String(x.event_count || 0)) >= SURGE_ABSOLUTE_MIN).slice(0, SLACK_MAX_SURGE)
-    if (surge.length > 0) {
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*:chart_with_upwards_trend: 급증(서지) 이슈*'
-        }
-      })
-      const lines = surge.map((x: SurgeIssue) => this.surgeExplanationKr(x)).join('\n')
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: lines
-        }
-      })
-      blocks.push({ type: 'divider' })
-    }
-
-    // === 하단 액션 버튼 ===
-    if (org && projectId) {
-      try {
-        const actionsBlock = this.buildFooterActionsBlock(org, projectId, envLabel, win)
-        blocks.push(actionsBlock)
-      } catch {
-        // 액션 블록 생성 실패는 보고만 생략 (메시지 전송은 계속)
-      }
-    }
+      ]
+    })
 
     return blocks
   }
