@@ -3,7 +3,7 @@
 """
 Sentry 릴리즈 모니터링 리포트 (특정 버전 중심, 7일 한정 러닝)
 - 입력: base release (예: 4.69.0) → 실행 시점에 4.69.0+908 같은 full 버전으로 자동 매칭
-- 첫 24시간은 30분마다, 이후 기간은 60분마다 집계 창 권장 (tick 실행 주기로 조절)
+- 1시간마다 집계 창 권장 (tick 실행 주기로 조절)
 - 집계 항목(스냅샷 기준): 이벤트/유니크 이슈/영향 사용자 + 윈도우 Top5 이슈
 - 델타(직전 tick 대비)와 누적(모니터 시작 이후)의 개략 수치 동시 제공
 - Slack Webhook 전송
@@ -12,7 +12,7 @@ Sentry 릴리즈 모니터링 리포트 (특정 버전 중심, 7일 한정 러�
   # 모니터 생성 (안드로이드, base release만 입력)
   python sentry_release_monitor.py start --platform android --base-release 4.69.0
 
-  # 주기 실행 (CI/크론에서 30분 또는 60분마다)
+  # 주기 실행 (CI/크론에서 60분마다)
   python sentry_release_monitor.py tick
 """
 
@@ -324,10 +324,7 @@ def create_monitor(platform: str, base_release: str, days: int=7) -> Dict[str,An
     return rec
 
 def pick_cadence(rec: Dict[str,Any]) -> Tuple[timedelta, str]:
-    start = from_iso(rec["started_at"])
-    elapsed = now_utc() - start
-    if elapsed <= timedelta(days=1):
-        return timedelta(minutes=30), "30분"
+    # 모든 기간 1시간 간격으로 통일
     return timedelta(hours=1), "1시간"
 
 def compute_window(rec: Dict[str,Any]) -> Tuple[datetime, datetime]:

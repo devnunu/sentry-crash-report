@@ -5,6 +5,7 @@ import { monitoringService } from '@/lib/monitor'
 import { StopMonitorSchema } from '@/lib/types'
 import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
 import { qstashService } from '@/lib/qstash-client'
+import { stopLocalMonitorRunner } from '@/lib/local-monitor-runner'
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,12 +42,15 @@ export async function POST(request: NextRequest) {
 
     // 모니터 중단
     const stoppedMonitor = await db.stopMonitorSession(monitorId)
-    
+
     // Slack 중단 알림 (비동기, 실패해도 API 응답에는 영향 없음)
     monitoringService.notifyMonitorStop(stoppedMonitor, 'manual').catch(error => {
       console.error('Failed to send stop notification:', error)
     })
-    
+
+    // 로컬 개발 러너 정리
+    stopLocalMonitorRunner(monitorId)
+
     return NextResponse.json(
       createApiResponse({
         monitorId: stoppedMonitor.id,

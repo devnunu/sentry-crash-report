@@ -3,12 +3,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { formatKST, formatRelativeTime } from '@/lib/utils';
 import type { MonitorSession, Platform, MonitorHistory } from '@/lib/types';
-import { Button, Card, Checkbox, Group, NumberInput, Select, Stack, Table, Text, TextInput, Title, useMantineTheme } from '@mantine/core';
+import { Button, Card, Group, NumberInput, Select, Stack, Table, Text, TextInput, Title, useMantineTheme } from '@mantine/core';
+import Link from 'next/link';
 import StatusBadge from '@/components/StatusBadge'
 import TableWrapper from '@/components/TableWrapper'
 import StatsCards from '@/components/StatsCards'
 import { notifications } from '@mantine/notifications'
 import { useMediaQuery } from '@mantine/hooks'
+import ReleaseSearchModal from '@/components/ReleaseSearchModal'
 
 interface ApiResponse<T> {
   success: boolean;
@@ -64,6 +66,14 @@ const getStatusBadge = (status: string): { color: string; label: string } => {
   }
 };
 
+const getMonitorModeLabel = (monitor: MonitorWithHistory) => {
+  if (monitor.is_test_mode) {
+    const interval = monitor.custom_interval_minutes
+    return interval ? `🧪 테스트 · ${interval}분 간격` : '🧪 테스트 모드'
+  }
+  return '🟢 운영 · 60분 간격'
+}
+
 
 const thStyle: React.CSSProperties = {
   padding: '12px 14px',
@@ -102,9 +112,15 @@ export default function MonitorPage() {
   const [platform, setPlatform] = useState<Platform>('android');
   const [baseRelease, setBaseRelease] = useState('');
   const [days, setDays] = useState(7);
-  const [isTestMode, setIsTestMode] = useState(false);
   const [startLoading, setStartLoading] = useState(false);
   const [startMessage, setStartMessage] = useState('');
+  const [matchedRelease, setMatchedRelease] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const isTestMode = false;
+
+  useEffect(() => {
+    setMatchedRelease('')
+  }, [platform])
   
   // 정지 중인 모니터 ID
   const [stoppingId, setStoppingId] = useState<string>('');
@@ -147,6 +163,11 @@ export default function MonitorPage() {
       setStartMessage('❌ 베이스 릴리즈를 입력해주세요');
       return;
     }
+
+    if (!matchedRelease) {
+      setStartMessage('❌ 릴리즈 검색 후 실제 릴리즈를 선택해주세요');
+      return;
+    }
     
     setStartLoading(true);
     setStartMessage('');
@@ -155,7 +176,13 @@ export default function MonitorPage() {
       const response = await fetch('/api/monitor/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform, baseRelease: baseRelease.trim(), days, isTestMode })
+        body: JSON.stringify({
+          platform,
+          baseRelease: baseRelease.trim(),
+        matchedRelease,
+        days,
+        isTestMode
+      })
       });
       
       const result: ApiResponse<{ message: string; monitorId: string }> = await response.json();
@@ -168,6 +195,7 @@ export default function MonitorPage() {
       setStartMessage(`✅ ${msg}`);
       notifications.show({ color: 'green', message: `모니터 시작: ${msg}` });
       setBaseRelease(''); // 폼 리셋
+      setMatchedRelease('');
       
       // 상태 새로고침
       setTimeout(() => {
@@ -227,7 +255,7 @@ export default function MonitorPage() {
         <div>
           <Title order={2}>🚀 버전별 모니터링</Title>
           <Text c="dimmed" size="sm">
-            특정 릴리즈 버전의 error/fatal 이슈를 7일간 자동으로 모니터링합니다. 첫 24시간은 30분 간격, 이후는 1시간 간격으로 리포트를 제공합니다.
+            특정 릴리즈 버전의 error/fatal 이슈를 7일간 자동으로 모니터링합니다. 기본 간격은 1시간이며, 테스트 모드를 사용하면 1~60분 간격으로 즉시 검증할 수 있습니다.
           </Text>
         </div>
       </Group>
@@ -243,7 +271,7 @@ export default function MonitorPage() {
         
         <form onSubmit={handleStart}>
           <Stack gap="lg">
-            <Group grow>
+            <Group grow align="flex-end">
               <Select
                 label="플랫폼"
                 description="모니터링할 플랫폼을 선택하세요"
@@ -258,12 +286,16 @@ export default function MonitorPage() {
               />
               <TextInput
                 label="베이스 릴리즈"
-                description="모니터링할 릴리즈 버전 (예: 4.69.0)"
-                value={baseRelease}
-                onChange={(e) => setBaseRelease(e.currentTarget.value)}
-                placeholder="4.69.0"
-                required
+                description="릴리즈 검색 버튼을 통해 실제 버전을 선택하세요"
+                value={matchedRelease ? `${baseRelease} → ${matchedRelease}` : baseRelease}
+                placeholder="예: 4.70.0"
+                readOnly
+                onClick={() => setIsModalOpen(true)}
                 size="md"
+                required
+                rightSection={<Button size="xs" variant="light" onClick={() => setIsModalOpen(true)}>검색</Button>}
+                rightSectionWidth={80}
+                styles={{ input: { cursor: 'pointer' } }}
               />
               <NumberInput
                 label="모니터링 기간"
@@ -276,26 +308,29 @@ export default function MonitorPage() {
                 suffix="일"
               />
             </Group>
-            
-            <Group justify="space-between" align="flex-end">
-              <Checkbox
-                label="🧪 테스트 모드"
-                description="테스트용 Slack 채널로 알림을 전송합니다"
-                checked={isTestMode}
-                onChange={(e) => setIsTestMode(e.currentTarget.checked)}
-                size="md"
-              />
-              <Button 
-                type="submit" 
-                loading={startLoading} 
+            <Stack gap="sm">
+              <Button
+                type="submit"
+                loading={startLoading}
                 color="green"
                 size="md"
                 leftSection="🚀"
-                style={{ minWidth: 140 }}
+                fullWidth
+                disabled={startLoading || !matchedRelease}
               >
                 {startLoading ? '시작 중...' : '모니터링 시작'}
               </Button>
-            </Group>
+              <Button
+                component={Link}
+                href="/monitor/settings/test/monitor"
+                variant="light"
+                size="md"
+                leftSection="🧪"
+                fullWidth
+              >
+                테스트 발송하기
+              </Button>
+            </Stack>
             
             {startMessage && (
               <Card withBorder p="md" style={{ 
@@ -363,6 +398,8 @@ export default function MonitorPage() {
                     <Text size="sm">{formatKST(monitor.expires_at)}</Text>
                     <Text size="xs" c="dimmed">남은 기간</Text>
                     <Text size="sm">{formatRelativeTime(monitor.expires_at)}</Text>
+                    <Text size="xs" c="dimmed">모드 / 주기</Text>
+                    <Text size="sm">{getMonitorModeLabel(monitor)}</Text>
                     <Text size="xs" c="dimmed">최근 실행</Text>
                     {monitor.lastHistory ? (
                       <div>
@@ -388,6 +425,7 @@ export default function MonitorPage() {
                     <Table.Th>시작일(KST)</Table.Th>
                     <Table.Th>만료일(KST)</Table.Th>
                     <Table.Th>남은 기간</Table.Th>
+                    <Table.Th>모드/주기</Table.Th>
                     <Table.Th>최근 실행</Table.Th>
                     <Table.Th style={{ textAlign: 'right' }}>액션</Table.Th>
                   </Table.Tr>
@@ -405,6 +443,7 @@ export default function MonitorPage() {
                         <Table.Td>{formatKST(monitor.started_at)}</Table.Td>
                         <Table.Td>{formatKST(monitor.expires_at)}</Table.Td>
                         <Table.Td>{formatRelativeTime(monitor.expires_at)}</Table.Td>
+                        <Table.Td>{getMonitorModeLabel(monitor)}</Table.Td>
                         <Table.Td>
                           {monitor.lastHistory ? (
                             <div>
@@ -449,3 +488,14 @@ export default function MonitorPage() {
     </div>
   );
 }
+      <ReleaseSearchModal
+        opened={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        platform={platform}
+        baseRelease={baseRelease}
+        onApply={(base, matched) => {
+          setBaseRelease(base)
+          setMatchedRelease(matched)
+          setIsModalOpen(false)
+        }}
+      />

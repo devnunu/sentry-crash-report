@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS monitor_sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   qstash_schedule_id TEXT,
-  is_test_mode BOOLEAN NOT NULL DEFAULT FALSE
+  is_test_mode BOOLEAN NOT NULL DEFAULT FALSE,
+  custom_interval_minutes INTEGER,
+  metadata JSONB DEFAULT '{}'::jsonb
 );
 
 -- 모니터링 히스토리 테이블 (각 tick 실행 결과 저장)

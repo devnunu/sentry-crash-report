@@ -15,13 +15,15 @@ export interface MonitorExecutionResult {
   windowEnd?: Date
   topIssues?: TopIssue[]
   slackSent?: boolean
-  interval?: '30m' | '1h'
+  interval?: '30m' | '1h' | 'custom'
+  customIntervalMinutes?: number
+  totalAggregation?: WindowAggregation
 }
 
 export class MonitoringService {
   
   // 단일 모니터 실행
-  async executeMonitor(monitor: MonitorSession): Promise<MonitorExecutionResult> {
+  async executeMonitor(monitor: MonitorSession, customIntervalMinutes?: number): Promise<MonitorExecutionResult> {
     const result: MonitorExecutionResult = {
       monitorId: monitor.id,
       platform: monitor.platform,
@@ -32,20 +34,38 @@ export class MonitoringService {
     try {
       // 마지막 실행 시간 조회
       const lastHistory = await db.getLastMonitorHistory(monitor.id)
-      
-      // 스케줄 분석
-      const scheduleConfig = SchedulerService.analyzeSchedule(
-        monitor.id,
-        monitor.platform,
-        monitor.base_release,
-        monitor.started_at,
-        lastHistory?.executed_at
-      )
-      
-      result.interval = scheduleConfig.interval
-      
+
+      // 테스트 모드인 경우 커스텀 간격 사용
+      const isTestMode = monitor.is_test_mode && customIntervalMinutes
+      let shouldExecute: boolean
+      let interval: '30m' | '1h' | 'custom'
+
+      if (isTestMode) {
+        shouldExecute = SchedulerService.shouldExecuteWithCustomInterval(
+          customIntervalMinutes!,
+          lastHistory?.executed_at
+        )
+        interval = 'custom'
+        console.log(`🧪 [테스트 모드] ${customIntervalMinutes}분 간격으로 실행 조건 확인: ${shouldExecute}`)
+      } else {
+        const scheduleConfig = SchedulerService.analyzeSchedule(
+          monitor.id,
+          monitor.platform,
+          monitor.base_release,
+          monitor.started_at,
+          lastHistory?.executed_at
+        )
+        shouldExecute = scheduleConfig.shouldExecute
+        interval = scheduleConfig.interval
+      }
+
+      result.interval = interval
+      if (isTestMode) {
+        result.customIntervalMinutes = customIntervalMinutes!
+      }
+
       // 실행 조건 확인
-      if (!scheduleConfig.shouldExecute) {
+      if (!shouldExecute) {
         result.status = 'skipped'
         return result
       }
@@ -53,10 +73,11 @@ export class MonitoringService {
       console.log(`🔍 [${monitor.platform}:${monitor.base_release}] 모니터링 실행 중...`)
       
       // 1. matched_release 확인 또는 매칭
+      const platformSentryService = createSentryService(monitor.platform)
+
       let matchedRelease = monitor.matched_release
       if (!matchedRelease) {
         console.log(`🔍 [${monitor.platform}:${monitor.base_release}] 릴리즈 매칭 중...`)
-        const platformSentryService = createSentryService(monitor.platform)
         const foundRelease = await platformSentryService.matchFullRelease(monitor.base_release)
         
         if (!foundRelease) {
@@ -66,14 +87,40 @@ export class MonitoringService {
         matchedRelease = foundRelease
         
         // 데이터베이스 업데이트
-        await db.updateMonitorSession(monitor.id, { matched_release: matchedRelease })
+        const updated = await db.updateMonitorSession(monitor.id, { matched_release: matchedRelease })
+        monitor.matched_release = updated.matched_release
+        monitor.metadata = updated.metadata
         console.log(`✅ [${monitor.platform}:${monitor.base_release}] 릴리즈 매칭 완료: ${matchedRelease}`)
       }
-      
+      monitor.matched_release = matchedRelease
+
+      const metadata = (monitor.metadata ?? {}) as Record<string, unknown>
+      let releaseStartIso = typeof metadata.release_started_at === 'string' ? metadata.release_started_at : undefined
+      let releaseStart = releaseStartIso ? new Date(releaseStartIso) : undefined
+      if (!releaseStart || Number.isNaN(releaseStart.getTime())) {
+        const releaseCreatedAt = await platformSentryService.getReleaseCreatedAt(matchedRelease)
+        releaseStart = releaseCreatedAt ?? new Date(monitor.started_at)
+        releaseStartIso = releaseStart.toISOString()
+        const newMetadata = {
+          ...metadata,
+          release_started_at: releaseStartIso
+        }
+        const updated = await db.updateMonitorSession(monitor.id, { metadata: newMetadata })
+        monitor.metadata = updated.metadata
+      }
+
+      releaseStart = releaseStartIso ? new Date(releaseStartIso) : new Date(monitor.started_at)
+      if (releaseStart > new Date()) {
+        releaseStart = new Date(monitor.started_at)
+      }
+
       // 2. 시간 윈도우 계산
-      const intervalMinutes = scheduleConfig.interval === '30m' ? 30 : 60
+      const intervalMinutes = isTestMode ? customIntervalMinutes! : (interval === '30m' ? 30 : 60)
       const windowEnd = new Date()
-      const windowStart = lastHistory?.executed_at 
+      if (releaseStart >= windowEnd) {
+        releaseStart = new Date(windowEnd.getTime() - intervalMinutes * 60 * 1000)
+      }
+      const windowStart = lastHistory?.executed_at
         ? new Date(lastHistory.executed_at)
         : new Date(Date.now() - intervalMinutes * 60 * 1000)
       
@@ -83,14 +130,15 @@ export class MonitoringService {
       console.log(`📊 [${monitor.platform}:${monitor.base_release}] 집계 구간: ${windowStart.toISOString()} ~ ${windowEnd.toISOString()}`)
       
       // 3. Sentry 데이터 수집
-      const platformSentryService = createSentryService(monitor.platform)
       const [aggregation, topIssues] = await Promise.all([
         platformSentryService.getWindowAggregates(matchedRelease, windowStart, windowEnd),
         platformSentryService.getTopIssues(matchedRelease, windowStart, windowEnd, 5)
       ])
+      const totalAggregation = await platformSentryService.getWindowAggregates(matchedRelease, releaseStart, windowEnd)
       
       result.aggregation = aggregation
       result.topIssues = topIssues
+      result.totalAggregation = totalAggregation
       
       console.log(`📈 [${monitor.platform}:${monitor.base_release}] 집계 결과: Events=${aggregation.events}, Issues=${aggregation.issues}, Users=${aggregation.users}`)
       
@@ -103,23 +151,16 @@ export class MonitoringService {
           }
         : { events: 0, issues: 0, users: 0 } // 첫 실행
       
-      // 누적 데이터 계산
-      const allHistory = await db.getMonitorHistory(monitor.id, 1000)
-      const cumulative: WindowAggregation = allHistory.reduce(
-        (acc, h) => ({
-          events: acc.events + (h.events_count || 0),
-          issues: acc.issues + (h.issues_count || 0),
-          users: acc.users + (h.users_count || 0)
-        }),
-        aggregation // 현재 집계도 포함
-      )
-      
       // 5. Slack 알림 전송
       let slackSent = false
       const platformSlackService = createSlackService(monitor.platform, monitor.is_test_mode || false)
       try {
         const actionUrls = platformSentryService.buildActionUrls(matchedRelease, windowStart, windowEnd)
-        
+
+        const cadenceLabel = interval === 'custom'
+          ? `${customIntervalMinutes}분`
+          : interval === '30m' ? '30분' : '1시간'
+
         await platformSlackService.sendMonitoringReport(
           monitor.platform,
           monitor.base_release,
@@ -128,12 +169,12 @@ export class MonitoringService {
           windowEnd,
           aggregation,
           deltas,
-          cumulative,
+          totalAggregation,
           topIssues,
           actionUrls,
-          scheduleConfig.interval
+          cadenceLabel
         )
-        
+
         slackSent = true
         console.log(`📤 [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 완료`)
       } catch (slackError) {
@@ -163,7 +204,65 @@ export class MonitoringService {
     
     return result
   }
-  
+
+  // 특정 모니터 실행 (테스트 모드용)
+  async executeSpecificMonitor(monitorId: string, customIntervalMinutes?: number): Promise<{
+    processedCount: number
+    skippedCount: number
+    errorCount: number
+    results: MonitorExecutionResult[]
+  }> {
+    console.log(`🧪 특정 모니터 실행 시작: ${monitorId}`)
+
+    const monitor = await db.getMonitorSession(monitorId)
+    if (!monitor) {
+      console.error(`❌ 모니터를 찾을 수 없습니다: ${monitorId}`)
+      return {
+        processedCount: 0,
+        skippedCount: 0,
+        errorCount: 1,
+        results: [{
+          monitorId,
+          platform: 'unknown',
+          baseRelease: 'unknown',
+          status: 'error',
+          error: '모니터를 찾을 수 없습니다'
+        }]
+      }
+    }
+
+    if (monitor.status !== 'active') {
+      console.log(`⏸️ 모니터 ${monitor.id}는 활성 상태가 아닙니다 (${monitor.status}), 실행을 건너뜁니다.`)
+      return {
+        processedCount: 0,
+        skippedCount: 1,
+        errorCount: 0,
+        results: [{
+          monitorId: monitor.id,
+          platform: monitor.platform,
+          baseRelease: monitor.base_release,
+          status: 'skipped',
+          error: `모니터 상태가 ${monitor.status} 입니다`
+        }]
+      }
+    }
+
+    const result = await this.executeMonitor(monitor, customIntervalMinutes)
+
+    const processedCount = result.status === 'success' ? 1 : 0
+    const skippedCount = result.status === 'skipped' ? 1 : 0
+    const errorCount = result.status === 'error' ? 1 : 0
+
+    console.log(`📊 특정 모니터 실행 완료: ${processedCount}개 성공, ${skippedCount}개 스킵, ${errorCount}개 실패`)
+
+    return {
+      processedCount,
+      skippedCount,
+      errorCount,
+      results: [result]
+    }
+  }
+
   // 모든 활성 모니터 실행
   async executeAllActiveMonitors(): Promise<{
     processedCount: number
@@ -215,7 +314,9 @@ export class MonitoringService {
         monitor.platform,
         monitor.base_release,
         monitor.id,
-        new Date(monitor.expires_at)
+        new Date(monitor.expires_at),
+        monitor.custom_interval_minutes ?? undefined,
+        monitor.is_test_mode ?? false
       )
       console.log(`📤 [${monitor.platform}:${monitor.base_release}] 시작 알림 전송 완료`)
     } catch (error) {

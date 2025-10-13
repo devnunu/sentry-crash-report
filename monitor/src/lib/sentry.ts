@@ -8,9 +8,26 @@ const SENTRY_API_BASE = 'https://sentry.io/api/0'
 interface SentryRelease {
   version: string
   shortVersion?: string
-  dateReleased?: string
+  dateReleased?: string | null
   dateCreated: string
+  projects?: SentryReleaseProject[]
+  deploys?: SentryReleaseDeploy[]
+  lastDeploy?: SentryReleaseDeploy | null
+  environments?: string[]
 }
+
+interface SentryReleaseProject {
+  slug: string
+  lastDeploy?: SentryReleaseDeploy | null
+  latestDeploys?: Array<SentryReleaseDeploy | null>
+  environments?: string[]
+}
+
+interface SentryReleaseDeploy {
+  environment?: string | null
+}
+
+interface SentryReleaseDetail extends SentryRelease {}
 
 interface SentryEventsResponse {
   data: Array<{
@@ -41,6 +58,20 @@ export class SentryService {
   
   constructor(platform: Platform = 'android') {
     this.platform = platform
+  }
+
+  private getBuildNumber(version: string): number {
+    const plusIndex = version.indexOf('+')
+    if (plusIndex === -1) return 0
+    const build = version.substring(plusIndex + 1)
+    const parsed = parseInt(build, 10)
+    return Number.isNaN(parsed) ? 0 : parsed
+  }
+
+  private getReleaseTimestamp(release: SentryRelease): number {
+    const timestamp = release.dateReleased || release.dateCreated
+    const date = timestamp ? new Date(timestamp) : null
+    return date && !Number.isNaN(date.getTime()) ? date.getTime() : 0
   }
   
   private getAuthHeaders(): HeadersInit {
@@ -168,7 +199,177 @@ export class SentryService {
     
     return releases
   }
-  
+
+  private async getReleaseDetail(version: string): Promise<SentryReleaseDetail | null> {
+    const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
+    const projectId = await this.resolveProjectId()
+
+    try {
+      const release = await this.fetchSentryAPI<SentryReleaseDetail>(
+        `/organizations/${orgSlug}/releases/${encodeURIComponent(version)}/`,
+        { project: projectId }
+      )
+      return release
+    } catch (error) {
+      console.error(`Failed to get release detail for ${version}:`, error)
+      return null
+    }
+  }
+
+  private releaseIncludesProject(detail: SentryReleaseDetail, projectSlug: string): boolean {
+    if (!detail.projects || detail.projects.length === 0) {
+      return true
+    }
+    return detail.projects.some(project => project?.slug === projectSlug)
+  }
+
+  private releaseMatchesEnvironment(detail: SentryReleaseDetail, targetEnv: string): boolean {
+    if (!targetEnv) {
+      return true
+    }
+
+    const envSet = new Set<string>()
+
+    const pushEnv = (env?: string | null) => {
+      if (!env) return
+      envSet.add(env.trim().toLowerCase())
+    }
+
+    if (Array.isArray(detail.environments)) {
+      detail.environments.forEach(env => pushEnv(env))
+    }
+
+    if (detail.deploys) {
+      detail.deploys.forEach(deploy => pushEnv(deploy?.environment ?? undefined))
+    }
+
+    if (detail.lastDeploy) {
+      pushEnv(detail.lastDeploy.environment ?? undefined)
+    }
+
+    if (detail.projects) {
+      detail.projects.forEach(project => {
+        if (!project) return
+        pushEnv(project.lastDeploy?.environment ?? undefined)
+        if (Array.isArray(project.latestDeploys)) {
+          project.latestDeploys.forEach(deploy => pushEnv(deploy?.environment ?? undefined))
+        }
+        if (Array.isArray(project.environments)) {
+          project.environments.forEach(env => pushEnv(env))
+        }
+      })
+    }
+
+    return envSet.size === 0 ? false : envSet.has(targetEnv)
+  }
+
+  private collectEnvironments(detail: SentryReleaseDetail): string[] {
+    const envSet = new Set<string>()
+
+    const pushEnv = (env?: string | null) => {
+      if (!env) return
+      envSet.add(env.trim())
+    }
+
+    if (Array.isArray(detail.environments)) {
+      detail.environments.forEach(env => pushEnv(env))
+    }
+
+    if (detail.deploys) {
+      detail.deploys.forEach(deploy => pushEnv(deploy?.environment ?? undefined))
+    }
+
+    if (detail.lastDeploy) {
+      pushEnv(detail.lastDeploy.environment ?? undefined)
+    }
+
+    if (detail.projects) {
+      detail.projects.forEach(project => {
+        if (!project) return
+        pushEnv(project.lastDeploy?.environment ?? undefined)
+        if (Array.isArray(project.latestDeploys)) {
+          project.latestDeploys.forEach(deploy => pushEnv(deploy?.environment ?? undefined))
+        }
+        if (Array.isArray(project.environments)) {
+          project.environments.forEach(env => pushEnv(env))
+        }
+      })
+    }
+
+    return Array.from(envSet)
+  }
+
+  async searchReleaseCandidates(baseRelease: string, limit: number = 20) {
+    const releases = await this.listReleases(100, 10)
+    const projectSlug = getRequiredPlatformEnv(this.platform, 'PROJECT_SLUG')
+    const targetEnv = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', '').trim().toLowerCase()
+
+    const candidates = releases.filter(r => {
+      const version = r.version || r.shortVersion || ''
+      return version.startsWith(baseRelease)
+    })
+
+    const sorted = candidates.sort((a, b) => {
+      const tsA = this.getReleaseTimestamp(a)
+      const tsB = this.getReleaseTimestamp(b)
+      if (tsA !== tsB) {
+        return tsB - tsA
+      }
+      const buildA = this.getBuildNumber(a.version || a.shortVersion || '')
+      const buildB = this.getBuildNumber(b.version || b.shortVersion || '')
+      return buildB - buildA
+    })
+
+    const results: Array<{
+      version: string
+      dateReleased?: string | null
+      dateCreated: string
+      environments: string[]
+      build: number
+      projectMatched: boolean
+      environmentMatched: boolean
+    }> = []
+
+    for (const candidate of sorted) {
+      const version = candidate.version || candidate.shortVersion
+      if (!version) continue
+
+      const detail = await this.getReleaseDetail(version)
+      if (!detail) continue
+
+      const projectMatch = this.releaseIncludesProject(detail, projectSlug)
+      if (!projectMatch) continue
+
+      const envMatched = targetEnv ? this.releaseMatchesEnvironment(detail, targetEnv) : true
+
+      results.push({
+        version: detail.version,
+        dateReleased: detail.dateReleased ?? null,
+        dateCreated: detail.dateCreated,
+        environments: this.collectEnvironments(detail),
+        build: this.getBuildNumber(detail.version),
+        projectMatched: projectMatch,
+        environmentMatched: envMatched
+      })
+
+      if (results.length >= limit) {
+        break
+      }
+    }
+
+    return results.sort((a, b) => {
+      if (a.environmentMatched !== b.environmentMatched) {
+        return Number(b.environmentMatched) - Number(a.environmentMatched)
+      }
+      const timeA = new Date(a.dateReleased || a.dateCreated).getTime()
+      const timeB = new Date(b.dateReleased || b.dateCreated).getTime()
+      if (timeA !== timeB) {
+        return timeB - timeA
+      }
+      return b.build - a.build
+    })
+  }
+
   // 베이스 릴리즈와 매칭되는 전체 버전 찾기
   async matchFullRelease(baseRelease: string): Promise<string | null> {
     // semver core 형식 검증 (x.y.z)
@@ -185,48 +386,58 @@ export class SentryService {
         const version = r.version || r.shortVersion || ''
         return version.startsWith(baseRelease)
       })
-      .map(r => r.version || r.shortVersion || '')
-      .filter(Boolean)
     
     if (candidates.length === 0) {
       return null
     }
     
-    // 빌드 번호로 정렬 (높은 번호가 최신)
     const sortedCandidates = candidates.sort((a, b) => {
-      const getBuildNumber = (version: string): number => {
-        const plusIndex = version.indexOf('+')
-        if (plusIndex === -1) return 0
-        
-        try {
-          return parseInt(version.substring(plusIndex + 1))
-        } catch {
-          return 0
-        }
+      const dateA = this.getReleaseTimestamp(a)
+      const dateB = this.getReleaseTimestamp(b)
+      if (dateA !== dateB) {
+        return dateB - dateA
       }
-      
-      return getBuildNumber(b) - getBuildNumber(a)
+      const buildA = this.getBuildNumber(a.version || a.shortVersion || '')
+      const buildB = this.getBuildNumber(b.version || b.shortVersion || '')
+      return buildB - buildA
     })
-    
-    return sortedCandidates[0]
+
+    const targetEnv = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', '').trim().toLowerCase()
+    const projectSlug = getRequiredPlatformEnv(this.platform, 'PROJECT_SLUG')
+
+    for (const candidate of sortedCandidates) {
+      const version = candidate.version || candidate.shortVersion
+      if (!version) {
+        continue
+      }
+
+      const detail = await this.getReleaseDetail(version)
+      if (!detail) {
+        continue
+      }
+
+      if (!this.releaseIncludesProject(detail, projectSlug)) {
+        continue
+      }
+
+      if (!targetEnv) {
+        return detail.version
+      }
+
+      if (this.releaseMatchesEnvironment(detail, targetEnv)) {
+        return detail.version
+      }
+    }
+
+    const fallback = sortedCandidates[0]
+    return fallback.version || fallback.shortVersion || null
   }
   
   // 릴리즈 생성/배포 시간 조회
   async getReleaseCreatedAt(version: string): Promise<Date | null> {
-    const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
-    const projectId = await this.resolveProjectId()
-    
-    try {
-      const release = await this.fetchSentryAPI<SentryRelease>(
-        `/organizations/${orgSlug}/releases/${encodeURIComponent(version)}/`,
-        { project: projectId }
-      )
-      
-      const timestamp = release.dateReleased || release.dateCreated
-      return timestamp ? new Date(timestamp) : null
-    } catch {
-      return null
-    }
+    const detail = await this.getReleaseDetail(version)
+    const timestamp = detail?.dateReleased || detail?.dateCreated
+    return timestamp ? new Date(timestamp) : null
   }
   
   // 윈도우 집계 데이터 조회

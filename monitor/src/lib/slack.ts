@@ -57,7 +57,7 @@ export class SlackService {
     windowLabel: string,
     snapshot: WindowAggregation,
     deltas: WindowAggregation,
-    cumulative: WindowAggregation,
+    totals: WindowAggregation,
     topIssues: TopIssue[],
     actionUrls: { dashboard: string; issues: string },
     cadenceLabel: string
@@ -88,9 +88,9 @@ export class SlackService {
     // 스냅샷 요약
     const summaryLines = [
       bold(':memo: 스냅샷 요약'),
-      this.buildMetricLine('💥 *이벤트*', snapshot.events, deltas.events, '건', cumulative.events),
-      this.buildMetricLine('🐞 *유니크 이슈*', snapshot.issues, deltas.issues, '개', cumulative.issues),
-      this.buildMetricLine('👥 *영향 사용자*', snapshot.users, deltas.users, '명', cumulative.users)
+      this.buildMetricLine('💥 *총 이벤트*', totals.events, snapshot.events, deltas.events, '건', cadenceLabel),
+      this.buildMetricLine('🐞 *총 유니크 이슈*', totals.issues, snapshot.issues, deltas.issues, '개', cadenceLabel),
+      this.buildMetricLine('👥 *총 영향 사용자*', totals.users, snapshot.users, deltas.users, '명', cadenceLabel)
     ]
 
     blocks.push({
@@ -154,14 +154,22 @@ export class SlackService {
   // 메트릭 라인 생성
   private buildMetricLine(
     name: string,
-    current: number,
+    total: number,
+    windowValue: number,
     delta: number,
     unit: string,
-    cumulative: number
+    cadenceLabel: string
   ): string {
-    const emoji = getDeltaEmoji(delta)
-    const sign = delta !== 0 ? `${delta > 0 ? '+' : ''}${delta}${unit}` : `${delta}${unit}`
-    return `• ${name}: ${current}${unit}  · 변화: ${emoji} ${sign}  · 누적: ${cumulative}${unit}`
+    const totalFormatted = total.toLocaleString()
+    const windowFormatted = windowValue.toLocaleString()
+    const deltaEmoji = getDeltaEmoji(delta)
+    const deltaSign = delta > 0 ? '+' : delta < 0 ? '-' : ''
+    const deltaText = delta !== 0 ? `${deltaSign}${Math.abs(delta)}${unit}` : `0${unit}`
+    const trendText = delta === 0
+      ? '변화 없음'
+      : `${deltaEmoji} ${deltaText}`
+
+    return `• ${name}: ${totalFormatted}${unit}  · 최근 ${cadenceLabel} ${windowFormatted}${unit} (${trendText})`
   }
 
   // Slack 메시지 전송
@@ -217,21 +225,20 @@ export class SlackService {
     windowEnd: Date,
     snapshot: WindowAggregation,
     deltas: WindowAggregation,
-    cumulative: WindowAggregation,
+    totals: WindowAggregation,
     topIssues: TopIssue[],
     actionUrls: { dashboard: string; issues: string },
-    interval: '30m' | '1h'
+    cadenceLabel: string
   ): Promise<void> {
     const releaseLabel = `${platform.toUpperCase()} ${matchedRelease}`
     const windowLabel = `${formatKST(windowStart.toISOString())} ~ ${formatKST(windowEnd.toISOString())}`
-    const cadenceLabel = interval === '30m' ? '30분' : '1시간'
 
     const blocks = this.buildSlackBlocks(
       releaseLabel,
       windowLabel,
       snapshot,
       deltas,
-      cumulative,
+      totals,
       topIssues,
       actionUrls,
       cadenceLabel
@@ -245,8 +252,14 @@ export class SlackService {
     platform: string,
     baseRelease: string,
     monitorId: string,
-    expiresAt: Date
+    expiresAt: Date,
+    customIntervalMinutes?: number,
+    isTestMode?: boolean
   ): Promise<void> {
+    const cadenceText = customIntervalMinutes
+      ? `${customIntervalMinutes}분 간격`
+      : '1시간 간격'
+
     const blocks: SlackBlock[] = [
       {
         type: 'header',
@@ -264,7 +277,9 @@ export class SlackService {
             `*플랫폼*: ${platform.toUpperCase()}`,
             `*베이스 릴리즈*: ${baseRelease}`,
             `*모니터 ID*: ${monitorId}`,
-            `*만료일*: ${formatKST(expiresAt.toISOString())}`
+            `*만료일*: ${formatKST(expiresAt.toISOString())}`,
+            `*주기*: ${cadenceText}`,
+            `*모드*: ${isTestMode ? '테스트' : '운영'}`
           ].join('\n')
         }
       },
@@ -273,7 +288,9 @@ export class SlackService {
         elements: [
           {
             type: 'mrkdwn',
-            text: '첫 24시간은 30분마다, 이후는 1시간마다 리포트를 받게 됩니다.'
+            text: isTestMode
+              ? '테스트 모드는 지정한 간격(1~60분)으로 실행됩니다.'
+              : '운영 모드는 1시간 간격으로 실행됩니다.'
           }
         ]
       }

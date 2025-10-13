@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
 
-    const { qstashJobId, triggeredBy, monitorId } = payload
-    console.log(`[QStash Webhook] Processing job: ${qstashJobId}, triggered by: ${triggeredBy}`, monitorId ? `for monitor: ${monitorId}` : '')
+    const { qstashJobId, triggeredBy, monitorId, isTestMode, customInterval } = payload
+    console.log(`[QStash Webhook] Processing job: ${qstashJobId}, triggered by: ${triggeredBy}`, monitorId ? `for monitor: ${monitorId}` : '', isTestMode ? `(test mode, ${customInterval}분 간격)` : '')
 
     // 작업 유형 확인 및 처리
     if (qstashJobId?.includes('daily-report')) {
@@ -47,9 +47,9 @@ export async function POST(request: NextRequest) {
     } else if (qstashJobId?.includes('weekly-report')) {
       console.log('[QStash Webhook] Processing weekly report')  
       return await processWeeklyReport()
-    } else if (qstashJobId?.includes('monitor-tick')) {
+    } else if (qstashJobId?.includes('monitor-tick') || qstashJobId?.includes('test-monitor')) {
       console.log('[QStash Webhook] Processing monitor tick')
-      return await processMonitorTick(monitorId)
+      return await processMonitorTick(monitorId, isTestMode, customInterval)
     } else {
       console.error(`[QStash Webhook] Unknown job type: ${qstashJobId}`)
       return NextResponse.json({ error: 'Unknown job type' }, { status: 400 })
@@ -165,7 +165,7 @@ async function processWeeklyReport() {
   }
 }
 
-async function processMonitorTick(monitorId?: string) {
+async function processMonitorTick(monitorId?: string, isTestMode?: boolean, customInterval?: number) {
   let retryCount = 0
   const maxRetries = 2
   const retryDelay = 3000 // 3초
@@ -174,13 +174,20 @@ async function processMonitorTick(monitorId?: string) {
     try {
       // 기존 monitor tick API 호출
       const url = `${getBaseUrl()}/api/monitor/tick`
-      
+
+      const requestBody = monitorId || isTestMode ? {
+        monitorId,
+        isTestMode,
+        customInterval
+      } : undefined
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${process.env.CRON_SECRET || 'test-secret'}`
         },
+        body: requestBody ? JSON.stringify(requestBody) : undefined,
         signal: AbortSignal.timeout(15000) // 15초 타임아웃
       })
 
