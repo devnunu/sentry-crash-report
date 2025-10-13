@@ -1,22 +1,25 @@
 'use client'
 
-import React, { useState } from 'react'
-import { 
-  Button, 
-  Card, 
-  Checkbox, 
-  Group, 
-  NumberInput, 
-  SegmentedControl, 
-  Select, 
-  Stack, 
-  Text, 
-  TextInput, 
-  Title 
+import React, { useState, useRef, useEffect } from 'react'
+import {
+  Button,
+  Card,
+  Checkbox,
+  Group,
+  NumberInput,
+  SegmentedControl,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+  ScrollArea,
+  Badge,
+  Divider
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import type { 
-  GenerateDailyReportRequest, 
+import type {
+  GenerateDailyReportRequest,
   GenerateWeeklyReportRequest,
   Platform
 } from '@/lib/reports/types'
@@ -26,6 +29,15 @@ interface ApiResponse<T> {
   data?: T
   error?: string
 }
+
+interface LogEntry {
+  type: 'log' | 'error' | 'success'
+  message: string
+  timestamp: string
+  data?: any
+}
+
+type GenerationStatus = 'idle' | 'running' | 'completed' | 'error'
 
 export default function TestExecutionPage() {
   // 리포트 타입 선택
@@ -38,6 +50,12 @@ export default function TestExecutionPage() {
   const [sendSlack, setSendSlack] = useState(true)
   const [isTestMode, setIsTestMode] = useState(false)
   const [platform, setPlatform] = useState<Platform | 'all'>('all')
+
+  // 로그 및 진행 상태 관리
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [status, setStatus] = useState<GenerationStatus>('idle')
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const logsEndRef = useRef<HTMLDivElement>(null)
   
   // 일간 리포트 전용 상태
   const [targetDate, setTargetDate] = useState('')
@@ -48,98 +66,162 @@ export default function TestExecutionPage() {
   const [endDate, setEndDate] = useState('')
   const [dateMode, setDateMode] = useState<'week' | 'range'>('week')
 
+  // 로그 자동 스크롤
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [logs])
+
+  // EventSource 정리
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+      }
+    }
+  }, [])
+
+  // SSE 연결 및 로그 수신
+  const startStreaming = (endpoint: string, requestData: any) => {
+    setLogs([])
+    setStatus('running')
+    setLoading(true)
+    setMessage('')
+
+    // 기존 연결 정리
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+    }
+
+    // POST 요청으로 스트리밍 시작
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestData)
+    }).then(response => {
+      if (!response.body) {
+        throw new Error('스트림 응답이 없습니다')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+
+      const readStream = async () => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read()
+            if (done) break
+
+            const chunk = decoder.decode(value, { stream: true })
+            const lines = chunk.split('\n')
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6))
+                  const logEntry: LogEntry = {
+                    type: data.type,
+                    message: data.message,
+                    timestamp: data.timestamp,
+                    data: data.data
+                  }
+
+                  setLogs(prev => [...prev, logEntry])
+
+                  if (data.type === 'success') {
+                    setStatus('completed')
+                    setLoading(false)
+                    notifications.show({
+                      color: 'green',
+                      message: '리포트 생성이 완료되었습니다!'
+                    })
+                  } else if (data.type === 'error') {
+                    setStatus('error')
+                    setLoading(false)
+                  }
+                } catch (parseError) {
+                  console.warn('Failed to parse SSE data:', parseError)
+                }
+              }
+            }
+          }
+        } catch (streamError) {
+          console.error('Stream reading error:', streamError)
+          setStatus('error')
+          setLoading(false)
+          setLogs(prev => [...prev, {
+            type: 'error',
+            message: `스트림 오류: ${streamError instanceof Error ? streamError.message : String(streamError)}`,
+            timestamp: new Date().toISOString()
+          }])
+        }
+      }
+
+      readStream()
+    }).catch(error => {
+      console.error('Fetch error:', error)
+      setStatus('error')
+      setLoading(false)
+      setLogs(prev => [...prev, {
+        type: 'error',
+        message: `연결 오류: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp: new Date().toISOString()
+      }])
+    })
+  }
+
   // 일간 리포트 생성
   const handleDailyGenerate = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    setLoading(true)
-    setMessage('')
-    
-    try {
-      const request: GenerateDailyReportRequest = {
-        targetDate: targetDate || undefined,
-        sendSlack,
-        includeAI,
-        isTestMode,
-        platform: platform === 'all' ? undefined : platform as Platform
-      }
-      
-      const response = await fetch('/api/reports/daily/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
-      })
-      
-      const result: ApiResponse<{ message: string }> = await response.json()
-      
-      if (!result.success) {
-        throw new Error(result.error || '리포트 생성에 실패했습니다')
-      }
-      
-      const msg = result.data?.message || '리포트 생성됨'
-      setMessage(`✅ ${msg}`)
-      notifications.show({ color: 'green', message: `일간 리포트: ${msg}` })
-      
-      // 2초 후 메시지 초기화
-      setTimeout(() => {
-        setMessage('')
-      }, 3000)
-      
-    } catch (err) {
-      const m = err instanceof Error ? err.message : '알 수 없는 오류'
-      setMessage(`❌ ${m}`)
-      notifications.show({ color: 'red', message: `리포트 생성 실패: ${m}` })
-    } finally {
-      setLoading(false)
+
+    const request: GenerateDailyReportRequest = {
+      targetDate: targetDate || undefined,
+      sendSlack,
+      includeAI,
+      isTestMode,
+      platform: platform === 'all' ? undefined : platform as Platform
     }
+
+    startStreaming('/api/reports/daily/generate-stream', request)
   }
 
   // 주간 리포트 생성
   const handleWeeklyGenerate = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    setLoading(true)
+
+    const request: GenerateWeeklyReportRequest = {
+      sendSlack,
+      includeAI,
+      isTestMode,
+      platform: platform === 'all' ? undefined : platform as Platform,
+      ...(dateMode === 'week'
+        ? { targetWeek: targetWeek || undefined }
+        : { startDate: startDate || undefined, endDate: endDate || undefined }
+      )
+    }
+
+    startStreaming('/api/reports/weekly/generate-stream', request)
+  }
+
+  // 로그 초기화
+  const clearLogs = () => {
+    setLogs([])
+    setStatus('idle')
     setMessage('')
-    
-    try {
-      const request: GenerateWeeklyReportRequest = {
-        sendSlack,
-        includeAI,
-        isTestMode,
-        platform: platform === 'all' ? undefined : platform as Platform,
-        ...(dateMode === 'week' 
-          ? { targetWeek: targetWeek || undefined }
-          : { startDate: startDate || undefined, endDate: endDate || undefined }
-        )
-      }
-      
-      const response = await fetch('/api/reports/weekly/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
-      })
-      
-      const result: ApiResponse<{ message: string }> = await response.json()
-      
-      if (!result.success) {
-        throw new Error(result.error || '리포트 생성에 실패했습니다')
-      }
-      
-      const msg = result.data?.message || '리포트 생성됨'
-      setMessage(`✅ ${msg}`)
-      notifications.show({ color: 'green', message: `주간 리포트: ${msg}` })
-      
-      // 2초 후 메시지 초기화
-      setTimeout(() => {
-        setMessage('')
-      }, 3000)
-      
-    } catch (err) {
-      const m = err instanceof Error ? err.message : '알 수 없는 오류'
-      setMessage(`❌ ${m}`)
-      notifications.show({ color: 'red', message: `리포트 생성 실패: ${m}` })
-    } finally {
-      setLoading(false)
+  }
+
+  // 상태에 따른 UI 텍스트
+  const getStatusInfo = () => {
+    switch (status) {
+      case 'running':
+        return { color: 'blue', text: '실행 중', icon: '⏳' }
+      case 'completed':
+        return { color: 'green', text: '완료', icon: '✅' }
+      case 'error':
+        return { color: 'red', text: '오류', icon: '❌' }
+      default:
+        return { color: 'gray', text: '대기', icon: '⚪' }
     }
   }
 
@@ -236,23 +318,92 @@ export default function TestExecutionPage() {
                     size="md"
                   />
                   
-                  <Button 
-                    type="submit" 
-                    loading={loading} 
-                    color="green"
-                    size="md"
-                    leftSection="🚀"
-                    fullWidth
-                  >
-                    {loading ? '생성 중...' : '일간 리포트 생성'}
-                  </Button>
-                  
+                  <Group grow>
+                    <Button
+                      type="submit"
+                      loading={loading}
+                      color="green"
+                      size="md"
+                      leftSection="🚀"
+                      disabled={status === 'running'}
+                    >
+                      {loading ? '생성 중...' : '일간 리포트 생성'}
+                    </Button>
+
+                    {logs.length > 0 && (
+                      <Button
+                        variant="light"
+                        color="gray"
+                        size="md"
+                        leftSection="🗑️"
+                        onClick={clearLogs}
+                        disabled={status === 'running'}
+                      >
+                        로그 지우기
+                      </Button>
+                    )}
+                  </Group>
+
+                  {/* 상태 표시 */}
+                  {status !== 'idle' && (
+                    <Group justify="space-between" align="center">
+                      <Badge
+                        color={getStatusInfo().color}
+                        size="lg"
+                        leftSection={getStatusInfo().icon}
+                      >
+                        {getStatusInfo().text}
+                      </Badge>
+                      {status === 'completed' && logs.length > 0 && (
+                        <Text size="sm" c="green.6" fw={500}>
+                          {logs.filter(log => log.type === 'success').length > 0 ? '모든 작업이 완료되었습니다!' : ''}
+                        </Text>
+                      )}
+                    </Group>
+                  )}
+
                   {message && (
-                    <Card withBorder p="md" style={{ 
+                    <Card withBorder p="md" style={{
                       backgroundColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                       borderColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'
                     }}>
                       <Text size="sm" fw={500}>{message}</Text>
+                    </Card>
+                  )}
+
+                  {/* 실시간 로그 표시 */}
+                  {logs.length > 0 && (
+                    <Card withBorder radius="md" p="md" style={{ backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
+                      <Group justify="space-between" align="center" mb="md">
+                        <Text fw={600} size="sm" c="dimmed">📋 실행 로그</Text>
+                        <Badge variant="light" color="gray" size="sm">
+                          {logs.length}개 항목
+                        </Badge>
+                      </Group>
+                      <Divider mb="sm" />
+                      <ScrollArea h={200} type="auto">
+                        <Stack gap="xs">
+                          {logs.map((log, index) => (
+                            <Group key={index} gap="xs" align="flex-start" wrap="nowrap">
+                              <Text
+                                size="xs"
+                                c={log.type === 'error' ? 'red' : log.type === 'success' ? 'green' : 'blue'}
+                                style={{ minWidth: '60px' }}
+                              >
+                                {new Date(log.timestamp).toLocaleTimeString()}
+                              </Text>
+                              <Text
+                                size="sm"
+                                c={log.type === 'error' ? 'red.7' : log.type === 'success' ? 'green.7' : 'white'}
+                                style={{ wordBreak: 'break-word', flex: 1 }}
+                              >
+                                {log.message}
+                              </Text>
+                            </Group>
+                          ))}
+                          <div ref={logsEndRef} />
+                        </Stack>
+                      </ScrollArea>
                     </Card>
                   )}
                 </Stack>
@@ -318,23 +469,92 @@ export default function TestExecutionPage() {
                     )}
                   </Group>
                   
-                  <Button 
-                    type="submit" 
-                    loading={loading} 
-                    color="blue"
-                    size="md"
-                    leftSection="🚀"
-                    fullWidth
-                  >
-                    {loading ? '생성 중...' : '주간 리포트 생성'}
-                  </Button>
-                  
+                  <Group grow>
+                    <Button
+                      type="submit"
+                      loading={loading}
+                      color="blue"
+                      size="md"
+                      leftSection="🚀"
+                      disabled={status === 'running'}
+                    >
+                      {loading ? '생성 중...' : '주간 리포트 생성'}
+                    </Button>
+
+                    {logs.length > 0 && (
+                      <Button
+                        variant="light"
+                        color="gray"
+                        size="md"
+                        leftSection="🗑️"
+                        onClick={clearLogs}
+                        disabled={status === 'running'}
+                      >
+                        로그 지우기
+                      </Button>
+                    )}
+                  </Group>
+
+                  {/* 상태 표시 */}
+                  {status !== 'idle' && (
+                    <Group justify="space-between" align="center">
+                      <Badge
+                        color={getStatusInfo().color}
+                        size="lg"
+                        leftSection={getStatusInfo().icon}
+                      >
+                        {getStatusInfo().text}
+                      </Badge>
+                      {status === 'completed' && logs.length > 0 && (
+                        <Text size="sm" c="blue.6" fw={500}>
+                          {logs.filter(log => log.type === 'success').length > 0 ? '모든 작업이 완료되었습니다!' : ''}
+                        </Text>
+                      )}
+                    </Group>
+                  )}
+
                   {message && (
-                    <Card withBorder p="md" style={{ 
+                    <Card withBorder p="md" style={{
                       backgroundColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                       borderColor: message.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'
                     }}>
                       <Text size="sm" fw={500}>{message}</Text>
+                    </Card>
+                  )}
+
+                  {/* 실시간 로그 표시 */}
+                  {logs.length > 0 && (
+                    <Card withBorder radius="md" p="md" style={{ backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
+                      <Group justify="space-between" align="center" mb="md">
+                        <Text fw={600} size="sm" c="dimmed">📋 실행 로그</Text>
+                        <Badge variant="light" color="gray" size="sm">
+                          {logs.length}개 항목
+                        </Badge>
+                      </Group>
+                      <Divider mb="sm" />
+                      <ScrollArea h={200} type="auto">
+                        <Stack gap="xs">
+                          {logs.map((log, index) => (
+                            <Group key={index} gap="xs" align="flex-start" wrap="nowrap">
+                              <Text
+                                size="xs"
+                                c={log.type === 'error' ? 'red' : log.type === 'success' ? 'green' : 'blue'}
+                                style={{ minWidth: '60px' }}
+                              >
+                                {new Date(log.timestamp).toLocaleTimeString()}
+                              </Text>
+                              <Text
+                                size="sm"
+                                c={log.type === 'error' ? 'red.7' : log.type === 'success' ? 'green.7' : 'white'}
+                                style={{ wordBreak: 'break-word', flex: 1 }}
+                              >
+                                {log.message}
+                              </Text>
+                            </Group>
+                          ))}
+                          <div ref={logsEndRef} />
+                        </Stack>
+                      </ScrollArea>
                     </Card>
                   )}
                 </Stack>
