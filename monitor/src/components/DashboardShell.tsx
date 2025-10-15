@@ -4,7 +4,7 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AppShell, Burger, Group, Title, ScrollArea, NavLink, Box } from '@mantine/core'
-import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable, IconDashboard, IconSearch, IconRobot, IconWebhook } from '@tabler/icons-react'
+import { IconActivity, IconCalendarStats, IconDeviceMobile, IconSettings, IconPlaystationTriangle, IconClock, IconBrandAndroid, IconBrandApple, IconHistory, IconVariable, IconDashboard, IconSearch, IconRobot, IconFileAnalytics } from '@tabler/icons-react'
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [opened, setOpened] = React.useState(false)
@@ -12,6 +12,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   const [dailyOpened, setDailyOpened] = React.useState(false)
   const [weeklyOpened, setWeeklyOpened] = React.useState(false)
   const [dashboardOpened, setDashboardOpened] = React.useState(false)
+  const [testOpened, setTestOpened] = React.useState(false)
   const pathname = usePathname()
   
   return (
@@ -35,7 +36,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <NavLink
               label="통합 대시보드"
               leftSection={<IconDashboard size={16} />}
-              opened={dashboardOpened}
+              opened={dashboardOpened || pathname?.startsWith('/monitor/dashboard')}
               onClick={() => setDashboardOpened(!dashboardOpened)}
               childrenOffset={28}
             >
@@ -64,7 +65,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <NavLink
               label="일간 리포트"
               leftSection={<IconDeviceMobile size={16} />}
-              opened={dailyOpened}
+              opened={dailyOpened || pathname?.startsWith('/monitor/daily')}
               onClick={() => setDailyOpened(!dailyOpened)}
               childrenOffset={28}
             >
@@ -86,7 +87,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <NavLink
               label="주간 리포트"
               leftSection={<IconCalendarStats size={16} />}
-              opened={weeklyOpened}
+              opened={weeklyOpened || pathname?.startsWith('/monitor/weekly')}
               onClick={() => setWeeklyOpened(!weeklyOpened)}
               childrenOffset={28}
             >
@@ -122,17 +123,32 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <NavLink
               label="설정"
               leftSection={<IconSettings size={16} />}
-              opened={settingsOpened}
+              opened={settingsOpened || pathname?.startsWith('/monitor/settings')}
               onClick={() => setSettingsOpened(!settingsOpened)}
               childrenOffset={28}
             >
               <NavLink
-                component={Link}
-                href="/monitor/settings/test"
                 label="테스트 실행"
                 leftSection={<IconPlaystationTriangle size={14} />}
-                active={pathname?.startsWith('/monitor/settings/test')}
-              />
+                opened={testOpened || pathname?.startsWith('/monitor/settings/test')}
+                onClick={() => setTestOpened(!testOpened)}
+                childrenOffset={32}
+              >
+                <NavLink
+                  component={Link}
+                  href="/monitor/settings/test/report"
+                  label="리포트 테스트"
+                  leftSection={<IconFileAnalytics size={14} />}
+                  active={pathname?.startsWith('/monitor/settings/test/report')}
+                />
+                <NavLink
+                  component={Link}
+                  href="/monitor/settings/test/monitor"
+                  label="모니터링 테스트"
+                  leftSection={<IconRobot size={14} />}
+                  active={pathname?.startsWith('/monitor/settings/test/monitor')}
+                />
+              </NavLink>
               <NavLink
                 component={Link}
                 href="/monitor/settings/schedule"
@@ -158,4 +174,3 @@ export default function DashboardShell({ children }: { children: React.ReactNode
     </AppShell>
   )
 }
-

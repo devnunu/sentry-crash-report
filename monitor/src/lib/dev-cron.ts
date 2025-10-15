@@ -74,8 +74,8 @@ class DevCronService {
       scheduled: false // 수동으로 시작
     })
 
-    // 모니터 틱 스케줄 (30분마다) - QStash webhook 시뮬레이션
-    const monitorTask = cron.schedule('*/30 * * * *', async () => {
+    // 모니터 틱 스케줄 (1시간마다) - QStash webhook 시뮬레이션
+    const monitorTask = cron.schedule('0 * * * *', async () => {
       try {
         console.log('⏰ [DEV CRON] Triggering monitor tick via QStash webhook simulation...')
         
@@ -113,7 +113,7 @@ class DevCronService {
     console.log(`✅ Development cron service started with ${this.tasks.length} tasks`)
     console.log('   - Daily report: Every minute (QStash webhook simulation)')
     console.log('   - Weekly report: Every minute (QStash webhook simulation)') 
-    console.log('   - Monitor tick: Every 30 minutes (QStash webhook simulation)')
+    console.log('   - Monitor tick: Every hour (QStash webhook simulation)')
   }
 
   stop() {

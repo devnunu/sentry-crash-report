@@ -21,6 +21,23 @@ BEGIN
 END
 $$;
 
+-- Ensure monitor_sessions supports test-mode metadata
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'monitor_sessions' AND column_name = 'custom_interval_minutes') THEN
+        ALTER TABLE monitor_sessions ADD COLUMN custom_interval_minutes INTEGER;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'monitor_sessions' AND column_name = 'metadata') THEN
+        ALTER TABLE monitor_sessions ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb;
+    END IF;
+END
+$$;
+
+UPDATE monitor_sessions
+SET metadata = '{}'::jsonb
+WHERE metadata IS NULL;
+
 -- Create monitoring_config table
 CREATE TABLE IF NOT EXISTS monitoring_config (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,

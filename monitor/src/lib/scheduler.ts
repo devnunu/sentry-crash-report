@@ -14,14 +14,32 @@ export class SchedulerService {
   
   /**
    * 모니터의 실행 주기를 결정합니다
-   * - 첫 24시간: 30분 간격
-   * - 이후: 1시간 간격
+   * - 모든 기간: 1시간 간격으로 통일
    */
   static getExecutionInterval(startedAt: string): '30m' | '1h' {
-    const hoursElapsed = differenceInHours(new Date(), new Date(startedAt))
-    return hoursElapsed < 24 ? '30m' : '1h'
+    // 모든 기간 1시간 간격으로 통일
+    return '1h'
   }
-  
+
+  /**
+   * 테스트 모드에서 커스텀 간격으로 실행 여부를 판단합니다
+   */
+  static shouldExecuteWithCustomInterval(
+    customIntervalMinutes: number,
+    lastExecutedAt?: string | null
+  ): boolean {
+    // 처음 실행이라면 바로 실행
+    if (!lastExecutedAt) {
+      return true
+    }
+
+    const now = new Date()
+    const lastExecuted = new Date(lastExecutedAt)
+    const minutesElapsed = Math.floor((now.getTime() - lastExecuted.getTime()) / (1000 * 60))
+
+    return minutesElapsed >= customIntervalMinutes
+  }
+
   /**
    * 현재 시점에서 모니터가 실행되어야 하는지 판단합니다
    */
@@ -40,8 +58,8 @@ export class SchedulerService {
     const lastExecuted = new Date(lastExecutedAt)
     const minutesElapsed = Math.floor((now.getTime() - lastExecuted.getTime()) / (1000 * 60))
     
-    // 30분 간격 또는 60분 간격에 따라 판단
-    const requiredInterval = interval === '30m' ? 30 : 60
+    // 1시간 간격으로 통일
+    const requiredInterval = 60
     
     return minutesElapsed >= requiredInterval
   }
@@ -95,7 +113,7 @@ export class SchedulerService {
   ): Date {
     const interval = this.getExecutionInterval(startedAt)
     const base = lastExecutedAt ? new Date(lastExecutedAt) : new Date()
-    const minutesToAdd = interval === '30m' ? 30 : 60
+    const minutesToAdd = 60
     
     return new Date(base.getTime() + minutesToAdd * 60 * 1000)
   }

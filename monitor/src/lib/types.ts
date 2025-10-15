@@ -19,6 +19,8 @@ export interface MonitorSession {
   updated_at: string
   qstash_schedule_id?: string
   is_test_mode?: boolean
+  custom_interval_minutes?: number | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface MonitorHistory {
@@ -40,7 +42,8 @@ export const StartMonitorSchema = z.object({
   platform: z.enum(['android', 'ios']),
   baseRelease: z.string().min(1),
   days: z.number().min(1).max(14).optional().default(7),
-  isTestMode: z.boolean().optional().default(false)
+  isTestMode: z.boolean().optional().default(false),
+  matchedRelease: z.string().optional()
 })
 
 export const StopMonitorSchema = z.object({
