@@ -22,6 +22,7 @@ import type {
 } from './types'
 import { getRequiredEnv, getPlatformEnv, getRequiredPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl } from '../utils'
 import { buildDailyReportUrl } from '../url-utils'
+import { SentryDataService } from './sentry-data'
 import type { Platform } from '../types'
 
 export interface DailyReportOptions {
@@ -175,9 +176,10 @@ export class DailyReportService {
       const [yCfS, yCfU] = await this.sessionsCrashFreeForDay(token, org, projectId, environment, yStart, yEnd)
       this.log(`  - crash_free(session)=${this.fmtPct(yCfS)} / crash_free(user)=${this.fmtPct(yCfU)}`)
 
-      this.log(`[Daily] [6/14] 어제 상위 5개 이슈 수집...`)
-      const yTop = await this.topIssuesForDay(token, org, projectId, environment, yStart, yEnd, 5)
-      this.log(`  - top5 count=${yTop.length}`)
+      this.log(`[Daily] [6/14] 어제 이슈 목록(당일 기준) 수집...`)
+      const sentryData = new SentryDataService(this.platform)
+      const yIssuesRaw = await sentryData.getIssuesForDay(yesterday, 200)
+      this.log(`  - issues count=${yIssuesRaw.length}`)
 
       this.log(`[Daily] [7/14] 어제 신규 발생 이슈(firstSeen 당일) 수집...`)
       const yNew = await this.newIssuesForDay(token, org, projectId, environment, yStart, yEnd)
@@ -205,7 +207,13 @@ export class DailyReportService {
           unique_issues_in_events: ySummary.unique_issues,
           crash_free_sessions_pct: yCfS,
           crash_free_users_pct: yCfU,
-          top_5_issues: yTop,
+          issues: yIssuesRaw.map(it => ({
+            issue_id: it.id,
+            title: it.title,
+            events: it.count,
+            users: it.users,
+            link: it.link,
+          })),
           new_issues: yNew,
           surge_issues: ySurgeAdv,
           window_utc: { start: yStart, end: yEnd }

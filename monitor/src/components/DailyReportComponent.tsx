@@ -71,7 +71,7 @@ type NormalizedIssue = {
   link?: string
 }
 
-type FilterType = 'all' | 'surge' | 'new' | 'fatal'
+type FilterType = 'all' | 'fatal'
 type SortOption = 'count' | 'users' | 'growth'
 
 interface IssueWithMetadata {
@@ -80,10 +80,7 @@ interface IssueWithMetadata {
   count: number
   users: number
   delta: number
-  percentage: number
   avg7Days?: number
-  isNew: boolean
-  isSurge: boolean
   level?: string
   aiNote?: string
   sentryUrl: string
@@ -352,7 +349,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     }
   }, [targetDate, reports, goToDate])
 
-  // Sentry API에서 데이터 가져오기 (최근 7일 + 이슈 목록)
+  // Sentry API에서 데이터 가져오기 (최근 7일)
   useEffect(() => {
     const fetchSentryData = async () => {
       if (!selectedReport?.target_date) return
@@ -360,33 +357,11 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
       setChartLoading(true)
       setSentryLoading(true)
       try {
-        const response = await fetch(`/api/reports/daily/sentry-data?platform=${platform}&targetDate=${selectedReport.target_date}`)
-        const result = await response.json()
-
-        if (result.success && result.data) {
-          // 7일 데이터 설정
-          setLast7DaysData(result.data.last7DaysData || [])
-
-          // 이슈 데이터 변환
-          const totalEvents = result.data.totalEvents || 0
-          const transformedIssues: IssueWithMetadata[] = (result.data.issues || []).map((issue: any) => {
-            const percentage = totalEvents > 0 ? (issue.count / totalEvents) * 100 : 0
-
-            return {
-              id: issue.id,
-              title: issue.title || issue.culprit || '제목 없음',
-              count: issue.count,
-              users: issue.users || 0,
-              delta: issue.delta || 0,
-              percentage,
-              isNew: issue.isNew || false,
-              isSurge: issue.isSurge || false,
-              level: issue.count >= 500 ? 'fatal' : undefined,
-              sentryUrl: issue.link || '#'
-            }
-          })
-
-          setSentryIssues(transformedIssues)
+        // 7일 데이터
+        const chartResp = await fetch(`/api/reports/daily/chart-data?platform=${platform}&targetDate=${selectedReport.target_date}`)
+        const chartJson = await chartResp.json()
+        if (chartJson.success) {
+          setLast7DaysData(chartJson.data || [])
         }
       } catch (error) {
         console.error('Failed to fetch Sentry data:', error)
@@ -500,46 +475,30 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     return topIssues.filter(issue => issue.events > 500 || (issue.users && issue.users > 100))
   }, [topIssues])
 
-  // 전체 이슈 목록 - Sentry API에서 가져온 데이터 사용
+  // 전체 이슈 목록 - 타겟 일자 기준 이슈만 사용
   const allIssuesWithMetadata = useMemo((): IssueWithMetadata[] => {
-    // Sentry API에서 가져온 이슈 사용
-    if (sentryIssues.length > 0) {
-      return sentryIssues
-    }
-
-    // Fallback: DB에 저장된 데이터 사용
-    if (!dayData || !previousDayData) return []
+    if (!dayData) return []
 
     const totalEvents = dayData.crash_events || 0
-    const surgeList = (dayData as any)?.surge_issues || []
-    const newIssuesList = (dayData as any)?.new_issues || []
-    const aiAnalysis = selectedReport?.ai_analysis as any
-    const aiNotes = aiAnalysis?.per_issue_notes || []
 
-    // Top issues를 기반으로 메타데이터 추가
-    return topIssues.map(issue => {
-      // 신규 이슈 여부
-      const isNew = newIssuesList.some((n: any) => n.issue_id === issue.issueId)
+    const storedIssues = (dayData as any)?.issues as Array<{ issue_id: string; title: string; events: number; users: number; link?: string }> | undefined
+    const sourceIssues = storedIssues
+      ? storedIssues.map(it => ({ issueId: it.issue_id, title: it.title, events: it.events, users: it.users || 0, link: it.link }))
+      : topIssues.map(it => ({ issueId: it.issueId, title: it.title, events: it.events, users: it.users || 0, link: it.link }))
 
-      // 급증 이슈 여부
-      const isSurge = surgeList.some((s: any) => s.issue_id === issue.issueId)
-
-      // 전일 대비 델타 계산
-      const previousIssue = (previousDayData as any)?.top_5_issues?.find(
-        (i: any) => i.issue_id === issue.issueId
-      )
-      const previousCount = previousIssue?.event_count || 0
+    return sourceIssues.map(issue => {
+      // 전일 대비 델타 계산 (top_5_issues 기준, 없으면 0)
+      const prevIssues = (previousDayData as any)?.issues as Array<{ issue_id: string; events: number }> | undefined
+      let previousCount = 0
+      if (prevIssues) {
+        const match = prevIssues.find(i => i.issue_id === issue.issueId)
+        previousCount = match?.events || 0
+      } else if ((previousDayData as any)?.top_5_issues) {
+        const prevTop = (previousDayData as any).top_5_issues as Array<{ issue_id: string; event_count: number }>
+        const matchTop = prevTop.find(i => i.issue_id === issue.issueId)
+        previousCount = matchTop?.event_count || 0
+      }
       const delta = previousCount > 0 ? ((issue.events - previousCount) / previousCount) * 100 : 0
-
-      // 전체 이벤트 대비 비율
-      const percentage = totalEvents > 0 ? (issue.events / totalEvents) * 100 : 0
-
-      // AI 노트 찾기
-      const aiNote = aiNotes.find((note: any) => {
-        const noteTitle = (note.issue_title || '').toLowerCase().trim()
-        const issueTitle = (issue.title || '').toLowerCase().trim()
-        return noteTitle === issueTitle || noteTitle.includes(issueTitle) || issueTitle.includes(noteTitle)
-      })?.note
 
       return {
         id: issue.issueId,
@@ -547,16 +506,11 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         count: issue.events,
         users: issue.users || 0,
         delta,
-        percentage,
-        avg7Days: undefined, // 7일 평균은 별도 계산 필요
-        isNew,
-        isSurge,
         level: issue.events >= 500 ? 'fatal' : undefined,
-        aiNote,
         sentryUrl: issue.link || '#'
       }
     })
-  }, [sentryIssues, dayData, previousDayData, topIssues, selectedReport])
+  }, [dayData, previousDayData, topIssues, selectedReport])
 
   // 필터링 및 정렬된 이슈 목록
   const filteredAndSortedIssues = useMemo(() => {
@@ -564,12 +518,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
 
     // 필터 적용
     switch (issueFilter) {
-      case 'surge':
-        filtered = filtered.filter(i => i.isSurge)
-        break
-      case 'new':
-        filtered = filtered.filter(i => i.isNew)
-        break
       case 'fatal':
         filtered = filtered.filter(i => i.level === 'fatal')
         break
@@ -615,8 +563,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   const issueCountsByFilter = useMemo(() => {
     return {
       all: allIssuesWithMetadata.length,
-      surge: allIssuesWithMetadata.filter(i => i.isSurge).length,
-      new: allIssuesWithMetadata.filter(i => i.isNew).length,
       fatal: allIssuesWithMetadata.filter(i => i.level === 'fatal').length
     }
   }, [allIssuesWithMetadata])
@@ -1501,13 +1447,13 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
 
       
 
-      {/* 전체 이슈 목록 */}
+      {/* 이슈 목록 */}
       <Paper p="xl" radius="md" withBorder mb="lg">
         <Group mb="md" justify="space-between" align="flex-start" wrap="wrap">
           <Group>
             <IconList size={24} />
             <Text size="lg" fw={700}>
-              전체 이슈 목록 ({filteredAndSortedIssues.length}개)
+              이슈 목록 ({filteredAndSortedIssues.length}개)
             </Text>
           </Group>
 
@@ -1519,23 +1465,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
               onClick={() => setIssueFilter('all')}
             >
               전체 ({issueCountsByFilter.all})
-            </Button>
-            <Button
-              size="xs"
-              variant={issueFilter === 'surge' ? 'filled' : 'light'}
-              color="orange"
-              onClick={() => setIssueFilter('surge')}
-              leftSection={<IconTrendingUp size={14} />}
-            >
-              급증 ({issueCountsByFilter.surge})
-            </Button>
-            <Button
-              size="xs"
-              variant={issueFilter === 'new' ? 'filled' : 'light'}
-              color="cyan"
-              onClick={() => setIssueFilter('new')}
-            >
-              신규 ({issueCountsByFilter.new})
             </Button>
             <Button
               size="xs"
@@ -1588,12 +1517,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     </Group>
 
                     <Group gap={4} style={{ flexShrink: 0 }}>
-                      {issue.isNew && (
-                        <Badge size="sm" color="cyan" variant="filled">🆕</Badge>
-                      )}
-                      {issue.isSurge && (
-                        <Badge size="sm" color="orange" variant="filled">🔥</Badge>
-                      )}
                       {issue.level === 'fatal' && (
                         <Badge size="sm" color="red" variant="filled">⚠️ Fatal</Badge>
                       )}
@@ -1608,11 +1531,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Badge variant="light" color="grape">
                       👥 {formatNumber(issue.users)}명
                     </Badge>
-                    {issue.percentage > 0 && (
-                      <Badge variant="light" color="gray">
-                        📊 전체의 {issue.percentage.toFixed(1)}%
-                      </Badge>
-                    )}
                   </Group>
 
                   {/* 최근 7일 평균 */}

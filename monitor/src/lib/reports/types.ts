@@ -48,7 +48,10 @@ export interface DailyReportData {
     unique_issues_in_events: number
     crash_free_sessions_pct?: number
     crash_free_users_pct?: number
-    top_5_issues: TopIssue[]
+    // 해당 일자에 발생한 이슈 전체 목록 (이벤트/사용자 기준)
+    issues?: WeeklyIssue[]
+    // 기존 Top 5 (이전 호환성 유지 목적)
+    top_5_issues?: TopIssue[]
     new_issues: NewIssue[]
     surge_issues: SurgeIssue[]
     window_utc: {
