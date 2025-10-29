@@ -651,7 +651,10 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     }
   }, [last7DaysData])
 
-  const dateLabel = formatDateLabel(selectedReport?.target_date)
+  const [dateLabel, setDateLabel] = useState<string>('-')
+  useEffect(() => {
+    setDateLabel(formatDateLabel(selectedReport?.target_date))
+  }, [selectedReport?.target_date])
 
   const handleOpenDetails = () => {
     // 섹션으로 스크롤
