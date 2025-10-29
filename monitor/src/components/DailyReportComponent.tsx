@@ -20,7 +20,8 @@ import {
   Table,
   Select,
   Accordion,
-  Code
+  Code,
+  Pagination
 } from '@mantine/core'
 import {
   IconChevronLeft,
@@ -336,6 +337,11 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   const [chartLoading, setChartLoading] = useState(false)
   const [issueFilter, setIssueFilter] = useState<FilterType>('all')
   const [issueSortBy, setIssueSortBy] = useState<SortOption>('count')
+  const [sentryIssues, setSentryIssues] = useState<IssueWithMetadata[]>([])
+  const [sentryLoading, setSentryLoading] = useState(false)
+  // 전체 이슈 목록 페이지네이션
+  const PAGE_SIZE = 5
+  const [issuePage, setIssuePage] = useState(1)
 
   const config = getPlatformConfig(platform)
 
@@ -346,27 +352,51 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     }
   }, [targetDate, reports, goToDate])
 
-  // 최근 7일 데이터 가져오기
+  // Sentry API에서 데이터 가져오기 (최근 7일 + 이슈 목록)
   useEffect(() => {
-    const fetchLast7DaysData = async () => {
+    const fetchSentryData = async () => {
       if (!selectedReport?.target_date) return
 
       setChartLoading(true)
+      setSentryLoading(true)
       try {
-        const response = await fetch(`/api/reports/daily/chart-data?platform=${platform}&targetDate=${selectedReport.target_date}`)
-        const data = await response.json()
+        const response = await fetch(`/api/reports/daily/sentry-data?platform=${platform}&targetDate=${selectedReport.target_date}`)
+        const result = await response.json()
 
-        if (data.success && data.data) {
-          setLast7DaysData(data.data)
+        if (result.success && result.data) {
+          // 7일 데이터 설정
+          setLast7DaysData(result.data.last7DaysData || [])
+
+          // 이슈 데이터 변환
+          const totalEvents = result.data.totalEvents || 0
+          const transformedIssues: IssueWithMetadata[] = (result.data.issues || []).map((issue: any) => {
+            const percentage = totalEvents > 0 ? (issue.count / totalEvents) * 100 : 0
+
+            return {
+              id: issue.id,
+              title: issue.title || issue.culprit || '제목 없음',
+              count: issue.count,
+              users: issue.users || 0,
+              delta: issue.delta || 0,
+              percentage,
+              isNew: issue.isNew || false,
+              isSurge: issue.isSurge || false,
+              level: issue.count >= 500 ? 'fatal' : undefined,
+              sentryUrl: issue.link || '#'
+            }
+          })
+
+          setSentryIssues(transformedIssues)
         }
       } catch (error) {
-        console.error('Failed to fetch 7 days data:', error)
+        console.error('Failed to fetch Sentry data:', error)
       } finally {
         setChartLoading(false)
+        setSentryLoading(false)
       }
     }
 
-    fetchLast7DaysData()
+    fetchSentryData()
   }, [selectedReport?.target_date, platform])
 
   const payload = useMemo<DailyReportPayload>(() => {
@@ -470,8 +500,14 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     return topIssues.filter(issue => issue.events > 500 || (issue.users && issue.users > 100))
   }, [topIssues])
 
-  // 전체 이슈 목록 생성 (메타데이터 포함)
+  // 전체 이슈 목록 - Sentry API에서 가져온 데이터 사용
   const allIssuesWithMetadata = useMemo((): IssueWithMetadata[] => {
+    // Sentry API에서 가져온 이슈 사용
+    if (sentryIssues.length > 0) {
+      return sentryIssues
+    }
+
+    // Fallback: DB에 저장된 데이터 사용
     if (!dayData || !previousDayData) return []
 
     const totalEvents = dayData.crash_events || 0
@@ -520,7 +556,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         sentryUrl: issue.link || '#'
       }
     })
-  }, [dayData, previousDayData, topIssues, selectedReport])
+  }, [sentryIssues, dayData, previousDayData, topIssues, selectedReport])
 
   // 필터링 및 정렬된 이슈 목록
   const filteredAndSortedIssues = useMemo(() => {
@@ -557,6 +593,23 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
 
     return filtered
   }, [allIssuesWithMetadata, issueFilter, issueSortBy])
+
+  // 필터/정렬/리포트 변경 시 페이지 리셋
+  useEffect(() => {
+    setIssuePage(1)
+  }, [issueFilter, issueSortBy, selectedReport])
+
+  // 페이지 단위로 슬라이싱
+  const totalIssuePages = useMemo(() => {
+    const total = filteredAndSortedIssues.length
+    return total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
+  }, [filteredAndSortedIssues.length])
+
+  const pagedIssues = useMemo(() => {
+    const start = (issuePage - 1) * PAGE_SIZE
+    const end = start + PAGE_SIZE
+    return filteredAndSortedIssues.slice(start, end)
+  }, [filteredAndSortedIssues, issuePage])
 
   // 각 필터별 개수
   const issueCountsByFilter = useMemo(() => {
@@ -844,6 +897,8 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         </Alert>
       )}
 
+      
+
       {/* 일자 표시 */}
       {selectedReport && (
         <Group justify="space-between" align="center" mb="md">
@@ -1032,7 +1087,138 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
               <Text>{aiFullAnalysis.recommendations}</Text>
             </div>
           </Stack>
-        </Paper>
+      </Paper>
+      )}
+
+      {/* 주요 이슈 섹션 (AI 분석과 7일 차트 사이) */}
+      {aiFullAnalysis && selectedReport && (criticalIssuesDetailed.length > 0 || surgeIssuesDetailed.length > 0) && (
+        <Stack gap="md" mb="lg">
+          {/* Critical 이슈 */}
+          {criticalIssuesDetailed.length > 0 && (
+            <Paper p="xl" radius="md" withBorder style={{ borderColor: '#fa5252', borderWidth: 2 }}>
+              <Group mb="md">
+                <IconAlertTriangle size={24} color="#fa5252" />
+                <Text size="lg" fw={700} c="red">🚨 Critical 이슈 ({criticalIssuesDetailed.length}건)</Text>
+              </Group>
+
+              <Stack gap="md">
+                {criticalIssuesDetailed.map(issue => (
+                  <Card key={issue.id} padding="md" radius="md" withBorder>
+                    <Stack gap="xs">
+                      <Text size="md" fw={600}>{issue.title}</Text>
+
+                      <Group gap="md" wrap="wrap">
+                        <Badge color="red" variant="filled">
+                          💥 {formatNumber(issue.count)}건
+                        </Badge>
+                        <Badge color="orange" variant="light">
+                          👥 {formatNumber(issue.users)}명 ({issue.percentage}%)
+                        </Badge>
+                        {issue.culprit && (
+                          <Badge color="gray" variant="light" style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            📍 {issue.culprit}
+                          </Badge>
+                        )}
+                      </Group>
+
+                      {issue.aiSummary && (
+                        <Alert icon={<IconRobot size={16} />} color="blue" variant="light">
+                          🤖 {issue.aiSummary}
+                        </Alert>
+                      )}
+
+                      <Group gap="xs" mt="xs">
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconSparkles size={14} />}
+                          component="a"
+                          href={`/monitor/sentry-analysis?id=${issue.id}`}
+                          target="_blank"
+                        >
+                          AI 상세 분석
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconExternalLink size={14} />}
+                          component="a"
+                          href={issue.sentryUrl}
+                          target="_blank"
+                        >
+                          Sentry에서 보기
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ))}
+              </Stack>
+            </Paper>
+          )}
+
+          {/* 급증 이슈 (급증 지표 제거) */}
+          {surgeIssuesDetailed.length > 0 && (
+            <Paper p="xl" radius="md" withBorder style={{ borderColor: '#fd7e14', borderWidth: 2 }}>
+              <Group mb="md">
+                <IconTrendingUp size={24} color="#fd7e14" />
+                <Text size="lg" fw={700} c="orange">🔥 급증 이슈 ({surgeIssuesDetailed.length}건)</Text>
+              </Group>
+
+              <Stack gap="md">
+                {surgeIssuesDetailed.slice(0, 3).map((issue, index) => (
+                  <Card key={issue.id} padding="md" radius="md" withBorder>
+                    <Stack gap="xs">
+                      <Group justify="space-between" wrap="nowrap">
+                        <Text size="md" fw={600} style={{ flex: 1 }}>
+                          {index + 1}. {issue.title}
+                        </Text>
+                        {issue.isNew && (
+                          <Badge color="cyan" variant="filled">🆕 신규</Badge>
+                        )}
+                      </Group>
+
+                      <Group gap="md" wrap="wrap">
+                        <Badge color="orange" variant="light">
+                          💥 {formatNumber(issue.count)}건 (어제 {formatNumber(issue.previousCount)}건)
+                        </Badge>
+                        {issue.users > 0 && (
+                          <Badge color="grape" variant="light">
+                            👥 {formatNumber(issue.users)}명
+                          </Badge>
+                        )}
+                      </Group>
+
+                      {/* 급증 지표(배지) 제거됨 */}
+
+                      <Group gap="xs" mt="xs">
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconSparkles size={14} />}
+                          component="a"
+                          href={`/monitor/sentry-analysis?id=${issue.id}`}
+                          target="_blank"
+                        >
+                          AI 분석
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconExternalLink size={14} />}
+                          component="a"
+                          href={issue.sentryUrl}
+                          target="_blank"
+                        >
+                          Sentry
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ))}
+              </Stack>
+            </Paper>
+          )}
+        </Stack>
       )}
 
       {/* 최근 7일 크래시 추이 차트 */}
@@ -1040,7 +1226,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         <Paper p="xl" radius="md" withBorder mb="lg">
           <Group mb="md">
             <IconChartLine size={24} />
-            <Text size="lg" fw={700}>📊 최근 7일 크래시 추이</Text>
+            <Text size="lg" fw={700}>최근 7일 크래시 추이</Text>
           </Group>
 
           {chartLoading ? (
@@ -1174,7 +1360,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         <Paper p="xl" radius="md" withBorder mb="lg">
           <Group mb="md">
             <IconTable size={24} />
-            <Text size="lg" fw={700}>📋 상세 비교</Text>
+            <Text size="lg" fw={700}>상세 비교</Text>
           </Group>
 
           <Table striped highlightOnHover withTableBorder withColumnBorders>
@@ -1313,153 +1499,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         </Paper>
       )}
 
-      {/* 주요 이슈 섹션 */}
-      {selectedReport && (criticalIssuesDetailed.length > 0 || surgeIssuesDetailed.length > 0) && (
-        <Stack gap="md" mb="lg">
-          {/* Critical 이슈 */}
-          {criticalIssuesDetailed.length > 0 && (
-            <Paper p="xl" radius="md" withBorder style={{ borderColor: '#fa5252', borderWidth: 2 }}>
-              <Group mb="md">
-                <IconAlertTriangle size={24} color="#fa5252" />
-                <Text size="lg" fw={700} c="red">🚨 Critical 이슈 ({criticalIssuesDetailed.length}건)</Text>
-              </Group>
-
-              <Stack gap="md">
-                {criticalIssuesDetailed.map(issue => (
-                  <Card key={issue.id} padding="md" radius="md" withBorder>
-                    <Stack gap="xs">
-                      <Text size="md" fw={600}>{issue.title}</Text>
-
-                      <Group gap="md" wrap="wrap">
-                        <Badge color="red" variant="filled">
-                          💥 {formatNumber(issue.count)}건
-                        </Badge>
-                        <Badge color="orange" variant="light">
-                          👥 {formatNumber(issue.users)}명 ({issue.percentage}%)
-                        </Badge>
-                        {issue.culprit && (
-                          <Badge color="gray" variant="light" style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            📍 {issue.culprit}
-                          </Badge>
-                        )}
-                      </Group>
-
-                      {issue.aiSummary && (
-                        <Alert icon={<IconRobot size={16} />} color="blue" variant="light">
-                          🤖 {issue.aiSummary}
-                        </Alert>
-                      )}
-
-                      <Group gap="xs" mt="xs">
-                        <Button
-                          size="xs"
-                          variant="light"
-                          leftSection={<IconSparkles size={14} />}
-                          component="a"
-                          href={`/monitor/sentry-analysis?id=${issue.id}`}
-                          target="_blank"
-                        >
-                          AI 상세 분석
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          leftSection={<IconExternalLink size={14} />}
-                          component="a"
-                          href={issue.sentryUrl}
-                          target="_blank"
-                        >
-                          Sentry에서 보기
-                        </Button>
-                      </Group>
-                    </Stack>
-                  </Card>
-                ))}
-              </Stack>
-            </Paper>
-          )}
-
-          {/* 급증 이슈 */}
-          {surgeIssuesDetailed.length > 0 && (
-            <Paper p="xl" radius="md" withBorder style={{ borderColor: '#fd7e14', borderWidth: 2 }}>
-              <Group mb="md">
-                <IconTrendingUp size={24} color="#fd7e14" />
-                <Text size="lg" fw={700} c="orange">🔥 급증 이슈 ({surgeIssuesDetailed.length}건)</Text>
-              </Group>
-
-              <Stack gap="md">
-                {surgeIssuesDetailed.slice(0, 3).map((issue, index) => (
-                  <Card key={issue.id} padding="md" radius="md" withBorder>
-                    <Stack gap="xs">
-                      <Group justify="space-between" wrap="nowrap">
-                        <Text size="md" fw={600} style={{ flex: 1 }}>
-                          {index + 1}. {issue.title}
-                        </Text>
-                        {issue.isNew && (
-                          <Badge color="cyan" variant="filled">🆕 신규</Badge>
-                        )}
-                      </Group>
-
-                      <Group gap="md" wrap="wrap">
-                        <Badge color="orange" variant="light">
-                          💥 {formatNumber(issue.count)}건 (어제 {formatNumber(issue.previousCount)}건)
-                        </Badge>
-                        {issue.users > 0 && (
-                          <Badge color="grape" variant="light">
-                            👥 {formatNumber(issue.users)}명
-                          </Badge>
-                        )}
-                      </Group>
-
-                      {/* 급증 지표 */}
-                      <Group gap="xs" wrap="wrap">
-                        {issue.zscore > 0 && (
-                          <Badge size="xs" color="yellow" variant="light">
-                            📈 Z-Score: {issue.zscore.toFixed(1)}
-                          </Badge>
-                        )}
-                        {issue.madscore > 0 && (
-                          <Badge size="xs" color="yellow" variant="light">
-                            📈 MAD: {issue.madscore.toFixed(1)}
-                          </Badge>
-                        )}
-                        {issue.growthRate !== undefined && issue.growthRate > 0 && (
-                          <Badge size="xs" color="orange" variant="filled">
-                            🔥 +{issue.growthRate}%
-                          </Badge>
-                        )}
-                      </Group>
-
-                      <Group gap="xs" mt="xs">
-                        <Button
-                          size="xs"
-                          variant="light"
-                          leftSection={<IconSparkles size={14} />}
-                          component="a"
-                          href={`/monitor/sentry-analysis?id=${issue.id}`}
-                          target="_blank"
-                        >
-                          AI 분석
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          leftSection={<IconExternalLink size={14} />}
-                          component="a"
-                          href={issue.sentryUrl}
-                          target="_blank"
-                        >
-                          Sentry
-                        </Button>
-                      </Group>
-                    </Stack>
-                  </Card>
-                ))}
-              </Stack>
-            </Paper>
-          )}
-        </Stack>
-      )}
+      
 
       {/* 전체 이슈 목록 */}
       <Paper p="xl" radius="md" withBorder mb="lg">
@@ -1467,7 +1507,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
           <Group>
             <IconList size={24} />
             <Text size="lg" fw={700}>
-              📋 전체 이슈 목록 ({filteredAndSortedIssues.length}개)
+              전체 이슈 목록 ({filteredAndSortedIssues.length}개)
             </Text>
           </Group>
 
@@ -1533,14 +1573,14 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
           <Text c="dimmed" ta="center" py="xl">표시할 이슈가 없습니다.</Text>
         ) : (
           <Stack gap="md">
-            {filteredAndSortedIssues.map((issue, index) => (
+            {pagedIssues.map((issue, index) => (
               <Card key={issue.id} padding="md" radius="md" withBorder>
                 <Stack gap="xs">
                   {/* 제목 및 배지 */}
                   <Group justify="space-between" wrap="nowrap" align="flex-start">
                     <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
                       <Text size="sm" c="dimmed" fw={500} style={{ flexShrink: 0 }}>
-                        {index + 1}.
+                        {((issuePage - 1) * PAGE_SIZE) + index + 1}.
                       </Text>
                       <Text size="md" fw={600} style={{ flex: 1, wordBreak: 'break-word' }}>
                         {issue.title || '<unknown>'}
@@ -1623,6 +1663,18 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                 </Stack>
               </Card>
             ))}
+
+            {Math.ceil(filteredAndSortedIssues.length / PAGE_SIZE) > 1 && (
+              <Group justify="center" mt="sm">
+                <Pagination
+                  total={Math.ceil(filteredAndSortedIssues.length / PAGE_SIZE)}
+                  value={issuePage}
+                  onChange={setIssuePage}
+                  size="sm"
+                  radius="md"
+                />
+              </Group>
+            )}
           </Stack>
         )}
       </Paper>
