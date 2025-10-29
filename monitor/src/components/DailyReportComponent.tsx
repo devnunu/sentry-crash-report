@@ -17,7 +17,10 @@ import {
   RingProgress,
   Paper,
   List,
-  Table
+  Table,
+  Select,
+  Accordion,
+  Code
 } from '@mantine/core'
 import {
   IconChevronLeft,
@@ -40,7 +43,8 @@ import {
   IconTable,
   IconInfoCircle,
   IconSparkles,
-  IconExternalLink
+  IconExternalLink,
+  IconHistory
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -64,6 +68,24 @@ type NormalizedIssue = {
   events: number
   users: number | null
   link?: string
+}
+
+type FilterType = 'all' | 'surge' | 'new' | 'fatal'
+type SortOption = 'count' | 'users' | 'growth'
+
+interface IssueWithMetadata {
+  id: string
+  title: string
+  count: number
+  users: number
+  delta: number
+  percentage: number
+  avg7Days?: number
+  isNew: boolean
+  isSurge: boolean
+  level?: string
+  aiNote?: string
+  sentryUrl: string
 }
 
 interface DailyReportComponentProps {
@@ -312,6 +334,8 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     crashFreeRate: number
   }>>([])
   const [chartLoading, setChartLoading] = useState(false)
+  const [issueFilter, setIssueFilter] = useState<FilterType>('all')
+  const [issueSortBy, setIssueSortBy] = useState<SortOption>('count')
 
   const config = getPlatformConfig(platform)
 
@@ -445,6 +469,104 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   const criticalIssues = useMemo(() => {
     return topIssues.filter(issue => issue.events > 500 || (issue.users && issue.users > 100))
   }, [topIssues])
+
+  // 전체 이슈 목록 생성 (메타데이터 포함)
+  const allIssuesWithMetadata = useMemo((): IssueWithMetadata[] => {
+    if (!dayData || !previousDayData) return []
+
+    const totalEvents = dayData.crash_events || 0
+    const surgeList = (dayData as any)?.surge_issues || []
+    const newIssuesList = (dayData as any)?.new_issues || []
+    const aiAnalysis = selectedReport?.ai_analysis as any
+    const aiNotes = aiAnalysis?.per_issue_notes || []
+
+    // Top issues를 기반으로 메타데이터 추가
+    return topIssues.map(issue => {
+      // 신규 이슈 여부
+      const isNew = newIssuesList.some((n: any) => n.issue_id === issue.issueId)
+
+      // 급증 이슈 여부
+      const isSurge = surgeList.some((s: any) => s.issue_id === issue.issueId)
+
+      // 전일 대비 델타 계산
+      const previousIssue = (previousDayData as any)?.top_5_issues?.find(
+        (i: any) => i.issue_id === issue.issueId
+      )
+      const previousCount = previousIssue?.event_count || 0
+      const delta = previousCount > 0 ? ((issue.events - previousCount) / previousCount) * 100 : 0
+
+      // 전체 이벤트 대비 비율
+      const percentage = totalEvents > 0 ? (issue.events / totalEvents) * 100 : 0
+
+      // AI 노트 찾기
+      const aiNote = aiNotes.find((note: any) => {
+        const noteTitle = (note.issue_title || '').toLowerCase().trim()
+        const issueTitle = (issue.title || '').toLowerCase().trim()
+        return noteTitle === issueTitle || noteTitle.includes(issueTitle) || issueTitle.includes(noteTitle)
+      })?.note
+
+      return {
+        id: issue.issueId,
+        title: issue.title,
+        count: issue.events,
+        users: issue.users || 0,
+        delta,
+        percentage,
+        avg7Days: undefined, // 7일 평균은 별도 계산 필요
+        isNew,
+        isSurge,
+        level: issue.events >= 500 ? 'fatal' : undefined,
+        aiNote,
+        sentryUrl: issue.link || '#'
+      }
+    })
+  }, [dayData, previousDayData, topIssues, selectedReport])
+
+  // 필터링 및 정렬된 이슈 목록
+  const filteredAndSortedIssues = useMemo(() => {
+    let filtered = [...allIssuesWithMetadata]
+
+    // 필터 적용
+    switch (issueFilter) {
+      case 'surge':
+        filtered = filtered.filter(i => i.isSurge)
+        break
+      case 'new':
+        filtered = filtered.filter(i => i.isNew)
+        break
+      case 'fatal':
+        filtered = filtered.filter(i => i.level === 'fatal')
+        break
+      default:
+        // 'all' - 모든 이슈
+        break
+    }
+
+    // 정렬 적용
+    switch (issueSortBy) {
+      case 'count':
+        filtered.sort((a, b) => b.count - a.count)
+        break
+      case 'users':
+        filtered.sort((a, b) => b.users - a.users)
+        break
+      case 'growth':
+        filtered.sort((a, b) => b.delta - a.delta)
+        break
+    }
+
+    return filtered
+  }, [allIssuesWithMetadata, issueFilter, issueSortBy])
+
+  // 각 필터별 개수
+  const issueCountsByFilter = useMemo(() => {
+    return {
+      all: allIssuesWithMetadata.length,
+      surge: allIssuesWithMetadata.filter(i => i.isSurge).length,
+      new: allIssuesWithMetadata.filter(i => i.isNew).length,
+      fatal: allIssuesWithMetadata.filter(i => i.level === 'fatal').length
+    }
+  }, [allIssuesWithMetadata])
 
   // AI 코멘트 추출
   const aiComment = useMemo(() => {
@@ -607,6 +729,12 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     setIssueModal({ open: false })
     setIssueError('')
     setIssueAnalysis(null)
+  }
+
+  const handleShowHistory = (issueId: string) => {
+    // 모달 또는 새 창에서 이 이슈의 과거 7일 발생 추이 표시
+    // 현재는 alert로 대체 (추후 구현)
+    alert('히스토리 기능은 추후 구현 예정입니다.')
   }
 
   const triggerLabel = selectedReport?.trigger_type === 'scheduled' ? '🤖 자동 실행' : '🧪 테스트 실행'
@@ -1333,146 +1461,171 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         </Stack>
       )}
 
-      {/* Top 5 이슈 섹션 */}
-      <Card withBorder radius="lg" p="lg" mb="lg">
-        <Group justify="space-between" align="center" mb="lg">
-          <div>
-            <Group align="center" gap="xs" mb={2}>
-              <IconList size={20} color="orange" />
-              <Title order={4}>Top 5 이슈</Title>
-            </Group>
-            <Text size="xs" c="dimmed" mt={2}>
-              발생 빈도가 높은 상위 5개 이슈
+      {/* 전체 이슈 목록 */}
+      <Paper p="xl" radius="md" withBorder mb="lg">
+        <Group mb="md" justify="space-between" align="flex-start" wrap="wrap">
+          <Group>
+            <IconList size={24} />
+            <Text size="lg" fw={700}>
+              📋 전체 이슈 목록 ({filteredAndSortedIssues.length}개)
             </Text>
-          </div>
+          </Group>
+
+          {/* 필터 버튼 */}
+          <Group gap="xs" wrap="wrap">
+            <Button
+              size="xs"
+              variant={issueFilter === 'all' ? 'filled' : 'light'}
+              onClick={() => setIssueFilter('all')}
+            >
+              전체 ({issueCountsByFilter.all})
+            </Button>
+            <Button
+              size="xs"
+              variant={issueFilter === 'surge' ? 'filled' : 'light'}
+              color="orange"
+              onClick={() => setIssueFilter('surge')}
+              leftSection={<IconTrendingUp size={14} />}
+            >
+              급증 ({issueCountsByFilter.surge})
+            </Button>
+            <Button
+              size="xs"
+              variant={issueFilter === 'new' ? 'filled' : 'light'}
+              color="cyan"
+              onClick={() => setIssueFilter('new')}
+            >
+              신규 ({issueCountsByFilter.new})
+            </Button>
+            <Button
+              size="xs"
+              variant={issueFilter === 'fatal' ? 'filled' : 'light'}
+              color="red"
+              onClick={() => setIssueFilter('fatal')}
+            >
+              Fatal ({issueCountsByFilter.fatal})
+            </Button>
+          </Group>
         </Group>
 
+        {/* 정렬 옵션 */}
+        <Group mb="md">
+          <Text size="sm" c="dimmed">정렬:</Text>
+          <Select
+            size="xs"
+            value={issueSortBy}
+            onChange={(value) => setIssueSortBy(value as SortOption)}
+            data={[
+              { value: 'count', label: '발생 건수 순' },
+              { value: 'users', label: '영향 사용자 순' },
+              { value: 'growth', label: '증가율 순' }
+            ]}
+            style={{ width: 150 }}
+          />
+        </Group>
+
+        {/* 이슈 목록 */}
         {isLoading && !selectedReport ? (
           <Text c="dimmed" ta="center" py="xl">불러오는 중…</Text>
         ) : !selectedReport ? (
           <Text c="dimmed" ta="center" py="xl">표시할 리포트가 없습니다.</Text>
+        ) : filteredAndSortedIssues.length === 0 ? (
+          <Text c="dimmed" ta="center" py="xl">표시할 이슈가 없습니다.</Text>
         ) : (
-          <Stack gap="xs">
-            {topIssues.length === 0 ? (
-              <Text c="dimmed" ta="center" py="xl">Top 5 이슈 데이터가 없습니다.</Text>
-            ) : (
-              topIssues.map((issue, idx) => (
-                <Card key={issue.issueId || idx} withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
-                  <Group justify="space-between" align="flex-start">
-                    <div style={{ flex: 1 }}>
-                      <Text 
-                        fw={500} 
-                        size="sm" 
-                        mb={4}
-                        component={issue.link ? "a" : "div"}
-                        href={issue.link || undefined}
-                        target={issue.link ? "_blank" : undefined}
-                        style={{
-                          cursor: issue.link ? 'pointer' : 'default',
-                          textDecoration: 'none',
-                          color: issue.link ? 'var(--mantine-color-blue-6)' : 'inherit'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (issue.link) {
-                            e.currentTarget.style.textDecoration = 'underline'
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (issue.link) {
-                            e.currentTarget.style.textDecoration = 'none'
-                          }
-                        }}
-                      >
-                        {idx + 1}. {issue.title}
+          <Stack gap="md">
+            {filteredAndSortedIssues.map((issue, index) => (
+              <Card key={issue.id} padding="md" radius="md" withBorder>
+                <Stack gap="xs">
+                  {/* 제목 및 배지 */}
+                  <Group justify="space-between" wrap="nowrap" align="flex-start">
+                    <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
+                      <Text size="sm" c="dimmed" fw={500} style={{ flexShrink: 0 }}>
+                        {index + 1}.
                       </Text>
-                      <Group gap="md" wrap="nowrap">
-                        <Text size="xs" c="dimmed">
-                          <IconBug size={12} style={{ display: 'inline', marginRight: 4 }} />
-                          이벤트: {formatNumber(issue.events)}건
-                        </Text>
-                        {issue.users != null && (
-                          <Text size="xs" c="dimmed">
-                            <IconUsers size={12} style={{ display: 'inline', marginRight: 4 }} />
-                            사용자: {formatNumber(issue.users)}명
-                          </Text>
-                        )}
-                      </Group>
-                    </div>
-                    <Group gap={8}>
-                      <Button variant="light" size="xs" onClick={() => openIssue(issue)}>
-                        AI 분석
-                      </Button>
+                      <Text size="md" fw={600} style={{ flex: 1, wordBreak: 'break-word' }}>
+                        {issue.title || '<unknown>'}
+                      </Text>
                     </Group>
-                  </Group>
-                </Card>
-              ))
-            )}
-          </Stack>
-        )}
-      </Card>
 
-      {/* Critical 이슈 섹션 */}
-      <Card withBorder p="lg" style={{ backgroundColor: 'rgba(239, 68, 68, 0.02)' }}>
-        <Group justify="space-between" align="center" mb="md">
-          <div>
-            <Group gap="xs" align="center">
-              <IconAlertTriangle size={20} color="red" />
-              <Title order={4} c="red.7">Critical 이슈</Title>
-            </Group>
-            <Text size="xs" c="dimmed" mt={2}>
-              즉시 처리가 필요한 높은 우선순위 이슈들 (사용자 100명 이상 또는 이벤트 500건 이상)
-            </Text>
-          </div>
-          <Badge color="red" variant="light" size="lg">
-            {criticalIssues.length}개
-          </Badge>
-        </Group>
-
-        {criticalIssues.length > 0 ? (
-          <Stack gap="xs">
-            {criticalIssues.map((issue, index) => (
-              <Card key={issue.issueId} withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-5)' }}>
-                <Group justify="space-between" align="flex-start">
-                  <div style={{ flex: 1 }}>
-                    <Text fw={500} size="sm" c="red.8" mb={4}>
-                      {issue.title}
-                    </Text>
-                    <Group gap="md" wrap="nowrap">
-                      <Text size="xs" c="dimmed">
-                        <IconBug size={12} style={{ display: 'inline', marginRight: 4 }} />
-                        이벤트: {formatNumber(issue.events)}건
-                      </Text>
-                      {issue.users != null && (
-                        <Text size="xs" c="dimmed">
-                          <IconUsers size={12} style={{ display: 'inline', marginRight: 4 }} />
-                          사용자: {formatNumber(issue.users)}명
-                        </Text>
+                    <Group gap={4} style={{ flexShrink: 0 }}>
+                      {issue.isNew && (
+                        <Badge size="sm" color="cyan" variant="filled">🆕</Badge>
+                      )}
+                      {issue.isSurge && (
+                        <Badge size="sm" color="orange" variant="filled">🔥</Badge>
+                      )}
+                      {issue.level === 'fatal' && (
+                        <Badge size="sm" color="red" variant="filled">⚠️ Fatal</Badge>
                       )}
                     </Group>
-                  </div>
-                  <div>
-                    <Badge 
-                      color="red" 
-                      variant="filled" 
-                      size="sm"
-                      leftSection={<IconAlertTriangle size={12} />}
-                    >
-                      CRITICAL
+                  </Group>
+
+                  {/* 통계 */}
+                  <Group gap="md" wrap="wrap">
+                    <Badge variant="light" color="blue">
+                      💥 {formatNumber(issue.count)}건 ({formatDeltaPercent(issue.delta)})
                     </Badge>
-                  </div>
-                </Group>
+                    <Badge variant="light" color="grape">
+                      👥 {formatNumber(issue.users)}명
+                    </Badge>
+                    {issue.percentage > 0 && (
+                      <Badge variant="light" color="gray">
+                        📊 전체의 {issue.percentage.toFixed(1)}%
+                      </Badge>
+                    )}
+                  </Group>
+
+                  {/* 최근 7일 평균 */}
+                  {issue.avg7Days && (
+                    <Text size="xs" c="dimmed">
+                      최근 7일 평균: {formatNumber(issue.avg7Days)}건
+                    </Text>
+                  )}
+
+                  {/* AI 짧은 요약 (있으면) */}
+                  {issue.aiNote && (
+                    <Text size="sm" c="dimmed" lineClamp={2}>
+                      🤖 {issue.aiNote}
+                    </Text>
+                  )}
+
+                  {/* 액션 버튼 */}
+                  <Group gap="xs" mt="xs" wrap="wrap">
+                    <Button
+                      size="xs"
+                      variant="light"
+                      leftSection={<IconSparkles size={14} />}
+                      component="a"
+                      href={`/monitor/sentry-analysis?id=${issue.id}`}
+                      target="_blank"
+                    >
+                      AI 분석
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      leftSection={<IconExternalLink size={14} />}
+                      component="a"
+                      href={issue.sentryUrl}
+                      target="_blank"
+                    >
+                      Sentry
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      leftSection={<IconHistory size={14} />}
+                      onClick={() => handleShowHistory(issue.id)}
+                    >
+                      히스토리
+                    </Button>
+                  </Group>
+                </Stack>
               </Card>
             ))}
           </Stack>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '2rem' }}>
-            <IconShield size={48} color="green" style={{ opacity: 0.5, marginBottom: '1rem' }} />
-            <Text c="dimmed" size="sm">
-              현재 Critical 이슈가 없습니다
-            </Text>
-          </div>
         )}
-      </Card>
+      </Paper>
 
       {/* 리포트 실행 결과 섹션 */}
       {selectedReport && (

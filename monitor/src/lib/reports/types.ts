@@ -174,7 +174,15 @@ export interface AIAction {
 
 export interface AIIssueNote {
   issue_title: string
-  note: string
+  issue_id?: string
+  note?: string  // 간단한 한 줄 코멘트 (fallback)
+  analysis?: {   // 상세 분석
+    root_cause?: string
+    user_impact?: string
+    fix_suggestion?: string
+    code_location?: string
+    similar_issues?: string
+  }
 }
 
 // API 요청 스키마

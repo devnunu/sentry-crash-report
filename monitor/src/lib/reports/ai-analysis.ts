@@ -91,7 +91,19 @@ ${environment ? `- 환경: ${environment}` : ''}
   "newsletter_summary": "",
   "today_actions": [ {"title":"", "why":"", "owner_role":"", "suggestion":""} ],
   "root_cause": [],
-  "per_issue_notes": [ {"issue_title":"", "note":""} ],
+  "per_issue_notes": [
+    {
+      "issue_title": "정확한 이슈 제목 (원문 그대로)",
+      "issue_id": "Sentry Issue ID",
+      "analysis": {
+        "root_cause": "이 이슈의 원인을 2-3문장으로 설명. Stack trace 기반 분석",
+        "user_impact": "사용자에게 미치는 영향 1-2문장. 몇 명 영향, 어떤 기능 문제",
+        "fix_suggestion": "해결 방법 2-3문장. 구체적인 코드 수정 방향 제시",
+        "code_location": "문제 발생 위치. 예: kr.co.finda.MainActivity:120",
+        "similar_issues": "과거 비슷한 이슈가 있었다면 언급. 없으면 생략"
+      }
+    }
+  ],
   "full_analysis": {
     "overview": "전체 상황 요약 (2-3문장). 크래시 이벤트 건수, 전일 대비 증감, Crash Free Rate 등을 포함하여 전반적인 상황을 설명하세요.",
     "trend_analysis": "최근 트렌드 분석 (2-3문장). surge_issues의 baseline_counts를 참고하여 최근 7일 평균과 비교, 추세(개선/악화) 설명하세요.",
@@ -104,8 +116,10 @@ ${environment ? `- 환경: ${environment}` : ''}
 }
 
 === per_issue_notes 작성 규칙 ===
-- 아래 상위 5개 이슈 중 **의미 있는 항목만** 코멘트를 남기세요(불필요하면 생략 가능).
+- 아래 상위 5개 이슈 중 **중요한 이슈만** 상세 분석하세요 (급증/신규/Fatal 위주, 보통 2-3개).
 - \`issue_title\`은 반드시 아래 title 문자열을 그대로 사용하세요(변형 금지).
+- \`issue_id\`도 반드시 아래 issue_id를 그대로 사용하세요.
+- analysis 객체의 모든 필드를 채워주세요. similar_issues는 없으면 생략 가능.
 
 [상위 5개 이슈 (요약)]
 ${JSON.stringify(topIssuesCompact, null, 2)}
@@ -148,11 +162,27 @@ ${JSON.stringify(reportData, null, 2)}`
     if (Array.isArray(data.per_issue_notes)) {
       result.per_issue_notes = data.per_issue_notes
         .filter((x: any) => typeof x === 'object' && x !== null)
-        .map((x: any) => ({
-          issue_title: String(x.issue_title || '').trim(),
-          note: String(x.note || '').trim()
-        }))
-        .filter((note: any) => note.issue_title && note.note)
+        .map((x: any) => {
+          const note: any = {
+            issue_title: String(x.issue_title || '').trim(),
+            issue_id: x.issue_id ? String(x.issue_id).trim() : undefined,
+            note: x.note ? String(x.note).trim() : undefined
+          }
+
+          // analysis 필드 처리
+          if (x.analysis && typeof x.analysis === 'object') {
+            note.analysis = {
+              root_cause: x.analysis.root_cause ? String(x.analysis.root_cause).trim() : undefined,
+              user_impact: x.analysis.user_impact ? String(x.analysis.user_impact).trim() : undefined,
+              fix_suggestion: x.analysis.fix_suggestion ? String(x.analysis.fix_suggestion).trim() : undefined,
+              code_location: x.analysis.code_location ? String(x.analysis.code_location).trim() : undefined,
+              similar_issues: x.analysis.similar_issues ? String(x.analysis.similar_issues).trim() : undefined
+            }
+          }
+
+          return note
+        })
+        .filter((note: any) => note.issue_title && (note.note || note.analysis))
     }
 
     // 폴백: per_issue_notes가 비었고 root_cause가 있으면 top1에 한 줄 붙여줌
