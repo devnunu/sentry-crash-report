@@ -27,7 +27,7 @@ interface SentryReleaseDeploy {
   environment?: string | null
 }
 
-interface SentryReleaseDetail extends SentryRelease {}
+type SentryReleaseDetail = SentryRelease
 
 interface SentryEventsResponse {
   data: Array<{

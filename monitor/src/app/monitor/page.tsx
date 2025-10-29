@@ -485,9 +485,7 @@ export default function MonitorPage() {
         level:[error,fatal] 이벤트만 수집합니다.
         실행 결과는 설정된 Slack 채널로 전송됩니다.
       </div>
-    </div>
-  );
-}
+
       <ReleaseSearchModal
         opened={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -499,3 +497,6 @@ export default function MonitorPage() {
           setIsModalOpen(false)
         }}
       />
+    </div>
+  );
+}

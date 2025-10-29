@@ -733,6 +733,26 @@ export class DailyReportService {
     return s.length <= n ? s : s.substring(0, n - 1) + '…'
   }
 
+  // 델타 포맷팅 헬퍼 (참고 코드 기반)
+  private formatDelta(delta: number): string {
+    if (delta > 0) {
+      return `+${delta.toFixed(1)}% 🔺`
+    } else if (delta < 0) {
+      return `${delta.toFixed(1)}% 🔻`
+    } else {
+      return '변화 없음 —'
+    }
+  }
+
+  // 퍼센트 포인트 델타 포맷팅
+  private formatPercentagePointDelta(delta: number): string {
+    if (Math.abs(delta) < 0.0001) {
+      return '변화 없음 —'
+    }
+    const emoji = delta >= 0 ? '↑' : '↓'
+    return `${emoji} ${Math.abs(delta * 100).toFixed(1)}%p`
+  }
+
   private diffStr(cur: number, prev: number, suffix: string = '건'): string {
     const delta = cur - prev
     let arrow: string
@@ -1046,26 +1066,55 @@ export class DailyReportService {
     let status: 'normal' | 'warning' | 'critical' = 'normal'
     let statusEmoji = '✅'
     let statusText = '정상'
+    const reasons: string[] = []
 
     // Critical 판정
-    if (
-      criticalIssues.length > 0 ||
-      (cfU !== null && cfU < 0.99) ||
-      eventChangePercent >= 200
-    ) {
+    if (criticalIssues.length > 0) {
       status = 'critical'
+      reasons.push(`Critical 이슈 ${criticalIssues.length}건`)
+    }
+    if (cfU !== null && cfU < 0.99) {
+      status = 'critical'
+      reasons.push(`Crash Free Rate ${this.fmtPct(cfU)} (99% 미만)`)
+    }
+    if (eventChangePercent >= 200) {
+      status = 'critical'
+      reasons.push(`이벤트 ${eventChangePercent.toFixed(0)}% 급증`)
+    }
+    if (cfuChange < -0.01) { // -1.0%p 이하 하락
+      status = 'critical'
+      reasons.push(`Crash Free Rate ${Math.abs(cfuChange * 100).toFixed(1)}%p 하락`)
+    }
+
+    // Warning 판정 (Critical이 아닐 때만)
+    if (status === 'normal') {
+      if (surgeIssues.length > 0) {
+        status = 'warning'
+        reasons.push(`급증 이슈 ${surgeIssues.length}건`)
+      }
+      if (cfU !== null && cfU >= 0.99 && cfU < 0.995) {
+        status = 'warning'
+        reasons.push(`Crash Free Rate ${this.fmtPct(cfU)} (99.5% 미만)`)
+      }
+      if (eventChangePercent >= 100) {
+        status = 'warning'
+        reasons.push(`이벤트 ${eventChangePercent.toFixed(0)}% 증가`)
+      }
+      if (cfuChange < -0.005 && cfuChange >= -0.01) { // -0.5%p ~ -1.0%p 하락
+        status = 'warning'
+        reasons.push(`Crash Free Rate ${Math.abs(cfuChange * 100).toFixed(1)}%p 하락`)
+      }
+    }
+
+    // 상태별 이모지/텍스트 설정
+    if (status === 'critical') {
       statusEmoji = '🚨'
       statusText = '긴급'
-    }
-    // Warning 판정
-    else if (
-      surgeIssues.length >= 1 ||
-      (cfU !== null && cfU >= 0.99 && cfU < 0.995) ||
-      eventChangePercent >= 100
-    ) {
-      status = 'warning'
+    } else if (status === 'warning') {
       statusEmoji = '⚠️'
       statusText = '주의'
+    } else {
+      reasons.push('정상 범위')
     }
 
     // 집계 구간
@@ -1073,8 +1122,11 @@ export class DailyReportService {
     const kstStart = win.start ? this.parseIsoToKstDate(win.start) : dateLabel
     const kstEnd = win.end ? this.parseIsoToKstDate(win.end) : dateLabel
 
-    // 플랫폼 이모지
-    const platformEmoji = this.platform === 'android' ? '🤖 ' : '🍎 '
+    // 플랫폼 텍스트
+    const platformText = this.platform === 'android' ? 'Android' : 'iOS'
+
+    // 디버깅용 로그
+    this.log(`  - Severity: ${status} (${reasons.join(', ')})`)
 
     const blocks: any[] = []
 
@@ -1083,96 +1135,96 @@ export class DailyReportService {
       type: 'header',
       text: {
         type: 'plain_text',
-        text: `${statusEmoji} ${platformEmoji}Sentry 일간 리포트 — ${dateLabel} (${statusText})`,
+        text: `${statusEmoji} ${platformText} 일간 리포트 — ${dateLabel} (${statusText})`,
         emoji: true
       }
     })
 
+    // 상세 리포트 URL
+    const detailPageUrl = this.buildDailyReportPageUrl(dateLabel)
+
     // ========== 패턴별 본문 ==========
     if (status === 'normal') {
       // ✅ 정상 패턴
-      const cfuChangeText = cfuChange > 0 ? `↑ ${(cfuChange * 100).toFixed(1)}%p` : cfuChange < 0 ? `↓ ${Math.abs(cfuChange * 100).toFixed(1)}%p` : '변동 없음'
-      const eventsChangeText = eventChangePercent !== 0 ? `전일 대비 ${eventChangePercent > 0 ? '+' : ''}${eventChangePercent.toFixed(1)}%` : '변동 없음'
-      const usersChangeText = userChangePercent !== 0 ? `전일 대비 ${userChangePercent > 0 ? '+' : ''}${userChangePercent.toFixed(1)}%` : '변동 없음'
-
       blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
           text: [
-            '*📊 어제는 안정적이었습니다*',
-            `- Crash Free Rate: ${this.fmtPct(cfU)} (${cfuChangeText})`,
-            `- 크래시 이벤트: ${events}건 (${eventsChangeText})`,
-            `- 영향 사용자: ${users}명 (${usersChangeText})`
+            '*📊 이슈 수치가 정상입니다*',
+            `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
+            `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
+            `• 영향 사용자: ${users}명 (전일 대비 ${this.formatDelta(userChangePercent)})`
           ].join('\n')
-        }
-      })
-
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*🎯 액션: 특별한 조치 불필요*\n💬 상세 내용이 궁금하시다면 [📊 상세 리포트 보기]'
         }
       })
     } else if (status === 'warning') {
       // ⚠️ 주의 패턴
-      const cfuChangeText = cfuChange < 0 ? `↓ ${Math.abs(cfuChange * 100).toFixed(1)}%p` : cfuChange > 0 ? `↑ ${(cfuChange * 100).toFixed(1)}%p` : '–'
-      const cfuWarning = cfU !== null && cfU >= 0.99 && cfU < 0.995 ? ' ⚠️' : ''
+      const reasonText = reasons.length > 0 ? `\n\n*⚠️ 원인:* ${reasons.join(', ')}` : ''
 
       blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
           text: [
-            '*📊 오늘 주의가 필요합니다*',
-            `- Crash Free Rate: ${this.fmtPct(cfU)} (${cfuChangeText})${cfuWarning}`,
-            `- 크래시 이벤트: ${events}건 (전일 대비 ${eventChangePercent > 0 ? '+' : ''}${eventChangePercent.toFixed(0)}%)`,
-            `- 영향 사용자: ${users}명 (전일 대비 ${userChangePercent > 0 ? '+' : ''}${userChangePercent.toFixed(0)}%)`
+            '*📊 오늘은 주의가 필요합니다*',
+            `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
+            `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
+            `• 영향 사용자: ${users}명 (전일 대비 ${this.formatDelta(userChangePercent)})${reasonText}`
           ].join('\n')
         }
       })
 
-      // 급증 이슈 (최대 2개)
+      // 급증 이슈 (최대 3개, 참고 코드 기반)
       if (surgeIssues.length > 0) {
-        const topSurges = surgeIssues.slice(0, 2)
-        const surgeLines = topSurges.map((issue, idx) => {
-          const isNew = newIssues.some(n => n.issue_id === issue.issue_id)
-          const statusLabel = isNew ? '🆕 신규 이슈' : `🔥 급증 (${issue.growth_multiplier ? Math.round(issue.growth_multiplier * 100) : '–'}%)`
-          const prevCount = issue.dby_count || 0
-          const title = this.truncate(issue.title, 60)
-          const link = issue.link || ''
-
-          return [
-            `${idx + 1}. ${link ? `<${link}|${title}>` : title}`,
-            `   • 상태: ${statusLabel}`,
-            `   • 발생: ${issue.event_count}건 (어제 ${prevCount}건)`,
-            `   • 영향: ${issue.event_count}명` // 정확한 users 정보가 없으면 events로 대체
-          ].join('\n')
-        })
-
+        blocks.push({ type: 'divider' })
         blocks.push({
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `*🔥 급증 이슈 (${surgeIssues.length}건)*\n${surgeLines.join('\n\n')}`
+            text: `*🔥 급증 이슈 (${surgeIssues.length}건)*`
           }
         })
-      }
 
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*🎯 액션: 오늘 중 확인 권장*'
-        }
-      })
+        const topSurges = surgeIssues.slice(0, 3)
+        const webUrl = process.env.NEXT_PUBLIC_WEB_URL || process.env.WEB_URL || ''
+
+        topSurges.forEach((issue, idx) => {
+          const isNew = newIssues.some(n => n.issue_id === issue.issue_id)
+          const growthRate = issue.growth_multiplier ? Math.round((issue.growth_multiplier - 1) * 100) : 0
+          const statusBadge = isNew ? '🆕 신규 이슈' : `🔥 급증 (${growthRate}%)`
+          const prevCount = issue.dby_count || 0
+          const title = this.truncate(issue.title, 80)
+          const link = issue.link || ''
+
+          const block: any = {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: [
+                `${idx + 1}. ${link ? `<${link}|*${title}*>` : `*${title}*`}`,
+                `   • 상태: ${statusBadge}`,
+                `   • 발생: ${issue.event_count}건 (어제 ${prevCount}건)`,
+                `   • 영향: ${issue.event_count}명`
+              ].join('\n')
+            }
+          }
+
+          // AI 분석 버튼 추가 (WEB_URL이 설정되어 있을 때만)
+          if (webUrl && issue.issue_id) {
+            block.accessory = {
+              type: 'button',
+              text: { type: 'plain_text', text: '💡 AI 분석' },
+              url: `${webUrl}/sentry-analysis?id=${issue.issue_id}`
+            }
+          }
+
+          blocks.push(block)
+        })
+      }
     } else {
       // 🚨 긴급 패턴
-      const cfuChangeText = cfuChange < 0 ? `↓ ${Math.abs(cfuChange * 100).toFixed(1)}%p` : cfuChange > 0 ? `↑ ${(cfuChange * 100).toFixed(1)}%p` : '–'
-      const cfuCritical = cfU !== null && cfU < 0.99 ? ' 🔴' : ''
-      const eventsCritical = eventChangePercent >= 200 ? ' 🔴' : ''
-      const usersCritical = userChangePercent >= 200 ? ' 🔴' : ''
+      const reasonText = reasons.length > 0 ? `\n\n*🚨 원인:* ${reasons.join(', ')}` : ''
 
       blocks.push({
         type: 'section',
@@ -1187,46 +1239,72 @@ export class DailyReportService {
         text: {
           type: 'mrkdwn',
           text: [
-            `- Crash Free Rate: ${this.fmtPct(cfU)} (${cfuChangeText})${cfuCritical}`,
-            `- 크래시 이벤트: ${events}건 (전일 대비 ${eventChangePercent > 0 ? '+' : ''}${eventChangePercent.toFixed(0)}%)${eventsCritical}`,
-            `- 영향 사용자: ${users}명 (전일 대비 ${userChangePercent > 0 ? '+' : ''}${userChangePercent.toFixed(0)}%)${usersCritical}`
+            `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
+            `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
+            `• 영향 사용자: ${users}명 (전일 대비 ${this.formatDelta(userChangePercent)})${reasonText}`
           ].join('\n')
         }
       })
 
       // Critical 이슈 섹션
       if (criticalIssues.length > 0) {
-        const criticalIssue = criticalIssues[0]
-        const isNew = newIssues.some(n => n.issue_id === criticalIssue.issue_id)
-        const statusLabel = isNew ? '🆕 신규 Fatal 에러' : '🔥 Critical 급증'
-        const title = this.truncate(criticalIssue.title, 60)
-        const link = criticalIssue.link || ''
-        const userImpactPercent = users > 0 ? Math.round((criticalIssue.event_count / users) * 100) : 0
-
+        blocks.push({ type: 'divider' })
         blocks.push({
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: [
-              `*🚨 Critical 이슈 (${criticalIssues.length}건)*`,
-              link ? `<${link}|${title}>` : title,
-              `- 상태: ${statusLabel}`,
-              `- 발생: ${criticalIssue.event_count}건`,
-              `- 영향: ${criticalIssue.event_count}명 (전체 사용자의 ${userImpactPercent}%)`,
-              `- 설명: 이 이슈가 앱을 사용 불가능하게 만들고 있습니다`
-            ].join('\n')
+            text: `*🚨 Critical 이슈 (${criticalIssues.length}건)*`
           }
+        })
+
+        const webUrl = process.env.NEXT_PUBLIC_WEB_URL || process.env.WEB_URL || ''
+
+        criticalIssues.slice(0, 2).forEach(criticalIssue => {
+          const isNew = newIssues.some(n => n.issue_id === criticalIssue.issue_id)
+          const statusLabel = isNew ? '🆕 신규 Fatal 에러' : '🔥 Critical 급증'
+          const title = this.truncate(criticalIssue.title, 80)
+          const link = criticalIssue.link || ''
+          const userImpactPercent = users > 0 ? Math.round((criticalIssue.event_count / users) * 100) : 0
+
+          const block: any = {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: [
+                link ? `<${link}|*${title}*>` : `*${title}*`,
+                `• 상태: ${statusLabel}`,
+                `• 발생: ${criticalIssue.event_count}건`,
+                `• 영향: ${criticalIssue.event_count}명 (전체 사용자의 ${userImpactPercent}%)`,
+                `• 설명: 이 이슈가 앱을 사용 불가능하게 만들고 있습니다`
+              ].join('\n')
+            }
+          }
+
+          // AI 분석 버튼 추가
+          if (webUrl && criticalIssue.issue_id) {
+            block.accessory = {
+              type: 'button',
+              text: { type: 'plain_text', text: '💡 AI 분석' },
+              url: `${webUrl}/sentry-analysis?id=${criticalIssue.issue_id}`
+            }
+          }
+
+          blocks.push(block)
         })
       }
 
       // 기타 급증 이슈
       const otherSurges = surgeIssues.filter(s => !criticalIssues.includes(s)).slice(0, 2)
       if (otherSurges.length > 0) {
+        blocks.push({ type: 'divider' })
         const otherLines = otherSurges.map((issue, idx) => {
-          const title = this.truncate(issue.title, 50)
+          const title = this.truncate(issue.title, 60)
+          const link = issue.link || ''
           const isNew = newIssues.some(n => n.issue_id === issue.issue_id)
-          const statusLabel = isNew ? '신규' : `+${issue.growth_multiplier ? Math.round((issue.growth_multiplier - 1) * 100) : '?'}%`
-          return `${idx + 1}. ${title} (${issue.event_count}건, ${statusLabel})`
+          const growthRate = issue.growth_multiplier ? Math.round((issue.growth_multiplier - 1) * 100) : 0
+          const statusLabel = isNew ? '신규' : `+${growthRate}%`
+          const titleText = link ? `<${link}|${title}>` : title
+          return `${idx + 1}. ${titleText} (${issue.event_count}건, ${statusLabel})`
         })
 
         blocks.push({
@@ -1237,18 +1315,9 @@ export class DailyReportService {
           }
         })
       }
-
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*🎯 액션: 즉시 대응 필요 (핫픽스 검토)*'
-        }
-      })
     }
 
     // ========== 상세 리포트 버튼 ==========
-    const detailPageUrl = this.buildDailyReportPageUrl(dateLabel)
     blocks.push({
       type: 'actions',
       elements: [
