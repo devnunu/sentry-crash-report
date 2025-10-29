@@ -72,7 +72,7 @@ type NormalizedIssue = {
 }
 
 type FilterType = 'all' | 'fatal'
-type SortOption = 'count' | 'users' | 'growth'
+type SortOption = 'count' | 'users'
 
 interface IssueWithMetadata {
   id: string
@@ -80,9 +80,7 @@ interface IssueWithMetadata {
   count: number
   users: number
   delta: number
-  avg7Days?: number
   level?: string
-  aiNote?: string
   sentryUrl: string
 }
 
@@ -334,8 +332,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   const [chartLoading, setChartLoading] = useState(false)
   const [issueFilter, setIssueFilter] = useState<FilterType>('all')
   const [issueSortBy, setIssueSortBy] = useState<SortOption>('count')
-  const [sentryIssues, setSentryIssues] = useState<IssueWithMetadata[]>([])
-  const [sentryLoading, setSentryLoading] = useState(false)
+  // removed sentry loading flag (unused)
   // 전체 이슈 목록 페이지네이션
   const PAGE_SIZE = 5
   const [issuePage, setIssuePage] = useState(1)
@@ -355,7 +352,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
       if (!selectedReport?.target_date) return
 
       setChartLoading(true)
-      setSentryLoading(true)
       try {
         // 7일 데이터
         const chartResp = await fetch(`/api/reports/daily/chart-data?platform=${platform}&targetDate=${selectedReport.target_date}`)
@@ -367,7 +363,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         console.error('Failed to fetch Sentry data:', error)
       } finally {
         setChartLoading(false)
-        setSentryLoading(false)
       }
     }
 
@@ -533,9 +528,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         break
       case 'users':
         filtered.sort((a, b) => b.users - a.users)
-        break
-      case 'growth':
-        filtered.sort((a, b) => b.delta - a.delta)
         break
     }
 
@@ -1489,8 +1481,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
             onChange={(value) => setIssueSortBy(value as SortOption)}
             data={[
               { value: 'count', label: '발생 건수 순' },
-              { value: 'users', label: '영향 사용자 순' },
-              { value: 'growth', label: '증가율 순' }
+              { value: 'users', label: '영향 사용자 순' }
             ]}
             style={{ width: 150 }}
           />
@@ -1536,19 +1527,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     </Badge>
                   </Group>
 
-                  {/* 최근 7일 평균 */}
-                  {issue.avg7Days && (
-                    <Text size="xs" c="dimmed">
-                      최근 7일 평균: {formatNumber(issue.avg7Days)}건
-                    </Text>
-                  )}
-
-                  {/* AI 짧은 요약 (있으면) */}
-                  {issue.aiNote && (
-                    <Text size="sm" c="dimmed" lineClamp={2}>
-                      🤖 {issue.aiNote}
-                    </Text>
-                  )}
+                  {/* 최근 7일 평균, AI 짧은 요약: 사용하지 않아 제거 */}
 
                   {/* 액션 버튼 */}
                   <Group gap="xs" mt="xs" wrap="wrap">
