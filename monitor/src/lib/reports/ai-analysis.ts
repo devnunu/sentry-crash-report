@@ -37,7 +37,7 @@ export class AIAnalysisService {
       const response = await client.chat.completions.create({
         model: 'gpt-4o-mini',
         temperature: 0.7,
-        max_tokens: 900,
+        max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }]
       })
 
@@ -88,10 +88,19 @@ ${environment ? `- 환경: ${environment}` : ''}
 === 출력 형식 ===
 반드시 **순수 JSON만** 출력하세요. 코드블록(\`\`\`json\`)로 감싸지 마세요.
 {
-  "newsletter_summary": "",   
+  "newsletter_summary": "",
   "today_actions": [ {"title":"", "why":"", "owner_role":"", "suggestion":""} ],
   "root_cause": [],
-  "per_issue_notes": [ {"issue_title":"", "note":""} ]
+  "per_issue_notes": [ {"issue_title":"", "note":""} ],
+  "full_analysis": {
+    "overview": "전체 상황 요약 (2-3문장). 크래시 이벤트 건수, 전일 대비 증감, Crash Free Rate 등을 포함하여 전반적인 상황을 설명하세요.",
+    "trend_analysis": "최근 트렌드 분석 (2-3문장). surge_issues의 baseline_counts를 참고하여 최근 7일 평균과 비교, 추세(개선/악화) 설명하세요.",
+    "key_insights": [
+      "핵심 인사이트 1: 가장 주목해야 할 이슈나 패턴",
+      "핵심 인사이트 2: 개선이 필요한 부분이나 위험 요소"
+    ],
+    "recommendations": "권장 사항 (1-2문장). 다음에 취해야 할 액션 또는 모니터링 포인트를 간결하게 제시하세요."
+  }
 }
 
 === per_issue_notes 작성 규칙 ===
@@ -111,7 +120,15 @@ ${JSON.stringify(reportData, null, 2)}`
       newsletter_summary: String(data.newsletter_summary || ''),
       today_actions: [],
       root_cause: Array.isArray(data.root_cause) ? data.root_cause.map(String) : [],
-      per_issue_notes: []
+      per_issue_notes: [],
+      full_analysis: data.full_analysis ? {
+        overview: String(data.full_analysis.overview || ''),
+        trend_analysis: String(data.full_analysis.trend_analysis || ''),
+        key_insights: Array.isArray(data.full_analysis.key_insights)
+          ? data.full_analysis.key_insights.map(String).filter(Boolean)
+          : [],
+        recommendations: String(data.full_analysis.recommendations || '')
+      } : undefined
     }
 
     // 액션 항목 정규화

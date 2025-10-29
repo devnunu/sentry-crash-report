@@ -156,6 +156,12 @@ export interface AIAnalysis {
   today_actions: AIAction[]
   root_cause: string[]
   per_issue_notes: AIIssueNote[]
+  full_analysis?: {
+    overview: string
+    trend_analysis: string
+    key_insights: string[]
+    recommendations: string
+  }
   fallback_text?: string // Python의 fallback 형태
 }
 

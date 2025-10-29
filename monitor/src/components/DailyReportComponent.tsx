@@ -2,23 +2,25 @@
 
 import React, { useMemo, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { 
-  ActionIcon, 
-  Badge, 
-  Button, 
-  Card, 
-  Group, 
-  Modal, 
-  Stack, 
-  Text, 
+import {
+  ActionIcon,
+  Badge,
+  Button,
+  Card,
+  Group,
+  Modal,
+  Stack,
+  Text,
   Title,
   Grid,
   Alert,
-  RingProgress
+  RingProgress,
+  Paper,
+  List
 } from '@mantine/core'
-import { 
-  IconChevronLeft, 
-  IconChevronRight, 
+import {
+  IconChevronLeft,
+  IconChevronRight,
   IconRefresh,
   IconBrandAndroid,
   IconBrandApple,
@@ -31,7 +33,8 @@ import {
   IconTrendingUp,
   IconTrendingDown,
   IconMinus,
-  IconTrash
+  IconTrash,
+  IconRobot
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -275,11 +278,36 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   // AI 오늘의 액션 추출
   const aiActions = useMemo(() => {
     if (!selectedReport) return []
-    
+
     const aiAnalysis = selectedReport.ai_analysis as any
     if (!aiAnalysis || !aiAnalysis.today_actions) return []
-    
+
     return aiAnalysis.today_actions
+  }, [selectedReport])
+
+  // AI 종합 분석 추출
+  const aiFullAnalysis = useMemo(() => {
+    if (!selectedReport) return null
+
+    const aiAnalysis = selectedReport.ai_analysis as any
+    if (!aiAnalysis) return null
+
+    // full_analysis가 있으면 사용, 없으면 fallback
+    if (aiAnalysis.full_analysis) {
+      return aiAnalysis.full_analysis
+    }
+
+    // fallback: newsletter_summary를 overview로 사용
+    if (aiAnalysis.newsletter_summary) {
+      return {
+        overview: aiAnalysis.newsletter_summary,
+        trend_analysis: '데이터가 충분하지 않습니다.',
+        key_insights: [],
+        recommendations: '지속적인 모니터링이 필요합니다.'
+      }
+    }
+
+    return null
   }, [selectedReport])
 
   const dateLabel = formatDateLabel(selectedReport?.target_date)
@@ -620,60 +648,43 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
       )}
 
       {/* AI 분석 섹션 */}
-      {(aiComment || aiActions.length > 0) && (
-        <Card withBorder radius="lg" p="lg" mb="lg" style={{ backgroundColor: 'rgba(16, 185, 129, 0.02)' }}>
-          <Group justify="space-between" align="center" mb="lg">
-            <div>
-              <Group align="center" gap="xs" mb={2}>
-                <IconBrandApple size={20} color="teal" style={{ display: platform === 'android' ? 'none' : 'block' }} />
-                <IconBrandAndroid size={20} color="teal" style={{ display: platform === 'ios' ? 'none' : 'block' }} />
-                <Title order={4} c="teal.7">AI 분석</Title>
-              </Group>
-              <Text size="xs" c="dimmed" mt={2}>
-                AI가 분석한 오늘의 크래시 현황 및 권장 액션
-              </Text>
-            </div>
+      {aiFullAnalysis && (
+        <Paper p="xl" radius="md" withBorder mb="lg">
+          <Group mb="md">
+            <IconRobot size={24} color="teal" />
+            <Text size="lg" fw={700} c="teal.7">AI 분석</Text>
           </Group>
 
-          {/* AI 코멘트 */}
-          {aiComment && (
-            <Card withBorder p="md" mb="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
-              <Group align="center" gap="xs" mb="xs">
-                <Text size="sm" fw={600} c="teal.6">💬 분석 코멘트</Text>
-              </Group>
-              <Text style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap' }} size="sm">
-                {typeof aiComment === 'string' ? aiComment : JSON.stringify(aiComment, null, 2)}
-              </Text>
-            </Card>
-          )}
-
-          {/* 오늘의 액션 */}
-          {aiActions.length > 0 && (
+          <Stack gap="md">
             <div>
-              <Group align="center" gap="xs" mb="md">
-                <Text size="sm" fw={600} c="teal.6">📋 오늘의 권장 액션</Text>
-                <Badge size="sm" color="teal" variant="light">{aiActions.length}개</Badge>
-              </Group>
-              <Grid>
-                {aiActions.map((action: any, index: number) => (
-                  <Grid.Col span={12} key={index}>
-                    <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-dark-6)' }}>
-                      <Text size="sm" fw={600} mb="xs" c="blue.4">
-                        {action.title}
-                      </Text>
-                      <Text size="xs" c="dimmed" mb="xs">
-                        👤 {action.owner_role} • {action.why}
-                      </Text>
-                      <Text size="sm" style={{ lineHeight: 1.5 }}>
-                        {action.suggestion}
-                      </Text>
-                    </Card>
-                  </Grid.Col>
-                ))}
-              </Grid>
+              <Text size="sm" fw={600} c="teal.6" mb={4}>전체 상황</Text>
+              <Text>{aiFullAnalysis.overview}</Text>
             </div>
-          )}
-        </Card>
+
+            {aiFullAnalysis.trend_analysis && aiFullAnalysis.trend_analysis !== '데이터가 충분하지 않습니다.' && (
+              <div>
+                <Text size="sm" fw={600} c="teal.6" mb={4}>트렌드 분석</Text>
+                <Text>{aiFullAnalysis.trend_analysis}</Text>
+              </div>
+            )}
+
+            {aiFullAnalysis.key_insights && aiFullAnalysis.key_insights.length > 0 && (
+              <div>
+                <Text size="sm" fw={600} c="teal.6" mb={4}>핵심 인사이트</Text>
+                <List>
+                  {aiFullAnalysis.key_insights.map((insight: string, i: number) => (
+                    <List.Item key={i}>{insight}</List.Item>
+                  ))}
+                </List>
+              </div>
+            )}
+
+            <div>
+              <Text size="sm" fw={600} c="teal.6" mb={4}>권장 사항</Text>
+              <Text>{aiFullAnalysis.recommendations}</Text>
+            </div>
+          </Stack>
+        </Paper>
       )}
 
       {/* Top 5 이슈 섹션 */}
