@@ -1017,64 +1017,237 @@ export class DailyReportService {
     const events = parseInt(String(dayObj.crash_events || 0))
     const issues = parseInt(String(dayObj.unique_issues || 0))
     const users = parseInt(String(dayObj.impacted_users || 0))
+    const surgeIssues = (dayObj.surge_issues || []) as SurgeIssue[]
+    const newIssues = (dayObj.new_issues || []) as NewIssue[]
 
-    // 전일값 (증감은 이벤트/이슈/사용자에만 적용)
+    // 전일값
     let prevEvents = 0
-    let prevIssues = 0
     let prevUsers = 0
+    let prevCfU = null as number | null
     if (prevDayObj) {
       prevEvents = parseInt(String(prevDayObj.crash_events || 0))
-      prevIssues = parseInt(String(prevDayObj.unique_issues || 0))
       prevUsers = parseInt(String(prevDayObj.impacted_users || 0))
+      prevCfU = prevDayObj.crash_free_users_pct
     }
 
-    // Summary: 요청하신 순서로 표기 (이벤트/이슈/사용자 → Crash Free)
-    const summaryLines = [
-      '*:memo: Summary*',
-      `• 💥 *총 이벤트 발생 건수*: ${prevDayObj ? this.diffStr(events, prevEvents, '건') : `${events}건`}`,
-      `• 🐞 *유니크 이슈 개수*: ${prevDayObj ? this.diffStr(issues, prevIssues, '개') : `${issues}개`}`,
-      `• 👥 *영향받은 사용자 수*: ${prevDayObj ? this.diffStr(users, prevUsers, '명') : `${users}명`}`,
-      `• 🛡️ *Crash-Free 세션 비율*: ${this.fmtPct(cfS)} / *Crash-Free 사용자 비율*: ${this.fmtPct(cfU)}`
-    ]
-    const kpiText = summaryLines.join('\n')
+    // 증감률 계산
+    const eventChangePercent = prevEvents > 0 ? ((events - prevEvents) / prevEvents) * 100 : 0
+    const userChangePercent = prevUsers > 0 ? ((users - prevUsers) / prevUsers) * 100 : 0
+    const cfuChange = prevCfU !== null && cfU !== null ? cfU - prevCfU : 0
 
-    // 집계 구간(KST)
+    // Critical 이슈 탐지 (신규 + fatal 레벨 or 영향 사용자 많음)
+    const criticalIssues = surgeIssues.filter(issue => {
+      const isNewFatal = newIssues.some(n => n.issue_id === issue.issue_id)
+      const highImpact = issue.event_count >= 100
+      return isNewFatal || highImpact
+    })
+
+    // 상태 판정
+    let status: 'normal' | 'warning' | 'critical' = 'normal'
+    let statusEmoji = '✅'
+    let statusText = '정상'
+
+    // Critical 판정
+    if (
+      criticalIssues.length > 0 ||
+      (cfU !== null && cfU < 0.99) ||
+      eventChangePercent >= 200
+    ) {
+      status = 'critical'
+      statusEmoji = '🚨'
+      statusText = '긴급'
+    }
+    // Warning 판정
+    else if (
+      surgeIssues.length >= 1 ||
+      (cfU !== null && cfU >= 0.99 && cfU < 0.995) ||
+      eventChangePercent >= 100
+    ) {
+      status = 'warning'
+      statusEmoji = '⚠️'
+      statusText = '주의'
+    }
+
+    // 집계 구간
     const win = dayObj.window_utc || {}
-    const kstWindow = this.parseIsoToKstLabel(win.start || '?', win.end || '?')
+    const kstStart = win.start ? this.parseIsoToKstDate(win.start) : dateLabel
+    const kstEnd = win.end ? this.parseIsoToKstDate(win.end) : dateLabel
 
-    // 헤더
+    // 플랫폼 이모지
     const platformEmoji = this.platform === 'android' ? '🤖 ' : '🍎 '
-    let title = `${platformEmoji}Sentry 일간 리포트 — ${dateLabel}`
-    if (envLabel) {
-      title += `  ·  ${envLabel}`
-    }
 
-    const blocks: any[] = [
-      {
-        type: 'header',
-        text: {
-          type: 'plain_text',
-          text: title,
-          emoji: true
-        }
-      },
-      {
+    const blocks: any[] = []
+
+    // ========== 헤더 ==========
+    blocks.push({
+      type: 'header',
+      text: {
+        type: 'plain_text',
+        text: `${statusEmoji} ${platformEmoji}Sentry 일간 리포트 — ${dateLabel} (${statusText})`,
+        emoji: true
+      }
+    })
+
+    // ========== 패턴별 본문 ==========
+    if (status === 'normal') {
+      // ✅ 정상 패턴
+      const cfuChangeText = cfuChange > 0 ? `↑ ${(cfuChange * 100).toFixed(1)}%p` : cfuChange < 0 ? `↓ ${Math.abs(cfuChange * 100).toFixed(1)}%p` : '변동 없음'
+      const eventsChangeText = eventChangePercent !== 0 ? `전일 대비 ${eventChangePercent > 0 ? '+' : ''}${eventChangePercent.toFixed(1)}%` : '변동 없음'
+      const usersChangeText = userChangePercent !== 0 ? `전일 대비 ${userChangePercent > 0 ? '+' : ''}${userChangePercent.toFixed(1)}%` : '변동 없음'
+
+      blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: kpiText
+          text: [
+            '*📊 어제는 안정적이었습니다*',
+            `- Crash Free Rate: ${this.fmtPct(cfU)} (${cfuChangeText})`,
+            `- 크래시 이벤트: ${events}건 (${eventsChangeText})`,
+            `- 영향 사용자: ${users}명 (${usersChangeText})`
+          ].join('\n')
         }
-      },
-      {
-        type: 'context',
-        elements: [{
-          type: 'mrkdwn',
-          text: `*집계 구간*: ${kstWindow}`
-        }]
-      }
-    ]
+      })
 
-    // === 상세 리포트 페이지로 이동하는 버튼 추가 ===
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*🎯 액션: 특별한 조치 불필요*\n💬 상세 내용이 궁금하시다면 [📊 상세 리포트 보기]'
+        }
+      })
+    } else if (status === 'warning') {
+      // ⚠️ 주의 패턴
+      const cfuChangeText = cfuChange < 0 ? `↓ ${Math.abs(cfuChange * 100).toFixed(1)}%p` : cfuChange > 0 ? `↑ ${(cfuChange * 100).toFixed(1)}%p` : '–'
+      const cfuWarning = cfU !== null && cfU >= 0.99 && cfU < 0.995 ? ' ⚠️' : ''
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: [
+            '*📊 오늘 주의가 필요합니다*',
+            `- Crash Free Rate: ${this.fmtPct(cfU)} (${cfuChangeText})${cfuWarning}`,
+            `- 크래시 이벤트: ${events}건 (전일 대비 ${eventChangePercent > 0 ? '+' : ''}${eventChangePercent.toFixed(0)}%)`,
+            `- 영향 사용자: ${users}명 (전일 대비 ${userChangePercent > 0 ? '+' : ''}${userChangePercent.toFixed(0)}%)`
+          ].join('\n')
+        }
+      })
+
+      // 급증 이슈 (최대 2개)
+      if (surgeIssues.length > 0) {
+        const topSurges = surgeIssues.slice(0, 2)
+        const surgeLines = topSurges.map((issue, idx) => {
+          const isNew = newIssues.some(n => n.issue_id === issue.issue_id)
+          const statusLabel = isNew ? '🆕 신규 이슈' : `🔥 급증 (${issue.growth_multiplier ? Math.round(issue.growth_multiplier * 100) : '–'}%)`
+          const prevCount = issue.dby_count || 0
+          const title = this.truncate(issue.title, 60)
+          const link = issue.link || ''
+
+          return [
+            `${idx + 1}. ${link ? `<${link}|${title}>` : title}`,
+            `   • 상태: ${statusLabel}`,
+            `   • 발생: ${issue.event_count}건 (어제 ${prevCount}건)`,
+            `   • 영향: ${issue.event_count}명` // 정확한 users 정보가 없으면 events로 대체
+          ].join('\n')
+        })
+
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*🔥 급증 이슈 (${surgeIssues.length}건)*\n${surgeLines.join('\n\n')}`
+          }
+        })
+      }
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*🎯 액션: 오늘 중 확인 권장*'
+        }
+      })
+    } else {
+      // 🚨 긴급 패턴
+      const cfuChangeText = cfuChange < 0 ? `↓ ${Math.abs(cfuChange * 100).toFixed(1)}%p` : cfuChange > 0 ? `↑ ${(cfuChange * 100).toFixed(1)}%p` : '–'
+      const cfuCritical = cfU !== null && cfU < 0.99 ? ' 🔴' : ''
+      const eventsCritical = eventChangePercent >= 200 ? ' 🔴' : ''
+      const usersCritical = userChangePercent >= 200 ? ' 🔴' : ''
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*⚠️ 심각한 상황 - 즉시 확인 필요!*`
+        }
+      })
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: [
+            `- Crash Free Rate: ${this.fmtPct(cfU)} (${cfuChangeText})${cfuCritical}`,
+            `- 크래시 이벤트: ${events}건 (전일 대비 ${eventChangePercent > 0 ? '+' : ''}${eventChangePercent.toFixed(0)}%)${eventsCritical}`,
+            `- 영향 사용자: ${users}명 (전일 대비 ${userChangePercent > 0 ? '+' : ''}${userChangePercent.toFixed(0)}%)${usersCritical}`
+          ].join('\n')
+        }
+      })
+
+      // Critical 이슈 섹션
+      if (criticalIssues.length > 0) {
+        const criticalIssue = criticalIssues[0]
+        const isNew = newIssues.some(n => n.issue_id === criticalIssue.issue_id)
+        const statusLabel = isNew ? '🆕 신규 Fatal 에러' : '🔥 Critical 급증'
+        const title = this.truncate(criticalIssue.title, 60)
+        const link = criticalIssue.link || ''
+        const userImpactPercent = users > 0 ? Math.round((criticalIssue.event_count / users) * 100) : 0
+
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: [
+              `*🚨 Critical 이슈 (${criticalIssues.length}건)*`,
+              link ? `<${link}|${title}>` : title,
+              `- 상태: ${statusLabel}`,
+              `- 발생: ${criticalIssue.event_count}건`,
+              `- 영향: ${criticalIssue.event_count}명 (전체 사용자의 ${userImpactPercent}%)`,
+              `- 설명: 이 이슈가 앱을 사용 불가능하게 만들고 있습니다`
+            ].join('\n')
+          }
+        })
+      }
+
+      // 기타 급증 이슈
+      const otherSurges = surgeIssues.filter(s => !criticalIssues.includes(s)).slice(0, 2)
+      if (otherSurges.length > 0) {
+        const otherLines = otherSurges.map((issue, idx) => {
+          const title = this.truncate(issue.title, 50)
+          const isNew = newIssues.some(n => n.issue_id === issue.issue_id)
+          const statusLabel = isNew ? '신규' : `+${issue.growth_multiplier ? Math.round((issue.growth_multiplier - 1) * 100) : '?'}%`
+          return `${idx + 1}. ${title} (${issue.event_count}건, ${statusLabel})`
+        })
+
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*🔥 기타 급증 이슈 (${otherSurges.length}건)*\n${otherLines.join('\n')}`
+          }
+        })
+      }
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*🎯 액션: 즉시 대응 필요 (핫픽스 검토)*'
+        }
+      })
+    }
+
+    // ========== 상세 리포트 버튼 ==========
     const detailPageUrl = this.buildDailyReportPageUrl(dateLabel)
     blocks.push({
       type: 'actions',
@@ -1090,7 +1263,23 @@ export class DailyReportService {
       ]
     })
 
+    // ========== 집계 구간 ==========
+    blocks.push({
+      type: 'context',
+      elements: [{
+        type: 'mrkdwn',
+        text: `집계 구간: ${kstStart} 00:00 ~ 23:59 (KST)`
+      }]
+    })
+
     return blocks
+  }
+
+  // ISO UTC 날짜를 KST 날짜 문자열로 변환 (YYYY-MM-DD 형식)
+  private parseIsoToKstDate(isoUtc: string): string {
+    const utc = new Date(isoUtc.replace('Z', '+00:00'))
+    const kst = new Date(utc.getTime() + 9 * 60 * 60 * 1000)
+    return kst.toISOString().split('T')[0]
   }
 
   private async postToSlack(webhookUrl: string, blocks: any[]): Promise<void> {
