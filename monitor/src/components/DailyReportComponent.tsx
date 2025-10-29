@@ -38,7 +38,9 @@ import {
   IconRobot,
   IconChartLine,
   IconTable,
-  IconInfoCircle
+  IconInfoCircle,
+  IconSparkles,
+  IconExternalLink
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -375,7 +377,71 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   }, [payload, selectedReport])
 
   const topIssues = useMemo(() => normalizeTopIssues((dayData as any)?.top_5_issues), [dayData])
-  
+
+  // Critical 이슈 추출 (상세 정보 포함)
+  const criticalIssuesDetailed = useMemo(() => {
+    if (!dayData) return []
+
+    const totalUsers = dayData.impacted_users || 0
+    const surgelist = (dayData as any)?.surge_issues || []
+    const newIssues = (dayData as any)?.new_issues || []
+
+    // Top 5 중에서 Critical 이슈 찾기
+    return topIssues
+      .filter(issue => {
+        // Fatal 레벨 + 50건 이상 또는 사용자 10% 이상 영향
+        const isFatal = issue.events >= 50
+        const isHighImpact = issue.users && totalUsers > 0 && (issue.users / totalUsers) > 0.1
+        const isHighCount = issue.events >= 500
+
+        return isFatal && (isHighImpact || isHighCount)
+      })
+      .map(issue => {
+        const percentage = issue.users && totalUsers > 0
+          ? ((issue.users / totalUsers) * 100).toFixed(1)
+          : '0'
+
+        return {
+          id: issue.issueId,
+          title: issue.title,
+          count: issue.events,
+          users: issue.users || 0,
+          percentage,
+          culprit: issue.title.length > 60 ? issue.title.substring(0, 60) + '...' : issue.title,
+          sentryUrl: issue.link || '#',
+          aiSummary: undefined // AI 요약은 별도 API로 가져올 수 있음
+        }
+      })
+  }, [dayData, topIssues])
+
+  // 급증 이슈 추출 (상세 정보 포함)
+  const surgeIssuesDetailed = useMemo(() => {
+    if (!dayData) return []
+
+    const surgeList = (dayData as any)?.surge_issues || []
+    const newIssues = (dayData as any)?.new_issues || []
+
+    return surgeList.slice(0, 5).map((issue: any) => {
+      const isNew = newIssues.some((n: any) => n.issue_id === issue.issue_id)
+      const growthRate = !isNew && issue.dby_count > 0
+        ? Math.round(((issue.event_count - issue.dby_count) / issue.dby_count) * 100)
+        : undefined
+
+      return {
+        id: issue.issue_id,
+        title: issue.title,
+        count: issue.event_count,
+        previousCount: issue.dby_count || 0,
+        users: 0, // surge_issues에는 users 정보가 없음
+        isNew,
+        growthRate,
+        zscore: issue.zscore || 0,
+        madscore: issue.mad_score || 0,
+        sentryUrl: issue.link || '#'
+      }
+    })
+  }, [dayData])
+
   const criticalIssues = useMemo(() => {
     return topIssues.filter(issue => issue.events > 500 || (issue.users && issue.users > 100))
   }, [topIssues])
@@ -1117,6 +1183,154 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
             💡 {getInterpretation(comparisonData.yesterday, comparisonData.avg7Days)}
           </Alert>
         </Paper>
+      )}
+
+      {/* 주요 이슈 섹션 */}
+      {selectedReport && (criticalIssuesDetailed.length > 0 || surgeIssuesDetailed.length > 0) && (
+        <Stack gap="md" mb="lg">
+          {/* Critical 이슈 */}
+          {criticalIssuesDetailed.length > 0 && (
+            <Paper p="xl" radius="md" withBorder style={{ borderColor: '#fa5252', borderWidth: 2 }}>
+              <Group mb="md">
+                <IconAlertTriangle size={24} color="#fa5252" />
+                <Text size="lg" fw={700} c="red">🚨 Critical 이슈 ({criticalIssuesDetailed.length}건)</Text>
+              </Group>
+
+              <Stack gap="md">
+                {criticalIssuesDetailed.map(issue => (
+                  <Card key={issue.id} padding="md" radius="md" withBorder>
+                    <Stack gap="xs">
+                      <Text size="md" fw={600}>{issue.title}</Text>
+
+                      <Group gap="md" wrap="wrap">
+                        <Badge color="red" variant="filled">
+                          💥 {formatNumber(issue.count)}건
+                        </Badge>
+                        <Badge color="orange" variant="light">
+                          👥 {formatNumber(issue.users)}명 ({issue.percentage}%)
+                        </Badge>
+                        {issue.culprit && (
+                          <Badge color="gray" variant="light" style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            📍 {issue.culprit}
+                          </Badge>
+                        )}
+                      </Group>
+
+                      {issue.aiSummary && (
+                        <Alert icon={<IconRobot size={16} />} color="blue" variant="light">
+                          🤖 {issue.aiSummary}
+                        </Alert>
+                      )}
+
+                      <Group gap="xs" mt="xs">
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconSparkles size={14} />}
+                          component="a"
+                          href={`/monitor/sentry-analysis?id=${issue.id}`}
+                          target="_blank"
+                        >
+                          AI 상세 분석
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconExternalLink size={14} />}
+                          component="a"
+                          href={issue.sentryUrl}
+                          target="_blank"
+                        >
+                          Sentry에서 보기
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ))}
+              </Stack>
+            </Paper>
+          )}
+
+          {/* 급증 이슈 */}
+          {surgeIssuesDetailed.length > 0 && (
+            <Paper p="xl" radius="md" withBorder style={{ borderColor: '#fd7e14', borderWidth: 2 }}>
+              <Group mb="md">
+                <IconTrendingUp size={24} color="#fd7e14" />
+                <Text size="lg" fw={700} c="orange">🔥 급증 이슈 ({surgeIssuesDetailed.length}건)</Text>
+              </Group>
+
+              <Stack gap="md">
+                {surgeIssuesDetailed.slice(0, 3).map((issue, index) => (
+                  <Card key={issue.id} padding="md" radius="md" withBorder>
+                    <Stack gap="xs">
+                      <Group justify="space-between" wrap="nowrap">
+                        <Text size="md" fw={600} style={{ flex: 1 }}>
+                          {index + 1}. {issue.title}
+                        </Text>
+                        {issue.isNew && (
+                          <Badge color="cyan" variant="filled">🆕 신규</Badge>
+                        )}
+                      </Group>
+
+                      <Group gap="md" wrap="wrap">
+                        <Badge color="orange" variant="light">
+                          💥 {formatNumber(issue.count)}건 (어제 {formatNumber(issue.previousCount)}건)
+                        </Badge>
+                        {issue.users > 0 && (
+                          <Badge color="grape" variant="light">
+                            👥 {formatNumber(issue.users)}명
+                          </Badge>
+                        )}
+                      </Group>
+
+                      {/* 급증 지표 */}
+                      <Group gap="xs" wrap="wrap">
+                        {issue.zscore > 0 && (
+                          <Badge size="xs" color="yellow" variant="light">
+                            📈 Z-Score: {issue.zscore.toFixed(1)}
+                          </Badge>
+                        )}
+                        {issue.madscore > 0 && (
+                          <Badge size="xs" color="yellow" variant="light">
+                            📈 MAD: {issue.madscore.toFixed(1)}
+                          </Badge>
+                        )}
+                        {issue.growthRate !== undefined && issue.growthRate > 0 && (
+                          <Badge size="xs" color="orange" variant="filled">
+                            🔥 +{issue.growthRate}%
+                          </Badge>
+                        )}
+                      </Group>
+
+                      <Group gap="xs" mt="xs">
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconSparkles size={14} />}
+                          component="a"
+                          href={`/monitor/sentry-analysis?id=${issue.id}`}
+                          target="_blank"
+                        >
+                          AI 분석
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconExternalLink size={14} />}
+                          component="a"
+                          href={issue.sentryUrl}
+                          target="_blank"
+                        >
+                          Sentry
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ))}
+              </Stack>
+            </Paper>
+          )}
+        </Stack>
       )}
 
       {/* Top 5 이슈 섹션 */}
