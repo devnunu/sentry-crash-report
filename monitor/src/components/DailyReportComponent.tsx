@@ -16,7 +16,8 @@ import {
   Alert,
   RingProgress,
   Paper,
-  List
+  List,
+  Table
 } from '@mantine/core'
 import {
   IconChevronLeft,
@@ -34,7 +35,10 @@ import {
   IconTrendingDown,
   IconMinus,
   IconTrash,
-  IconRobot
+  IconRobot,
+  IconChartLine,
+  IconTable,
+  IconInfoCircle
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -44,6 +48,9 @@ import { formatExecutionTime, formatKST } from '@/lib/utils'
 import { useReportHistory } from '@/lib/reports/useReportHistory'
 import type { Platform } from '@/lib/types'
 import type { DailyReportData, ReportExecution } from '@/lib/reports/types'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { Tabs } from '@mantine/core'
+import { format, parseISO } from 'date-fns'
 
 type DailyReportPayload = (DailyReportData & { slack_blocks?: unknown }) | undefined
 
@@ -189,6 +196,87 @@ function normalizeTopIssues(items?: any[]): NormalizedIssue[] {
   })
 }
 
+// 평균 계산
+const mean = (arr: number[]): number => {
+  if (arr.length === 0) return 0
+  return arr.reduce((sum, val) => sum + val, 0) / arr.length
+}
+
+// 델타 포맷팅 (+50% or -30%)
+const formatDeltaPercent = (delta: number): string => {
+  const sign = delta > 0 ? '+' : ''
+  return `${sign}${delta.toFixed(1)}%`
+}
+
+// 델타 색상 (이벤트/이슈/사용자는 감소가 좋음)
+const getDeltaColor = (delta: number): string => {
+  if (delta < -10) return 'green'  // 감소 = 좋음
+  if (delta > 50) return 'red'     // 급증 = 나쁨
+  return 'gray'
+}
+
+// Crash Free Rate 델타 색상 (증가가 좋음)
+const getCrashFreeDeltaColor = (delta: number): string => {
+  if (delta > 0.1) return 'green'   // 증가 = 좋음
+  if (delta < -0.5) return 'red'    // 하락 = 나쁨
+  return 'gray'
+}
+
+// 7일 평균 대비 비교
+const formatComparison = (current: number, avg: number): string => {
+  if (avg === 0) return '0%'
+  const diff = ((current - avg) / avg) * 100
+  const sign = diff > 0 ? '+' : ''
+  return `${sign}${diff.toFixed(0)}%`
+}
+
+// 비교 색상 (이벤트/이슈/사용자는 평균보다 낮으면 좋음)
+const getComparisonColor = (current: number, avg: number, isCrashFree = false): string => {
+  if (avg === 0) return 'gray'
+  const diff = ((current - avg) / avg) * 100
+
+  if (isCrashFree) {
+    // Crash Free Rate는 평균보다 높으면 좋음
+    if (diff > 0.5) return 'green'
+    if (diff < -0.5) return 'red'
+    return 'gray'
+  } else {
+    // 이벤트/이슈/사용자는 평균보다 낮으면 좋음
+    if (diff < -20) return 'green'
+    if (diff > 20) return 'red'
+    return 'gray'
+  }
+}
+
+// 해석 생성
+const getInterpretation = (
+  yesterday: { events: number; issues: number; users: number; crashFreeRate: number } | undefined,
+  avg7Days: { events: number; issues: number; users: number; crashFreeRate: number }
+): string => {
+  if (!yesterday) return '데이터가 충분하지 않습니다.'
+
+  const comparisons: string[] = []
+
+  if (avg7Days.events > 0 && yesterday.events < avg7Days.events * 0.8) {
+    comparisons.push('이벤트 수가 평균보다 20% 이상 낮습니다')
+  }
+  if (avg7Days.crashFreeRate > 0 && yesterday.crashFreeRate > avg7Days.crashFreeRate) {
+    comparisons.push('Crash Free Rate가 평균보다 높습니다')
+  }
+  if (avg7Days.events > 0 && yesterday.events > avg7Days.events * 1.5) {
+    comparisons.push('이벤트 수가 평균보다 50% 이상 높습니다')
+  }
+
+  if (comparisons.length > 0) {
+    const sentiment = yesterday.events < avg7Days.events && yesterday.crashFreeRate >= avg7Days.crashFreeRate
+      ? '전반적으로 안정적입니다'
+      : '주의가 필요합니다'
+    return `어제는 최근 7일 평균보다 ${comparisons.join(', ')}. ${sentiment}.`
+  }
+
+  return '어제는 최근 7일 평균과 비슷한 수준입니다.'
+}
+
 export default function DailyReportComponent({ platform }: DailyReportComponentProps) {
   const searchParams = useSearchParams()
   const targetDate = searchParams.get('date')
@@ -214,6 +302,14 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   const [issueError, setIssueError] = useState('')
   const [deleteModal, setDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [last7DaysData, setLast7DaysData] = useState<Array<{
+    date: string
+    events: number
+    issues: number
+    users: number
+    crashFreeRate: number
+  }>>([])
+  const [chartLoading, setChartLoading] = useState(false)
 
   const config = getPlatformConfig(platform)
 
@@ -223,6 +319,29 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
       goToDate(targetDate)
     }
   }, [targetDate, reports, goToDate])
+
+  // 최근 7일 데이터 가져오기
+  useEffect(() => {
+    const fetchLast7DaysData = async () => {
+      if (!selectedReport?.target_date) return
+
+      setChartLoading(true)
+      try {
+        const response = await fetch(`/api/reports/daily/chart-data?platform=${platform}&targetDate=${selectedReport.target_date}`)
+        const data = await response.json()
+
+        if (data.success && data.data) {
+          setLast7DaysData(data.data)
+        }
+      } catch (error) {
+        console.error('Failed to fetch 7 days data:', error)
+      } finally {
+        setChartLoading(false)
+      }
+    }
+
+    fetchLast7DaysData()
+  }, [selectedReport?.target_date, platform])
 
   const payload = useMemo<DailyReportPayload>(() => {
     if (!selectedReport?.result_data) return undefined
@@ -309,6 +428,41 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
 
     return null
   }, [selectedReport])
+
+  // 비교 테이블 데이터 계산
+  const comparisonData = useMemo(() => {
+    if (last7DaysData.length === 0) return null
+
+    const yesterday = last7DaysData[last7DaysData.length - 1]
+    const dayBefore = last7DaysData.length > 1 ? last7DaysData[last7DaysData.length - 2] : undefined
+
+    const avg7Days = {
+      events: mean(last7DaysData.map(d => d.events)),
+      issues: mean(last7DaysData.map(d => d.issues)),
+      users: mean(last7DaysData.map(d => d.users)),
+      crashFreeRate: mean(last7DaysData.map(d => d.crashFreeRate))
+    }
+
+    // 델타 계산 (어제 vs 그저께)
+    const calculateDelta = (current: number, previous: number | undefined): number => {
+      if (previous === undefined || previous === 0) return 0
+      return ((current - previous) / previous) * 100
+    }
+
+    const deltas = {
+      events: calculateDelta(yesterday.events, dayBefore?.events),
+      issues: calculateDelta(yesterday.issues, dayBefore?.issues),
+      users: calculateDelta(yesterday.users, dayBefore?.users),
+      crashFreeRate: yesterday.crashFreeRate - (dayBefore?.crashFreeRate || 0) // %p 차이
+    }
+
+    return {
+      yesterday,
+      dayBefore,
+      avg7Days,
+      deltas
+    }
+  }, [last7DaysData])
 
   const dateLabel = formatDateLabel(selectedReport?.target_date)
 
@@ -684,6 +838,284 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
               <Text>{aiFullAnalysis.recommendations}</Text>
             </div>
           </Stack>
+        </Paper>
+      )}
+
+      {/* 최근 7일 크래시 추이 차트 */}
+      {selectedReport && (
+        <Paper p="xl" radius="md" withBorder mb="lg">
+          <Group mb="md">
+            <IconChartLine size={24} />
+            <Text size="lg" fw={700}>📊 최근 7일 크래시 추이</Text>
+          </Group>
+
+          {chartLoading ? (
+            <Text c="dimmed" ta="center" py="xl">차트 데이터를 불러오는 중...</Text>
+          ) : last7DaysData.length === 0 ? (
+            <Text c="dimmed" ta="center" py="xl">최근 7일 데이터가 없습니다</Text>
+          ) : (
+            <Tabs defaultValue="events">
+              <Tabs.List mb="md">
+                <Tabs.Tab value="events">이벤트 수</Tabs.Tab>
+                <Tabs.Tab value="issues">이슈 수</Tabs.Tab>
+                <Tabs.Tab value="users">사용자 수</Tabs.Tab>
+                <Tabs.Tab value="crashFreeRate">Crash Free %</Tabs.Tab>
+              </Tabs.List>
+
+              <Tabs.Panel value="events">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={last7DaysData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={(date) => format(parseISO(date), 'MM/dd')}
+                    />
+                    <YAxis />
+                    <Tooltip
+                      labelFormatter={(date) => format(parseISO(date as string), 'yyyy-MM-dd')}
+                      formatter={(value: number) => [`${value}건`, '이벤트']}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="events"
+                      stroke="#8884d8"
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="issues">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={last7DaysData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={(date) => format(parseISO(date), 'MM/dd')}
+                    />
+                    <YAxis />
+                    <Tooltip
+                      labelFormatter={(date) => format(parseISO(date as string), 'yyyy-MM-dd')}
+                      formatter={(value: number) => [`${value}개`, '이슈']}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="issues"
+                      stroke="#a855f7"
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="users">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={last7DaysData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={(date) => format(parseISO(date), 'MM/dd')}
+                    />
+                    <YAxis />
+                    <Tooltip
+                      labelFormatter={(date) => format(parseISO(date as string), 'yyyy-MM-dd')}
+                      formatter={(value: number) => [`${value}명`, '사용자']}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="users"
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="crashFreeRate">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={last7DaysData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={(date) => format(parseISO(date), 'MM/dd')}
+                    />
+                    <YAxis
+                      domain={[95, 100]}
+                      tickFormatter={(value) => `${value}%`}
+                    />
+                    <Tooltip
+                      labelFormatter={(date) => format(parseISO(date as string), 'yyyy-MM-dd')}
+                      formatter={(value: number) => [`${value.toFixed(2)}%`, 'Crash Free Rate']}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="crashFreeRate"
+                      stroke="#22c55e"
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Tabs.Panel>
+            </Tabs>
+          )}
+
+          {selectedReport?.target_date && (
+            <Text size="xs" c="dimmed" ta="center" mt="xs">
+              ↑ {selectedReport.target_date} (어제)
+            </Text>
+          )}
+        </Paper>
+      )}
+
+      {/* 상세 비교 테이블 */}
+      {selectedReport && comparisonData && (
+        <Paper p="xl" radius="md" withBorder mb="lg">
+          <Group mb="md">
+            <IconTable size={24} />
+            <Text size="lg" fw={700}>📋 상세 비교</Text>
+          </Group>
+
+          <Table striped highlightOnHover withTableBorder withColumnBorders>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>지표</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>어제</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>그저께</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>변화</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>최근 7일 평균</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {/* 이벤트 */}
+              <Table.Tr>
+                <Table.Td fw={500}>이벤트</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>{formatNumber(comparisonData.yesterday.events)}건</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {comparisonData.dayBefore ? `${formatNumber(comparisonData.dayBefore.events)}건` : '-'}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {comparisonData.dayBefore ? (
+                    <Badge color={getDeltaColor(comparisonData.deltas.events)} size="md">
+                      {formatDeltaPercent(comparisonData.deltas.events)}
+                    </Badge>
+                  ) : (
+                    '-'
+                  )}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  <Group gap={4} justify="flex-end">
+                    <Text>{formatNumber(Math.round(comparisonData.avg7Days.events))}건</Text>
+                    <Badge
+                      size="xs"
+                      color={getComparisonColor(comparisonData.yesterday.events, comparisonData.avg7Days.events)}
+                    >
+                      {formatComparison(comparisonData.yesterday.events, comparisonData.avg7Days.events)}
+                    </Badge>
+                  </Group>
+                </Table.Td>
+              </Table.Tr>
+
+              {/* 이슈 */}
+              <Table.Tr>
+                <Table.Td fw={500}>이슈</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>{formatNumber(comparisonData.yesterday.issues)}개</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {comparisonData.dayBefore ? `${formatNumber(comparisonData.dayBefore.issues)}개` : '-'}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {comparisonData.dayBefore ? (
+                    <Badge color={getDeltaColor(comparisonData.deltas.issues)} size="md">
+                      {formatDeltaPercent(comparisonData.deltas.issues)}
+                    </Badge>
+                  ) : (
+                    '-'
+                  )}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  <Group gap={4} justify="flex-end">
+                    <Text>{formatNumber(Math.round(comparisonData.avg7Days.issues))}개</Text>
+                    <Badge
+                      size="xs"
+                      color={getComparisonColor(comparisonData.yesterday.issues, comparisonData.avg7Days.issues)}
+                    >
+                      {formatComparison(comparisonData.yesterday.issues, comparisonData.avg7Days.issues)}
+                    </Badge>
+                  </Group>
+                </Table.Td>
+              </Table.Tr>
+
+              {/* 사용자 */}
+              <Table.Tr>
+                <Table.Td fw={500}>사용자</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>{formatNumber(comparisonData.yesterday.users)}명</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {comparisonData.dayBefore ? `${formatNumber(comparisonData.dayBefore.users)}명` : '-'}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {comparisonData.dayBefore ? (
+                    <Badge color={getDeltaColor(comparisonData.deltas.users)} size="md">
+                      {formatDeltaPercent(comparisonData.deltas.users)}
+                    </Badge>
+                  ) : (
+                    '-'
+                  )}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  <Group gap={4} justify="flex-end">
+                    <Text>{formatNumber(Math.round(comparisonData.avg7Days.users))}명</Text>
+                    <Badge
+                      size="xs"
+                      color={getComparisonColor(comparisonData.yesterday.users, comparisonData.avg7Days.users)}
+                    >
+                      {formatComparison(comparisonData.yesterday.users, comparisonData.avg7Days.users)}
+                    </Badge>
+                  </Group>
+                </Table.Td>
+              </Table.Tr>
+
+              {/* Crash Free Rate */}
+              <Table.Tr>
+                <Table.Td fw={500}>Crash Free Rate</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>{comparisonData.yesterday.crashFreeRate.toFixed(2)}%</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {comparisonData.dayBefore ? `${comparisonData.dayBefore.crashFreeRate.toFixed(2)}%` : '-'}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {comparisonData.dayBefore ? (
+                    <Badge color={getCrashFreeDeltaColor(comparisonData.deltas.crashFreeRate)} size="md">
+                      {comparisonData.deltas.crashFreeRate > 0 ? '+' : ''}{comparisonData.deltas.crashFreeRate.toFixed(2)}%p
+                    </Badge>
+                  ) : (
+                    '-'
+                  )}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  <Group gap={4} justify="flex-end">
+                    <Text>{comparisonData.avg7Days.crashFreeRate.toFixed(2)}%</Text>
+                    <Badge
+                      size="xs"
+                      color={getComparisonColor(comparisonData.yesterday.crashFreeRate, comparisonData.avg7Days.crashFreeRate, true)}
+                    >
+                      {formatComparison(comparisonData.yesterday.crashFreeRate, comparisonData.avg7Days.crashFreeRate)}
+                    </Badge>
+                  </Group>
+                </Table.Td>
+              </Table.Tr>
+            </Table.Tbody>
+          </Table>
+
+          {/* 해석 추가 */}
+          <Alert icon={<IconInfoCircle size={16} />} mt="md" color="blue" variant="light">
+            💡 {getInterpretation(comparisonData.yesterday, comparisonData.avg7Days)}
+          </Alert>
         </Paper>
       )}
 

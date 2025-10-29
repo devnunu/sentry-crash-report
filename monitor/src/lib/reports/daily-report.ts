@@ -1355,7 +1355,7 @@ export class DailyReportService {
     const payload = { blocks }
     this.log(`  - Payload size: ${JSON.stringify(payload).length} characters`)
     this.log(`  - Blocks count: ${blocks.length}`)
-    
+
     try {
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -1386,6 +1386,101 @@ export class DailyReportService {
       }
       throw error
     }
+  }
+
+  /**
+   * 최근 7일간의 크래시 데이터를 조회
+   * @param platform 플랫폼 (android | ios)
+   * @param targetDate 기준 날짜 (YYYY-MM-DD 형식)
+   * @returns 최근 7일간의 일별 크래시 데이터
+   */
+  async getLast7DaysData(
+    targetDate: string
+  ): Promise<Array<{
+    date: string
+    events: number
+    issues: number
+    users: number
+    crashFreeRate: number
+  }>> {
+    const result: Array<{
+      date: string
+      events: number
+      issues: number
+      users: number
+      crashFreeRate: number
+    }> = []
+
+    // targetDate로부터 7일 전까지 순회
+    const target = new Date(targetDate)
+
+    for (let i = 6; i >= 0; i--) {
+      const currentDate = new Date(target)
+      currentDate.setDate(target.getDate() - i)
+      const dateStr = formatKSTDate(currentDate)
+
+      try {
+        // 해당 날짜의 리포트 조회
+        const reports = await reportsDb.getReportHistory(
+          'daily',
+          this.platform,
+          1,
+          0,
+          dateStr,
+          dateStr
+        )
+
+        if (reports.length > 0 && reports[0].status === 'success') {
+          const report = reports[0]
+          const resultData = report.result_data as any
+
+          // 날짜 키로 데이터 추출
+          const dayData = resultData?.[dateStr]
+
+          if (dayData && typeof dayData === 'object') {
+            result.push({
+              date: dateStr,
+              events: dayData.crash_events || 0,
+              issues: dayData.unique_issues || 0,
+              users: dayData.impacted_users || 0,
+              crashFreeRate: dayData.crash_free_users_pct !== null && dayData.crash_free_users_pct !== undefined
+                ? dayData.crash_free_users_pct * 100  // 0.9988 -> 99.88
+                : 0
+            })
+          } else {
+            // 데이터가 없으면 0으로 채움
+            result.push({
+              date: dateStr,
+              events: 0,
+              issues: 0,
+              users: 0,
+              crashFreeRate: 0
+            })
+          }
+        } else {
+          // 리포트가 없으면 0으로 채움
+          result.push({
+            date: dateStr,
+            events: 0,
+            issues: 0,
+            users: 0,
+            crashFreeRate: 0
+          })
+        }
+      } catch (error) {
+        console.error(`Failed to fetch data for ${dateStr}:`, error)
+        // 오류 발생 시 0으로 채움
+        result.push({
+          date: dateStr,
+          events: 0,
+          issues: 0,
+          users: 0,
+          crashFreeRate: 0
+        })
+      }
+    }
+
+    return result
   }
 }
 
