@@ -1,5 +1,5 @@
 import { formatKST, getSlackWebhookUrl } from './utils'
-import type { WindowAggregation, TopIssue, Platform } from './types'
+import type { WindowAggregation, TopIssue, Platform, VersionMonitorSnapshot } from './types'
 
 interface SlackBlock {
   type: string
@@ -70,6 +70,40 @@ function calculateMonitorSeverity(snapshot: MonitorSnapshot): 'normal' | 'warnin
   if (snapshot.newIssues >= 3) return 'warning'
   if (snapshot.comparisonPct > 30) return 'warning' // 30% 이상 악화
   if (snapshot.totalCrashes >= 100) return 'warning' // 절대 건수
+
+  return 'normal'
+}
+
+// 버전 모니터링 심각도 판단 (누적 방식)
+function calculateVersionMonitorSeverity(snapshot: VersionMonitorSnapshot): 'normal' | 'warning' | 'critical' {
+  const { cumulative, topIssues, daysElapsed } = snapshot
+
+  // Critical 조건
+  // 1. CFR < 99.0%
+  if (cumulative.crashFreeRate < 99.0) return 'critical'
+
+  // 2. Crash-Free Session Rate < 98.5%
+  if (cumulative.crashFreeSessionRate < 98.5) return 'critical'
+
+  // 3. Fatal 이슈 존재
+  const hasFatalIssue = topIssues.some(issue => issue.level === 'fatal')
+  if (hasFatalIssue) return 'critical'
+
+  // 4. 첫날에 100건 이상 크래시
+  if (daysElapsed === 1 && cumulative.totalCrashes > 100) return 'critical'
+
+  // Warning 조건
+  // 1. CFR < 99.5%
+  if (cumulative.crashFreeRate < 99.5) return 'warning'
+
+  // 2. Crash-Free Session Rate < 99.0%
+  if (cumulative.crashFreeSessionRate < 99.0) return 'warning'
+
+  // 3. 10개 이상의 고유 이슈
+  if (cumulative.uniqueIssues >= 10) return 'warning'
+
+  // 4. 첫날에 50건 이상 크래시
+  if (daysElapsed === 1 && cumulative.totalCrashes > 50) return 'warning'
 
   return 'normal'
 }
@@ -322,10 +356,335 @@ export class SlackService {
     ]
   }
 
+  // ========== 누적 방식 버전 모니터링 메시지 (Normal) ==========
+  buildNormalVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
+    const { platform, version, monitorId, cumulative, daysElapsed, totalDurationDays, recentChange } = snapshot
+
+    const blocks: SlackBlock[] = [
+      { type: 'divider' },
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: `✅ ${platform.toUpperCase()} ${version}`,
+          emoji: true
+        }
+      },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${Math.round((daysElapsed / totalDurationDays) * 100)}%)`
+        }]
+      },
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명\n• Crash-Free Rate: ${cumulative.crashFreeRate.toFixed(2)}%\n• Crash-Free Session Rate: ${cumulative.crashFreeSessionRate.toFixed(2)}%`
+        }
+      }
+    ]
+
+    // 최근 변화 추가 (선택적)
+    if (recentChange) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('🔄 최근 변화')}\n${recentChange.changeDescription}`
+        }
+      })
+    }
+
+    blocks.push({
+      type: 'actions',
+      elements: [{
+        type: 'button',
+        text: { type: 'plain_text', text: '📊 대시보드 보기' },
+        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        style: 'primary'
+      }]
+    })
+
+    return blocks
+  }
+
+  // ========== 누적 방식 버전 모니터링 메시지 (Warning) ==========
+  buildWarningVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
+    const { platform, version, monitorId, cumulative, topIssues, daysElapsed, totalDurationDays, recentChange } = snapshot
+
+    const blocks: SlackBlock[] = [
+      { type: 'divider' },
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: `⚠️ ${platform.toUpperCase()} ${version}`,
+          emoji: true
+        }
+      },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${Math.round((daysElapsed / totalDurationDays) * 100)}%)`
+        }]
+      },
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명\n• Crash-Free Rate: ${cumulative.crashFreeRate.toFixed(2)}%\n• Crash-Free Session Rate: ${cumulative.crashFreeSessionRate.toFixed(2)}%`
+        }
+      }
+    ]
+
+    // 최근 변화 추가 (선택적)
+    if (recentChange) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('🔄 최근 변화')}\n${recentChange.changeDescription}`
+        }
+      })
+    }
+
+    // Top 5 이슈 추가
+    const issuesText = topIssues.slice(0, 5).map((issue, idx) => {
+      const newBadge = issue.isNew ? ' 🆕' : ''
+      const levelEmoji = issue.level === 'fatal' ? '🔴' : '🟡'
+      return `${idx + 1}. ${levelEmoji} <${issue.link}|${truncateTitle(issue.title, 60)}>${newBadge}\n   ${issue.count}건 · ${issue.users}명 영향`
+    }).join('\n')
+
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `${bold('⚠️ Top 5 이슈')}\n${issuesText}`
+      }
+    })
+
+    blocks.push({
+      type: 'actions',
+      elements: [{
+        type: 'button',
+        text: { type: 'plain_text', text: '📊 대시보드 보기' },
+        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        style: 'danger'
+      }]
+    })
+
+    return blocks
+  }
+
+  // ========== 누적 방식 버전 모니터링 메시지 (Critical) ==========
+  buildCriticalVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
+    const { platform, version, monitorId, cumulative, topIssues, hourlyTrend, daysElapsed, totalDurationDays, recentChange } = snapshot
+
+    // 테스트 모드에서는 @channel 태그 제거
+    const channelMention = this.isTestMode ? '' : '<!channel> '
+
+    const blocks: SlackBlock[] = [
+      { type: 'divider' },
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: `🚨 ${platform.toUpperCase()} ${version}`,
+          emoji: true
+        }
+      },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: `${channelMention}📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${Math.round((daysElapsed / totalDurationDays) * 100)}%)`
+        }]
+      },
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명\n• Crash-Free Rate: ${cumulative.crashFreeRate.toFixed(2)}%\n• Crash-Free Session Rate: ${cumulative.crashFreeSessionRate.toFixed(2)}%`
+        }
+      }
+    ]
+
+    // 최근 변화 추가 (선택적)
+    if (recentChange) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('🔄 최근 변화')}\n${recentChange.changeDescription}`
+        }
+      })
+    }
+
+    // Top 5 이슈 추가
+    const issuesText = topIssues.slice(0, 5).map((issue, idx) => {
+      const newBadge = issue.isNew ? ' 🆕' : ''
+      const levelEmoji = issue.level === 'fatal' ? '🔴' : '🟡'
+      return `${idx + 1}. ${levelEmoji} <${issue.link}|${truncateTitle(issue.title, 60)}>${newBadge}\n   ${issue.count}건 · ${issue.users}명 영향`
+    }).join('\n')
+
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `${bold('🚨 Top 5 이슈')}\n${issuesText}`
+      }
+    })
+
+    // 시간대별 추이 차트 (최근 24시간)
+    if (hourlyTrend.length > 0) {
+      const maxCrashes = Math.max(...hourlyTrend.map(h => h.crashes), 1)
+      const chartText = hourlyTrend.slice(-24).map(h => {
+        const barLength = Math.round((h.crashes / maxCrashes) * 10)
+        const bar = '█'.repeat(Math.max(1, barLength))
+        return `${h.hour}: ${bar} ${h.crashes}건`
+      }).join('\n')
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('📈 시간대별 크래시 추이 (최근 24시간)')}\n\`\`\`${chartText}\`\`\``
+        }
+      })
+    }
+
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '💡 롤백 검토를 권장합니다'
+      }
+    })
+
+    blocks.push({
+      type: 'actions',
+      elements: [{
+        type: 'button',
+        text: { type: 'plain_text', text: '📊 대시보드 보기' },
+        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        style: 'danger'
+      }]
+    })
+
+    return blocks
+  }
+
+  // ========== 버전 모니터링 완료 메시지 (누적 방식) ==========
+  buildVersionMonitorCompletionMessage(
+    snapshot: VersionMonitorSnapshot,
+    startDate: string,
+    endDate: string,
+    reason: 'manual' | 'expired'
+  ): SlackBlock[] {
+    const { platform, version, monitorId, cumulative, topIssues } = snapshot
+
+    // 심각도 판단
+    const severity = calculateVersionMonitorSeverity(snapshot)
+    const severityConfig = {
+      normal: { emoji: '✅', statusText: '안정적', style: 'primary' as const },
+      warning: { emoji: '⚠️', statusText: '주의 필요', style: 'danger' as const },
+      critical: { emoji: '🚨', statusText: '심각한 문제 발생', style: 'danger' as const }
+    }
+    const config = severityConfig[severity]
+
+    const blocks: SlackBlock[] = [
+      { type: 'divider' },
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: `${config.emoji} ${platform.toUpperCase()} ${version} 모니터링 완료`,
+          emoji: true
+        }
+      },
+      { type: 'divider' },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: `📅 ${formatDateRange(startDate, endDate)} · ${reason === 'manual' ? '수동 종료' : '기간 만료'}`
+        }]
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('💬 최종 결과: ' + config.statusText)}`
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('📊 전체 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명\n• Crash-Free Rate: ${cumulative.crashFreeRate.toFixed(2)}%\n• Crash-Free Session Rate: ${cumulative.crashFreeSessionRate.toFixed(2)}%`
+        }
+      }
+    ]
+
+    // Warning/Critical일 경우 Top 이슈 추가
+    if (severity !== 'normal' && topIssues.length > 0) {
+      const issuesText = topIssues.slice(0, 3).map((issue, idx) => {
+        const levelEmoji = issue.level === 'fatal' ? '🔴' : '🟡'
+        return `${idx + 1}. ${levelEmoji} <${issue.link}|${truncateTitle(issue.title, 60)}>\n   ${issue.count}건 · ${issue.users}명 영향`
+      }).join('\n')
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('⚠️ 주요 이슈')}\n${issuesText}`
+        }
+      })
+    }
+
+    // 최종 권고사항
+    const recommendation = severity === 'normal'
+      ? '🎉 이 버전은 안정적으로 배포되었습니다.'
+      : severity === 'warning'
+      ? '⚠️ 지속적인 모니터링이 필요합니다.'
+      : '🚨 롤백 또는 핫픽스 배포를 권장합니다.'
+
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: recommendation
+      }
+    })
+
+    blocks.push({
+      type: 'actions',
+      elements: [{
+        type: 'button',
+        text: { type: 'plain_text', text: '📊 최종 리포트 보기' },
+        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        style: config.style
+      }]
+    })
+
+    return blocks
+  }
+
   // Slack 메시지 전송
   async sendMessage(blocks: SlackBlock[], isMonitoring: boolean = true, isReport: boolean = false): Promise<void> {
+    const modeText = this.isTestMode ? '[테스트]' : '[운영]'
+    console.log(`[Slack] ${modeText} sendMessage 시작 - 플랫폼: ${this.platform}, isMonitoring: ${isMonitoring}, isReport: ${isReport}`)
+
     this.validateConfig(isMonitoring, isReport)
     const webhookUrl = this.getWebhookUrl(isMonitoring, isReport)
+
+    console.log(`[Slack] ${modeText} Webhook URL 획득: ${webhookUrl.substring(0, 50)}...`)
 
     const message: SlackMessage = { blocks }
 
@@ -340,9 +699,11 @@ export class SlackService {
           }
         ]
       })
+      console.log(`[Slack] ${modeText} 테스트 모드 배너 추가됨`)
     }
 
     try {
+      console.log(`[Slack] ${modeText} Slack API 요청 전송 중... (blocks: ${blocks.length}개)`)
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
@@ -353,15 +714,21 @@ export class SlackService {
         signal: AbortSignal.timeout(30000)
       })
 
+      console.log(`[Slack] ${modeText} 응답 수신: ${response.status} ${response.statusText}`)
+
       if (!response.ok) {
         const errorText = await response.text()
+        console.error(`[Slack] ${modeText} 응답 에러 내용:`, errorText)
         throw new Error(`Slack webhook failed ${response.status}: ${errorText}`)
       }
 
-      const modeText = this.isTestMode ? '[테스트]' : ''
       console.log(`[Slack] ✅ ${modeText} 메시지 전송 완료`)
     } catch (error) {
-      console.error('[Slack] ❌ 메시지 전송 실패:', error)
+      console.error(`[Slack] ❌ ${modeText} 메시지 전송 실패:`, error)
+      if (error instanceof Error) {
+        console.error(`[Slack] ❌ 에러 상세: ${error.message}`)
+        console.error(`[Slack] ❌ 스택 트레이스:`, error.stack)
+      }
       throw error
     }
   }
@@ -487,6 +854,6 @@ export function createSlackService(platform: Platform, isTestMode: boolean = fal
 // 기본 인스턴스 (Android, 운영 모드)
 export const slackService = new SlackService('android', false)
 
-// Export types for external use
+// Export types and functions for external use
 export type { MonitorSnapshot }
-export { calculateMonitorSeverity }
+export { calculateMonitorSeverity, calculateVersionMonitorSeverity }

@@ -95,3 +95,45 @@ export interface TopIssue {
   users: number
   link: string
 }
+
+// 버전 모니터링 스냅샷 (누적 방식)
+export interface VersionMonitorSnapshot {
+  monitorId: string
+  platform: 'android' | 'ios'
+  version: string
+  monitorStartedAt: string
+  currentTime: string
+  daysElapsed: number
+  totalDurationDays: number
+
+  cumulative: {
+    totalCrashes: number
+    uniqueIssues: number
+    affectedUsers: number
+    crashFreeRate: number
+    crashFreeSessionRate: number
+  }
+
+  recentChange?: {
+    lastCheckTime: string
+    crashesSinceLastCheck: number
+    changeDescription: string
+  }
+
+  topIssues: Array<{
+    id: string
+    title: string
+    count: number
+    users: number
+    level: 'fatal' | 'error'
+    isNew: boolean
+    firstSeen: string
+    lastSeen: string
+    link: string
+  }>
+
+  hourlyTrend: Array<{
+    hour: string
+    crashes: number
+  }>
+}

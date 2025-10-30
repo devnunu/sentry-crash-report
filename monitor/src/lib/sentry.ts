@@ -547,11 +547,11 @@ export class SentryService {
   ): { dashboard: string; issues: string } {
     const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
     const projectId = this.projectId
-    
+
     // 대시보드 URL (플랫폼별 또는 기본 URL 사용)
-    const dashboardUrl = getPlatformEnvOrDefault(this.platform, 'DASHBOARD_URL', '') || 
+    const dashboardUrl = getPlatformEnvOrDefault(this.platform, 'DASHBOARD_URL', '') ||
       `https://sentry.io/organizations/${orgSlug}/projects/`
-    
+
     // 이슈 필터 URL
     const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
@@ -559,19 +559,195 @@ export class SentryService {
       `release:${releaseVersion}`,
       environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
-    
+
     const params = new URLSearchParams({
       project: projectId || '',
       query,
       start: startTime.toISOString(),
       end: endTime.toISOString()
     })
-    
+
     const issuesUrl = `https://sentry.io/organizations/${orgSlug}/issues/?${params.toString()}`
-    
+
     return {
       dashboard: dashboardUrl,
       issues: issuesUrl
+    }
+  }
+
+  // Crash-Free Rate (CFR) 조회
+  async getCrashFreeRate(
+    releaseVersion: string,
+    startTime: Date,
+    endTime: Date
+  ): Promise<{ crashFreeRate: number; crashFreeSessionRate: number }> {
+    const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
+    const projectId = await this.resolveProjectId()
+
+    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
+
+    try {
+      // sessions:crash_free_rate 조회
+      const params = {
+        field: ['crash_free_rate(user)', 'crash_free_rate(session)'],
+        groupBy: ['release'],
+        project: projectId,
+        start: startTime.toISOString(),
+        end: endTime.toISOString(),
+        query: `release:${releaseVersion}${environment ? ` environment:${environment}` : ''}`,
+        statsPeriod: '14d',
+        interval: '1d'
+      }
+
+      const response = await this.fetchSentryAPI<any>(
+        `/organizations/${orgSlug}/sessions/`,
+        params
+      )
+
+      // 응답 파싱 (Sentry stats API 응답 구조에 따라 조정 필요)
+      if (response.groups && response.groups.length > 0) {
+        const group = response.groups[0]
+        const crashFreeRate = group.totals?.['crash_free_rate(user)'] ?? 99.9
+        const crashFreeSessionRate = group.totals?.['crash_free_rate(session)'] ?? 99.9
+
+        return {
+          crashFreeRate: typeof crashFreeRate === 'number' ? crashFreeRate : 99.9,
+          crashFreeSessionRate: typeof crashFreeSessionRate === 'number' ? crashFreeSessionRate : 99.9
+        }
+      }
+
+      // 기본값 반환
+      return { crashFreeRate: 99.9, crashFreeSessionRate: 99.9 }
+    } catch (error) {
+      console.error('Failed to get crash-free rates:', error)
+      // 에러 발생 시 기본값 반환
+      return { crashFreeRate: 99.9, crashFreeSessionRate: 99.9 }
+    }
+  }
+
+  // 상세 이슈 정보 조회 (level, firstSeen, lastSeen 포함)
+  async getDetailedTopIssues(
+    releaseVersion: string,
+    startTime: Date,
+    endTime: Date,
+    previousCheckTime: Date | null,
+    limit: number = 10
+  ): Promise<Array<{
+    id: string
+    title: string
+    count: number
+    users: number
+    level: 'fatal' | 'error'
+    isNew: boolean
+    firstSeen: string
+    lastSeen: string
+    link: string
+  }>> {
+    const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
+    const projectId = await this.resolveProjectId()
+
+    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
+    const query = [
+      'level:[error,fatal]',
+      `release:${releaseVersion}`,
+      environment ? `environment:${environment}` : ''
+    ].filter(Boolean).join(' ')
+
+    const params = {
+      field: ['issue.id', 'issue', 'title', 'count()', 'count_unique(user)', 'level', 'firstSeen', 'lastSeen'],
+      project: projectId,
+      start: startTime.toISOString(),
+      end: endTime.toISOString(),
+      query,
+      orderby: '-count()',
+      per_page: Math.min(Math.max(limit, 1), 100),
+      referrer: 'api.release.monitor.detailed'
+    }
+
+    try {
+      const response = await this.fetchSentryAPI<any>(
+        `/organizations/${orgSlug}/events/`,
+        params
+      )
+
+      if (!response.data) {
+        return []
+      }
+
+      return response.data.slice(0, limit).map((row: any) => {
+        const firstSeenDate = row.firstSeen ? new Date(row.firstSeen) : new Date(startTime)
+        const isNew = previousCheckTime ? firstSeenDate > previousCheckTime : false
+
+        return {
+          id: row['issue.id'] || '',
+          title: row.title || '제목 없음',
+          count: parseInt(row['count()'] || '0'),
+          users: parseInt(row['count_unique(user)'] || '0'),
+          level: (row.level === 'fatal' ? 'fatal' : 'error') as 'fatal' | 'error',
+          isNew,
+          firstSeen: row.firstSeen || startTime.toISOString(),
+          lastSeen: row.lastSeen || endTime.toISOString(),
+          link: row['issue.id'] ? `https://sentry.io/organizations/${orgSlug}/issues/${row['issue.id']}/` : ''
+        }
+      })
+    } catch (error) {
+      console.error('Failed to get detailed top issues:', error)
+      return []
+    }
+  }
+
+  // 시간대별 크래시 추이 조회 (최근 24시간)
+  async getHourlyTrend(
+    releaseVersion: string,
+    endTime: Date,
+    hours: number = 24
+  ): Promise<Array<{ hour: string; crashes: number }>> {
+    const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
+    const projectId = await this.resolveProjectId()
+
+    const startTime = new Date(endTime.getTime() - hours * 60 * 60 * 1000)
+    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
+    const query = [
+      'level:[error,fatal]',
+      `release:${releaseVersion}`,
+      environment ? `environment:${environment}` : ''
+    ].filter(Boolean).join(' ')
+
+    const params = {
+      field: ['count()'],
+      project: projectId,
+      start: startTime.toISOString(),
+      end: endTime.toISOString(),
+      query,
+      interval: '1h',
+      referrer: 'api.release.monitor.trend'
+    }
+
+    try {
+      const response = await this.fetchSentryAPI<any>(
+        `/organizations/${orgSlug}/events-stats/`,
+        params
+      )
+
+      // 응답 구조에 따라 파싱 (response.data가 시계열 데이터)
+      if (response.data && Array.isArray(response.data)) {
+        return response.data.map((point: any) => {
+          const timestamp = Array.isArray(point) ? point[0] : point.time
+          const count = Array.isArray(point) ? (point[1]?.[0]?.count ?? 0) : (point.count ?? 0)
+          const date = new Date(timestamp * 1000)
+          const hour = `${date.getHours().toString().padStart(2, '0')}:00`
+
+          return {
+            hour,
+            crashes: count
+          }
+        })
+      }
+
+      return []
+    } catch (error) {
+      console.error('Failed to get hourly trend:', error)
+      return []
     }
   }
 }

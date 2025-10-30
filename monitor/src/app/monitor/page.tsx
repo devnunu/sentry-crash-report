@@ -13,6 +13,7 @@ import {
   Divider,
   Group,
   Modal,
+  Pagination,
   Paper,
   Progress,
   Radio,
@@ -148,8 +149,16 @@ function getResultEmoji(result?: string): string {
   return map[result] || '✅';
 }
 
-// 베이스 버전 추출 (4.72.0+920 → 4.72.0)
-function getBaseVersion(version: string): string {
+// 베이스 버전 추출 - API 전송용 (4.72.0.0+546 → 4.72.0)
+function getBaseVersionForAPI(version: string): string {
+  const withoutBuildNumber = version.split('+')[0].split('-')[0];
+  const parts = withoutBuildNumber.split('.');
+  // 처음 3개 부분만 추출 (x.y.z 형식)
+  return parts.slice(0, 3).join('.');
+}
+
+// 전체 버전 (빌드 번호 제외) - 중복 제거용 (4.72.0.0+546 → 4.72.0.0)
+function getVersionWithoutBuild(version: string): string {
   return version.split('+')[0].split('-')[0];
 }
 
@@ -177,16 +186,19 @@ function getRelativeTime(dateStr: string): string {
   return `${Math.floor(diffDays / 30)}개월 전`;
 }
 
-// 중복 제거 (같은 베이스 버전 중 최신만 유지)
+// 중복 제거 (같은 버전 + 빌드 번호 다른 것만 중복 처리)
+// 예: 4.72.0+912와 4.72.0+920 → 920만 남음
+// 예: 4.72.0+912와 4.72.0.0+546 → 둘 다 유지 (다른 버전)
 function deduplicateReleases(releases: Release[]): Release[] {
   const versionMap = new Map<string, Release>();
 
   releases.forEach(release => {
-    const baseVersion = getBaseVersion(release.version);
-    const existing = versionMap.get(baseVersion);
+    // 빌드 번호를 제외한 전체 버전을 키로 사용 (4.72.0.0+546 → 4.72.0.0)
+    const versionKey = getVersionWithoutBuild(release.version);
+    const existing = versionMap.get(versionKey);
 
     if (!existing) {
-      versionMap.set(baseVersion, release);
+      versionMap.set(versionKey, release);
       return;
     }
 
@@ -197,7 +209,7 @@ function deduplicateReleases(releases: Release[]): Release[] {
     // 버전 코드가 다르면 버전 코드로 비교
     if (releaseCode !== existingCode) {
       if (releaseCode > existingCode) {
-        versionMap.set(baseVersion, release);
+        versionMap.set(versionKey, release);
       }
       return;
     }
@@ -207,7 +219,7 @@ function deduplicateReleases(releases: Release[]): Release[] {
     const existingDate = new Date(existing.dateReleased || existing.dateCreated || 0);
 
     if (releaseDate > existingDate) {
-      versionMap.set(baseVersion, release);
+      versionMap.set(versionKey, release);
     }
   });
 
@@ -233,6 +245,10 @@ export default function MonitorPage() {
   const [monitors, setMonitors] = useState<MonitorWithHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+
+  // 페이지네이션
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PER_PAGE = 5;
 
   // 모달 관리
   const [newMonitorModalOpened, setNewMonitorModalOpened] = useState(false);
@@ -310,20 +326,17 @@ export default function MonitorPage() {
     // 중복 제거 (버전 코드가 높은 것을 최신으로)
     releases = deduplicateReleases(releases);
 
-    // 최신순 정렬 (버전 코드 우선, 그 다음 날짜)
+    // 최신순 정렬 (날짜 우선, 버전 코드는 부차적)
     releases.sort((a, b) => {
-      // 먼저 베이스 버전으로 그룹핑
-      const baseA = getBaseVersion(a.version);
-      const baseB = getBaseVersion(b.version);
+      // 먼저 날짜로 비교
+      const dateA = new Date(a.dateReleased || a.dateCreated || 0);
+      const dateB = new Date(b.dateReleased || b.dateCreated || 0);
 
-      // 베이스 버전이 다르면 날짜로 비교
-      if (baseA !== baseB) {
-        const dateA = new Date(a.dateReleased || a.dateCreated || 0);
-        const dateB = new Date(b.dateReleased || b.dateCreated || 0);
+      if (dateA.getTime() !== dateB.getTime()) {
         return dateB.getTime() - dateA.getTime();
       }
 
-      // 베이스 버전이 같으면 버전 코드로 비교
+      // 날짜가 같으면 버전 코드로 비교
       const codeA = getVersionCode(a.version);
       const codeB = getVersionCode(b.version);
       return codeB - codeA;
@@ -374,7 +387,7 @@ export default function MonitorPage() {
     setStartLoading(true);
 
     try {
-      const baseVersion = getBaseVersion(selectedRelease);
+      const baseVersion = getBaseVersionForAPI(selectedRelease);
 
       const response = await fetch('/api/monitor/start', {
         method: 'POST',
@@ -472,6 +485,13 @@ export default function MonitorPage() {
     .filter(m => m.status === 'stopped' || m.status === 'expired')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+  // 페이지네이션된 히스토리
+  const totalHistoryPages = Math.ceil(completedMonitors.length / HISTORY_PER_PAGE);
+  const paginatedHistory = completedMonitors.slice(
+    (historyPage - 1) * HISTORY_PER_PAGE,
+    historyPage * HISTORY_PER_PAGE
+  );
+
   return (
     <Container size="xl" py="xl">
       <Stack gap="xl">
@@ -498,7 +518,7 @@ export default function MonitorPage() {
           <Group mb="md">
             <IconRadar size={24} />
             <Text size="lg" fw={700}>
-              📡 진행 중인 모니터링 ({activeMonitors.length}개)
+              진행 중인 모니터링 ({activeMonitors.length}개)
             </Text>
           </Group>
 
@@ -515,9 +535,16 @@ export default function MonitorPage() {
                   <Stack gap="md">
                     {/* 헤더 */}
                     <Group justify="space-between">
-                      <Text size="lg" fw={600}>
-                        {getStatusEmoji(monitor.status)} {monitor.platform.toUpperCase()} {monitor.matched_release || monitor.base_release}
-                      </Text>
+                      <Group gap="xs">
+                        <Text size="lg" fw={600}>
+                          {getStatusEmoji(monitor.status)} {monitor.platform.toUpperCase()} {monitor.matched_release || monitor.base_release}
+                        </Text>
+                        {monitor.custom_interval_minutes && (
+                          <Badge color="violet" variant="light" size="sm">
+                            테스트 모드
+                          </Badge>
+                        )}
+                      </Group>
                       <Badge color={getStatusColor(monitor.status)} size="lg">
                         {getStatusText(monitor.status)}
                       </Badge>
@@ -533,6 +560,11 @@ export default function MonitorPage() {
                         <Text size="sm" c="dimmed">
                           • 만료: {formatKST(monitor.expires_at)} ({getDaysLeft(monitor.expires_at)}일 남음)
                         </Text>
+                        {monitor.custom_interval_minutes && (
+                          <Text size="sm" c="dimmed">
+                            • 실행 간격: {monitor.custom_interval_minutes}분마다
+                          </Text>
+                        )}
                         <Group gap="xs">
                           <Text size="sm" c="dimmed">• 진행률:</Text>
                           <Progress
@@ -619,7 +651,7 @@ export default function MonitorPage() {
           <Group mb="md">
             <IconHistory size={24} />
             <Text size="lg" fw={700}>
-              📜 최근 모니터링 히스토리 ({completedMonitors.length}개)
+               최근 모니터링 히스토리 ({completedMonitors.length}개)
             </Text>
           </Group>
 
@@ -629,7 +661,7 @@ export default function MonitorPage() {
             </Text>
           ) : (
             <Stack gap="md">
-              {completedMonitors.slice(0, 5).map(monitor => (
+              {paginatedHistory.map(monitor => (
                 <Card key={monitor.id} padding="md" withBorder>
                   <Group justify="space-between">
                     <div style={{ flex: 1 }}>
@@ -664,10 +696,15 @@ export default function MonitorPage() {
                 </Card>
               ))}
 
-              {completedMonitors.length > 5 && (
-                <Button variant="subtle" fullWidth>
-                  더보기... ({completedMonitors.length - 5}개 더)
-                </Button>
+              {totalHistoryPages > 1 && (
+                <Group justify="center" mt="md">
+                  <Pagination
+                    total={totalHistoryPages}
+                    value={historyPage}
+                    onChange={setHistoryPage}
+                    size="md"
+                  />
+                </Group>
               )}
             </Stack>
           )}

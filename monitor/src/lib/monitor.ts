@@ -2,7 +2,7 @@ import { createSentryService } from './sentry'
 import { createSlackService } from './slack'
 import { db } from './database'
 import { SchedulerService } from './scheduler'
-import type { MonitorSession, WindowAggregation, TopIssue } from './types'
+import type { MonitorSession, WindowAggregation, TopIssue, VersionMonitorSnapshot } from './types'
 
 export interface MonitorExecutionResult {
   monitorId: string
@@ -21,7 +21,75 @@ export interface MonitorExecutionResult {
 }
 
 export class MonitoringService {
-  
+
+  // 누적 데이터 수집 (버전 모니터링용)
+  async collectCumulativeData(
+    monitor: MonitorSession,
+    sentryService: ReturnType<typeof createSentryService>,
+    releaseStart: Date,
+    currentTime: Date
+  ): Promise<VersionMonitorSnapshot> {
+    const matchedRelease = monitor.matched_release!
+
+    // 마지막 체크포인트 조회 (checkpoint 구현 후)
+    const lastHistory = await db.getLastMonitorHistory(monitor.id)
+    const previousCheckTime = lastHistory?.executed_at ? new Date(lastHistory.executed_at) : null
+
+    // 경과 일수 및 전체 기간 계산
+    const daysElapsed = Math.ceil((currentTime.getTime() - releaseStart.getTime()) / (1000 * 60 * 60 * 24))
+    const expiresAt = new Date(monitor.expires_at)
+    const totalDurationDays = Math.ceil((expiresAt.getTime() - new Date(monitor.started_at).getTime()) / (1000 * 60 * 60 * 24))
+
+    // 누적 데이터 수집
+    const [cumulativeAggregation, crashFreeRates, detailedIssues, hourlyTrend] = await Promise.all([
+      sentryService.getWindowAggregates(matchedRelease, releaseStart, currentTime),
+      sentryService.getCrashFreeRate(matchedRelease, releaseStart, currentTime),
+      sentryService.getDetailedTopIssues(matchedRelease, releaseStart, currentTime, previousCheckTime, 10),
+      sentryService.getHourlyTrend(matchedRelease, currentTime, 24)
+    ])
+
+    // 최근 변화 계산 (선택적)
+    let recentChange: VersionMonitorSnapshot['recentChange'] | undefined
+    if (previousCheckTime && lastHistory) {
+      const crashesSinceLastCheck = cumulativeAggregation.events - lastHistory.events_count
+
+      if (crashesSinceLastCheck > 0) {
+        const minutesSinceLastCheck = Math.round((currentTime.getTime() - previousCheckTime.getTime()) / (1000 * 60))
+        recentChange = {
+          lastCheckTime: previousCheckTime.toISOString(),
+          crashesSinceLastCheck,
+          changeDescription: `지난 체크 이후 ${minutesSinceLastCheck}분 동안 ${crashesSinceLastCheck}건의 크래시가 추가로 발생했습니다.`
+        }
+      }
+    }
+
+    const snapshot: VersionMonitorSnapshot = {
+      monitorId: monitor.id,
+      platform: monitor.platform,
+      version: matchedRelease,
+      monitorStartedAt: monitor.started_at,
+      currentTime: currentTime.toISOString(),
+      daysElapsed,
+      totalDurationDays,
+
+      cumulative: {
+        totalCrashes: cumulativeAggregation.events,
+        uniqueIssues: cumulativeAggregation.issues,
+        affectedUsers: cumulativeAggregation.users,
+        crashFreeRate: crashFreeRates.crashFreeRate,
+        crashFreeSessionRate: crashFreeRates.crashFreeSessionRate
+      },
+
+      recentChange,
+
+      topIssues: detailedIssues,
+
+      hourlyTrend
+    }
+
+    return snapshot
+  }
+
   // 단일 모니터 실행
   async executeMonitor(monitor: MonitorSession, customIntervalMinutes?: number): Promise<MonitorExecutionResult> {
     const result: MonitorExecutionResult = {
@@ -151,45 +219,66 @@ export class MonitoringService {
           }
         : { events: 0, issues: 0, users: 0 } // 첫 실행
       
-      // 5. Slack 알림 전송
+      // 5. 누적 데이터 수집 및 Slack 알림 전송
       let slackSent = false
+      let snapshot: VersionMonitorSnapshot | null = null
       const platformSlackService = createSlackService(monitor.platform, monitor.is_test_mode || false)
       try {
-        const actionUrls = platformSentryService.buildActionUrls(matchedRelease, windowStart, windowEnd)
+        console.log(`📤 [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 시도... (테스트 모드: ${monitor.is_test_mode})`)
 
-        const cadenceLabel = interval === 'custom'
-          ? `${customIntervalMinutes}분`
-          : interval === '30m' ? '30분' : '1시간'
-
-        await platformSlackService.sendMonitoringReport(
-          monitor.platform,
-          monitor.base_release,
-          matchedRelease,
-          windowStart,
-          windowEnd,
-          aggregation,
-          deltas,
-          totalAggregation,
-          topIssues,
-          actionUrls,
-          cadenceLabel
+        // 누적 데이터 수집
+        snapshot = await this.collectCumulativeData(
+          monitor,
+          platformSentryService,
+          releaseStart,
+          windowEnd
         )
 
+        // 심각도 판단 (slack.ts에서 import)
+        const { calculateVersionMonitorSeverity } = await import('./slack')
+        const severity = calculateVersionMonitorSeverity(snapshot)
+
+        console.log(`📊 [${monitor.platform}:${monitor.base_release}] 심각도: ${severity}, CFR: ${snapshot.cumulative.crashFreeRate}%, 크래시: ${snapshot.cumulative.totalCrashes}건`)
+
+        // 심각도에 따라 메시지 빌드
+        let blocks
+        if (severity === 'critical') {
+          blocks = platformSlackService.buildCriticalVersionMonitorMessage(snapshot)
+        } else if (severity === 'warning') {
+          blocks = platformSlackService.buildWarningVersionMonitorMessage(snapshot)
+        } else {
+          blocks = platformSlackService.buildNormalVersionMonitorMessage(snapshot)
+        }
+
+        await platformSlackService.sendMessage(blocks)
+
         slackSent = true
-        console.log(`📤 [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 완료`)
+        console.log(`✅ [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 완료 (심각도: ${severity})`)
       } catch (slackError) {
-        console.error(`📤 [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 실패:`, slackError)
+        console.error(`❌ [${monitor.platform}:${monitor.base_release}] Slack 알림 전송 실패:`, slackError)
+        console.error(`   - 에러 상세:`, slackError instanceof Error ? slackError.message : String(slackError))
+        console.error(`   - 테스트 모드:`, monitor.is_test_mode)
+        console.error(`   - 플랫폼:`, monitor.platform)
         // Slack 실패는 전체 실행 실패로 처리하지 않음
       }
-      
+
       result.slackSent = slackSent
-      
-      // 6. 히스토리 저장
+
+      // 6. 히스토리 저장 (누적 데이터 저장 - checkpoint)
+      // snapshot이 있으면 누적 데이터를, 없으면 기존 window 데이터를 저장
+      const historyAggregation: WindowAggregation = snapshot
+        ? {
+            events: snapshot.cumulative.totalCrashes,
+            issues: snapshot.cumulative.uniqueIssues,
+            users: snapshot.cumulative.affectedUsers
+          }
+        : totalAggregation
+
       await db.createMonitorHistory(
         monitor.id,
         windowStart,
         windowEnd,
-        aggregation,
+        historyAggregation,
         topIssues,
         slackSent
       )
@@ -309,6 +398,7 @@ export class MonitoringService {
   // 모니터링 시작 시 Slack 알림
   async notifyMonitorStart(monitor: MonitorSession): Promise<void> {
     try {
+      console.log(`📤 [${monitor.platform}:${monitor.base_release}] 시작 알림 전송 시도... (테스트 모드: ${monitor.is_test_mode})`)
       const platformSlackService = createSlackService(monitor.platform, monitor.is_test_mode || false)
       await platformSlackService.sendStartNotification(
         monitor.platform,
@@ -318,28 +408,77 @@ export class MonitoringService {
         monitor.custom_interval_minutes ?? undefined,
         monitor.is_test_mode ?? false
       )
-      console.log(`📤 [${monitor.platform}:${monitor.base_release}] 시작 알림 전송 완료`)
+      console.log(`✅ [${monitor.platform}:${monitor.base_release}] 시작 알림 전송 완료`)
     } catch (error) {
-      console.error(`📤 [${monitor.platform}:${monitor.base_release}] 시작 알림 전송 실패:`, error)
+      console.error(`❌ [${monitor.platform}:${monitor.base_release}] 시작 알림 전송 실패:`, error)
+      console.error(`   - 에러 상세:`, error instanceof Error ? error.message : String(error))
+      console.error(`   - 테스트 모드:`, monitor.is_test_mode)
+      console.error(`   - 플랫폼:`, monitor.platform)
     }
   }
   
   // 모니터링 종료 시 Slack 알림
   async notifyMonitorStop(
-    monitor: MonitorSession, 
+    monitor: MonitorSession,
     reason: 'manual' | 'expired'
   ): Promise<void> {
     try {
+      console.log(`📤 [${monitor.platform}:${monitor.base_release}] 종료 알림 전송 시도... (테스트 모드: ${monitor.is_test_mode})`)
+
       const platformSlackService = createSlackService(monitor.platform, monitor.is_test_mode || false)
-      await platformSlackService.sendStopNotification(
-        monitor.platform,
-        monitor.base_release,
-        monitor.id,
+      const platformSentryService = createSentryService(monitor.platform)
+
+      // matched_release 확인
+      const matchedRelease = monitor.matched_release
+      if (!matchedRelease) {
+        console.warn(`⚠️ [${monitor.platform}:${monitor.base_release}] matched_release가 없어 종료 알림을 기본 형식으로 전송합니다`)
+        await platformSlackService.sendStopNotification(
+          monitor.platform,
+          monitor.base_release,
+          monitor.id,
+          reason
+        )
+        return
+      }
+
+      // 릴리즈 시작 시간 가져오기
+      const metadata = (monitor.metadata ?? {}) as Record<string, unknown>
+      const releaseStartIso = typeof metadata.release_started_at === 'string' ? metadata.release_started_at : undefined
+      let releaseStart = releaseStartIso ? new Date(releaseStartIso) : new Date(monitor.started_at)
+
+      if (!releaseStart || Number.isNaN(releaseStart.getTime())) {
+        releaseStart = new Date(monitor.started_at)
+      }
+
+      // 현재 시간까지 누적 데이터 수집
+      const currentTime = new Date()
+
+      console.log(`📊 [${monitor.platform}:${monitor.base_release}] 최종 누적 데이터 수집 중...`)
+      const snapshot = await this.collectCumulativeData(
+        monitor,
+        platformSentryService,
+        releaseStart,
+        currentTime
+      )
+
+      console.log(`📊 [${monitor.platform}:${monitor.base_release}] 최종 통계: 크래시 ${snapshot.cumulative.totalCrashes}건, 이슈 ${snapshot.cumulative.uniqueIssues}개, CFR ${snapshot.cumulative.crashFreeRate.toFixed(2)}%`)
+
+      // 새로운 완료 메시지 빌드
+      const blocks = platformSlackService.buildVersionMonitorCompletionMessage(
+        snapshot,
+        monitor.started_at,
+        monitor.expires_at,
         reason
       )
-      console.log(`📤 [${monitor.platform}:${monitor.base_release}] 종료 알림 전송 완료`)
+
+      await platformSlackService.sendMessage(blocks)
+
+      console.log(`✅ [${monitor.platform}:${monitor.base_release}] 종료 알림 전송 완료`)
     } catch (error) {
-      console.error(`📤 [${monitor.platform}:${monitor.base_release}] 종료 알림 전송 실패:`, error)
+      console.error(`❌ [${monitor.platform}:${monitor.base_release}] 종료 알림 전송 실패:`, error)
+      console.error(`   - 에러 상세:`, error instanceof Error ? error.message : String(error))
+      console.error(`   - 테스트 모드:`, monitor.is_test_mode)
+      console.error(`   - 플랫폼:`, monitor.platform)
     }
   }
 }

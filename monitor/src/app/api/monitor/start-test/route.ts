@@ -21,6 +21,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { platform, baseRelease, days, isTestMode, customInterval, matchedRelease } = StartTestMonitorSchema.parse(body)
 
+    console.log(`🧪 테스트 모니터 시작: ${platform} ${matchedRelease || baseRelease} (${customInterval}분 간격)`)
+
     // 데이터베이스에 테스트 모니터링 세션 생성
     const monitorSession = await db.createMonitorSession(platform, baseRelease, days, isTestMode)
 
