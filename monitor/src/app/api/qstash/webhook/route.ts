@@ -65,9 +65,25 @@ export async function POST(request: NextRequest) {
 }
 
 function getBaseUrl() {
-  return process.env.APP_BASE_URL 
-    || process.env.NEXT_PUBLIC_APP_URL 
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+  // 1순위: NEXT_PUBLIC_APP_URL (명시적 설정)
+  let baseUrl = process.env.NEXT_PUBLIC_APP_URL
+
+  // localhost URL은 상용 환경에서 사용하지 않음
+  if (baseUrl?.includes('localhost') && process.env.NODE_ENV === 'production') {
+    baseUrl = undefined
+  }
+
+  // 2순위: VERCEL_URL (Vercel 자동 제공)
+  if (!baseUrl && process.env.VERCEL_URL) {
+    baseUrl = `https://${process.env.VERCEL_URL}`
+  }
+
+  // 3순위: localhost (개발 환경 폴백)
+  if (!baseUrl) {
+    baseUrl = 'http://localhost:3000'
+  }
+
+  return baseUrl
 }
 
 async function processDailyReport() {

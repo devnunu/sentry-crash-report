@@ -87,8 +87,11 @@ export async function POST(request: NextRequest) {
       console.error('Failed to run immediate test monitor tick:', error)
     }
 
-    // 로컬 개발 환경에서는 QStash 대신 내부 타이머로 반복 실행
-    startLocalMonitorRunner(monitorSession.id, customInterval)
+    // 로컬 개발 환경에서만 내부 타이머로 반복 실행 (상용에서는 QStash 사용)
+    if (process.env.NODE_ENV === 'development') {
+      startLocalMonitorRunner(monitorSession.id, customInterval)
+      console.log(`🔄 로컬 러너 시작: ${monitorSession.id} (${customInterval}분 간격)`)
+    }
 
     return NextResponse.json(
       createApiResponse({

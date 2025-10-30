@@ -36,18 +36,39 @@ export class QStashService {
       })
     }
 
-    // 환경에 따른 베이스 URL 설정 (서버 우선)
-    const appBase = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
-    if (!appBase) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('APP_BASE_URL or NEXT_PUBLIC_APP_URL is required in production for QStash destination')
-      }
-      this.baseUrl = 'http://localhost:3000'
-    } else {
-      this.baseUrl = appBase
+    // 환경에 따른 베이스 URL 설정
+    // 1순위: NEXT_PUBLIC_APP_URL (명시적 설정)
+    // 2순위: VERCEL_URL (Vercel 자동 제공)
+    // 3순위: localhost (개발 환경 폴백)
+    let appBase = process.env.NEXT_PUBLIC_APP_URL
+
+    // localhost URL은 런타임의 상용 환경에서 사용하지 않음
+    const isRuntimeProduction = process.env.NODE_ENV === 'production' && typeof window === 'undefined' && process.env.VERCEL
+    if (appBase?.includes('localhost') && isRuntimeProduction) {
+      appBase = undefined
     }
 
-    console.log(`[QStash] Initialized in ${this.isLocalMode ? 'LOCAL' : 'CLOUD'} mode`)
+    // NEXT_PUBLIC_APP_URL이 없거나 localhost인 경우, Vercel URL 사용
+    if (!appBase && process.env.VERCEL_URL) {
+      appBase = `https://${process.env.VERCEL_URL}`
+      console.log(`[QStash] Using Vercel URL: ${appBase}`)
+    }
+
+    // 둘 다 없는 경우 처리
+    if (!appBase) {
+      // 빌드 타임이 아닌 런타임에만 에러 발생
+      if (isRuntimeProduction) {
+        console.error('[QStash] ERROR: NEXT_PUBLIC_APP_URL is required in production. Using fallback.')
+      }
+      appBase = 'http://localhost:3000'
+      if (!isRuntimeProduction) {
+        console.log('[QStash] Using localhost for development')
+      }
+    }
+
+    this.baseUrl = appBase
+
+    console.log(`[QStash] Initialized in ${this.isLocalMode ? 'LOCAL' : 'CLOUD'} mode with base URL: ${this.baseUrl}`)
   }
 
   // 로컬 모드용 cron 파서 (간단한 분 단위만 지원)
