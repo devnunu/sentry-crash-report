@@ -265,14 +265,16 @@ export class WeeklyReportService {
       this.log(`[12/13] 결과 JSON 미리보기:`)
       this.log(JSON.stringify(reportData, null, 2))
 
+      // 주차 계산 (Slack 블록과 AI 분석에서 사용)
+      const weekNumber = this.getWeekNumber(thisWeekStart)
+      const startDateStr = thisWeekStart.toISOString().split('T')[0]
+      const endDateStr = thisWeekEnd.toISOString().split('T')[0]
+
       // AI 분석 생성
       let aiAnalysis: WeeklyAIAnalysis | undefined
       if (options.includeAI !== false) {
         try {
           this.log('[12.5/13] AI 주간 분석 생성 중...')
-          const weekNumber = this.getWeekNumber(thisWeekStart)
-          const startDateStr = thisWeekStart.toISOString().split('T')[0]
-          const endDateStr = thisWeekEnd.toISOString().split('T')[0]
 
           aiAnalysis = await aiAnalysisService.generateWeeklyAdvice(
             reportData,
@@ -301,18 +303,12 @@ export class WeeklyReportService {
         slackWebhook = null
       }
 
-      const platformEmoji = this.platform === 'android' ? '🤖 ' : '🍎 '
-      const title = `${platformEmoji}Sentry 주간 리포트 — ${thisRangeLabel}`
       const slackBlocks = this.buildWeeklyBlocks(
         reportData,
-        title,
-        environment,
-        org,
-        projectId,
-        {
-          start: thisWeekStart.toISOString(),
-          end: thisWeekEnd.toISOString()
-        }
+        weekNumber,
+        thisWeekStart,
+        thisWeekEnd,
+        aiAnalysis
       )
 
       if (sendSlack && slackWebhook) {
@@ -1020,184 +1016,215 @@ export class WeeklyReportService {
   
   // Python 스크립트의 build_weekly_blocks와 동일한 Slack 메시지 구성 (요약만 표시)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private buildWeeklyBlocks(
+  // 심각도 계산
+  private calculateWeeklySeverity(
     payload: WeeklyReportData,
-    slackTitle: string,
-    envLabel: string | undefined,
-    org: string,
-    projectId: number,
-    weekWindowUtc: { start: string; end: string }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): any[] {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const blocks: any[] = []
-    blocks.push({
-      type: 'header',
-      text: { type: 'plain_text', text: slackTitle, emoji: true }
-    })
-
-    const sumThis = payload.this_week
-    const sumPrev = payload.prev_week
-
-    const events = sumThis.events
-    const issues = sumThis.issues
-    const users = sumThis.users
-    const prevEvents = sumPrev.events
-    const prevIssues = sumPrev.issues
-    const prevUsers = sumPrev.users
-
-    const cfS = sumThis.crash_free_sessions
-    const cfU = sumThis.crash_free_users
-
-    const summaryLines = [
-      this.bold(':memo: Summary'),
-      `• 💥 *총 이벤트 발생 건수*: ${this.diffLine(events, prevEvents, '건')}`,
-      `• 🐞 *유니크 이슈 개수*: ${this.diffLine(issues, prevIssues, '개')}`,
-      `• 👥 *영향 사용자*: ${this.diffLine(users, prevUsers, '명')}`,
-      `• 🛡️ *Crash Free 세션(주간 평균)*: ${this.fmtPctTrunc2(cfS)} / *Crash Free 사용자*: ${this.fmtPctTrunc2(cfU)}`
-    ]
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: summaryLines.join('\n') } })
-
-    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `*집계 구간*: ${payload.this_week_range_kst}` }] })
-    if (envLabel) {
-      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `*환경*: ${envLabel}` }] })
+    aiAnalysis?: WeeklyAIAnalysis
+  ): 'normal' | 'warning' | 'critical' {
+    // AI 분석 결과가 있으면 우선 사용
+    if (aiAnalysis?.weekly_summary?.level) {
+      return aiAnalysis.weekly_summary.level
     }
 
-    // === 상세 리포트 페이지로 이동하는 버튼 추가 ===
+    const thisWeek = payload.this_week
+    const prevWeek = payload.prev_week
+
+    const crashFreeRate = thisWeek?.crash_free_sessions || 0
+    const cfr = crashFreeRate > 1 ? crashFreeRate : crashFreeRate * 100
+
+    const thisEvents = thisWeek?.events || 0
+    const prevEvents = prevWeek?.events || 1
+    const changePct = ((thisEvents - prevEvents) / prevEvents) * 100
+
+    const criticalIssuesCount = (payload.surge_issues || []).filter(
+      issue => issue.event_count >= 100
+    ).length
+
+    // Critical 조건
+    if (criticalIssuesCount >= 2) return 'critical'
+    if (cfr < 99.0) return 'critical'
+    if (changePct > 50) return 'critical'
+
+    // Warning 조건
+    if ((payload.new_issues || []).length >= 3) return 'warning'
+    if (cfr < 99.5) return 'warning'
+    if (changePct > 20) return 'warning'
+
+    return 'normal'
+  }
+
+  // 날짜 포맷 (10/20)
+  private formatSlackDate(date: Date): string {
+    return `${date.getMonth() + 1}/${date.getDate()}`
+  }
+
+  // 주요 이슈 텍스트
+  private getTopConcerns(payload: WeeklyReportData, limit: number): string {
+    const concerns: string[] = []
+
+    // Surge 이슈
+    const surgeIssues = payload.surge_issues || []
+    if (surgeIssues.length > 0) {
+      const topSurge = surgeIssues[0]
+      const growth = topSurge.growth_multiplier?.toFixed(1) || '?'
+      concerns.push(`• ${topSurge.title.slice(0, 40)}... (${growth}배 급증)`)
+    }
+
+    // New 이슈
+    const newIssues = payload.new_issues || []
+    if (newIssues.length > 0 && concerns.length < limit) {
+      concerns.push(`• 신규 이슈 ${newIssues.length}개 발생`)
+    }
+
+    // 전주 대비 증가
+    const thisEvents = payload.this_week?.events || 0
+    const prevEvents = payload.prev_week?.events || 1
+    const changePct = ((thisEvents - prevEvents) / prevEvents) * 100
+    if (changePct > 50 && concerns.length < limit) {
+      concerns.push(`• 주간 내내 악화 추세 (+${changePct.toFixed(1)}%)`)
+    }
+
+    return concerns.slice(0, limit).join('\n') || '• 주요 이슈 없음'
+  }
+
+  // 심플 Slack 블록 생성
+  private buildWeeklyBlocks(
+    payload: WeeklyReportData,
+    weekNumber: number,
+    startDate: Date,
+    endDate: Date,
+    aiAnalysis?: WeeklyAIAnalysis
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ): any[] {
+    const severity = this.calculateWeeklySeverity(payload, aiAnalysis)
+
+    // 상태별 설정
+    const config = {
+      normal: {
+        emoji: '✅',
+        label: '정상',
+        buttonStyle: 'primary' as const
+      },
+      warning: {
+        emoji: '⚠️',
+        label: '주의',
+        buttonStyle: 'danger' as const
+      },
+      critical: {
+        emoji: '🚨',
+        label: '긴급',
+        buttonStyle: 'danger' as const
+      }
+    }
+
+    const cfg = config[severity]
+
+    const thisWeek = payload.this_week
+    const prevWeek = payload.prev_week
+
+    const dailyAvg = Math.round((thisWeek?.events || 0) / 7)
+    const prevDailyAvg = Math.round((prevWeek?.events || 0) / 7)
+    const changePct = prevDailyAvg > 0
+      ? (((dailyAvg - prevDailyAvg) / prevDailyAvg) * 100).toFixed(1)
+      : '0'
+    const changeSign = Number(changePct) > 0 ? '+' : ''
+
+    const crashFreeRate = thisWeek?.crash_free_sessions || 0
+    const cfr = crashFreeRate > 1 ? crashFreeRate : crashFreeRate * 100
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = []
+
+    // 구분선 (위)
+    blocks.push({ type: 'divider' })
+
+    // 헤더
+    const platformLabel = this.platform === 'android' ? 'Android' : 'iOS'
+    blocks.push({
+      type: 'header',
+      text: {
+        type: 'plain_text',
+        text: `${cfg.emoji} ${platformLabel} 주간 리포트 — ${weekNumber}주차 (${cfg.label})`,
+        emoji: true
+      }
+    })
+
+    // 구분선 (아래)
+    blocks.push({ type: 'divider' })
+
+    // 날짜
+    blocks.push({
+      type: 'context',
+      elements: [{
+        type: 'mrkdwn',
+        text: `📅 ${this.formatSlackDate(startDate)} (월) ~ ${this.formatSlackDate(endDate)} (일)`
+      }]
+    })
+
+    // 메인 메시지
+    let mainMessage: string
+    if (severity === 'normal') {
+      mainMessage = `*💬 이번 주는 안정적이었습니다*\n일평균 ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)`
+    } else if (severity === 'warning') {
+      const newIssuesCount = payload.new_issues?.length || 0
+      mainMessage = `*💬 주의가 필요한 한 주였습니다*\n일평균 ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)\n신규 이슈 ${newIssuesCount}개 발생`
+    } else {
+      mainMessage = `*💬 심각한 한 주였습니다*\n일평균 ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)\nCrash Free Rate ${cfr.toFixed(2)}% (목표 미달)`
+    }
+
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: mainMessage
+      }
+    })
+
+    // Warning/Critical일 경우 주요 이슈 표시
+    if (severity !== 'normal') {
+      const issueText = severity === 'critical'
+        ? `*🚨 즉시 확인 필요*\n${this.getTopConcerns(payload, 2)}`
+        : `*⚠️ 확인 필요*\n${this.getTopConcerns(payload, 2)}`
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: issueText
+        }
+      })
+    }
+
+    // Normal일 경우 웹 유도
+    if (severity === 'normal') {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*📊 상세 분석은 웹에서 확인하세요*\n• 개선/악화 포인트\n• 다음 주 집중 영역'
+        }
+      })
+    }
+
+    // 버튼
     const detailPageUrl = this.buildWeeklyReportPageUrl(payload.this_week_range_kst)
     blocks.push({
       type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '📊 상세 리포트 보기'
-          },
-          url: detailPageUrl
-        }
-      ]
+      elements: [{
+        type: 'button',
+        text: {
+          type: 'plain_text',
+          text: '📊 상세 리포트 보기',
+          emoji: true
+        },
+        url: detailPageUrl,
+        style: cfg.buttonStyle
+      }]
     })
 
     return blocks
   }
   
-  // Python 스크립트의 보조 함수들
-  private diffLine(cur: number, prev: number, unit: string = '건'): string {
-    const delta = cur - prev
-    let arrow: string
-    if (delta > 0) {
-      arrow = ':small_red_triangle:'
-    } else if (delta < 0) {
-      arrow = ':small_red_triangle_down:'
-    } else {
-      arrow = '—'
-    }
-    const ratio = prev > 0 ? ` (${((delta / prev) * 100).toFixed(1)}%)` : ''
-    return `${cur}${unit} -> 전주 대비: ${arrow}${Math.abs(delta)}${unit}${ratio}`
-  }
-  
-  private issueLineWithPrev(item: WeeklyIssue, prevMap: Map<string, WeeklyIssue>): string {
-    const title = this.truncate(item.title, TITLE_MAX)
-    const link = item.link
-    const ev = item.events
-    const us = item.users
-    const head = link ? `• <${link}|${title}> · ${ev}건 · ${us}명` : `• ${title} · ${ev}건 · ${us}명`
-    
-    const prevEv = parseInt(String(prevMap.get(String(item.issue_id))?.events || 0))
-    const tail = ` -> 전주 대비: ${this.diffDeltaOnly(ev, prevEv, '건')}`
-    return head + ' ' + tail
-  }
-  
-  private diffDeltaOnly(cur: number, prev: number, unit: string = '건'): string {
-    const delta = cur - prev
-    let arrow: string
-    if (delta > 0) {
-      arrow = ':small_red_triangle:'
-    } else if (delta < 0) {
-      arrow = ':small_red_triangle_down:'
-    } else {
-      arrow = '—'
-    }
-    const ratio = prev > 0 ? ` (${((delta / prev) * 100).toFixed(1)}%)` : ''
-    return `${arrow}${Math.abs(delta)}${unit}${ratio}`
-  }
-  
-  private surgeReasonKo(reasons: string[]): string {
-    const ko = {
-      growth: '전주 대비 급증',
-      zscore: '평균 대비 통계적 급증',
-      madscore: '중앙값 대비 이상치'
-    } as Record<string, string>
-    const labeled = reasons.map(x => ko[x] || x)
-    return labeled.join('/')
-  }
-  
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private buildFooterActionsBlock(
-    org: string,
-    projectId: number,
-    envLabel: string | undefined,
-    win: { start: string; end: string }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): any {
-    const startIso = win.start
-    const endIso = win.end
-    const urls = this.buildSentryActionUrls(org, projectId, envLabel, startIso, endIso)
-    
-    return {
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: { type: 'plain_text', text: '📊 대시보드' },
-          url: urls.dashboard_url
-        },
-        {
-          type: 'button',
-          text: { type: 'plain_text', text: '🔍 해당 기간 이슈 보기' },
-          url: urls.issues_filtered_url
-        }
-      ]
-    }
-  }
-  
-  private buildSentryActionUrls(
-    org: string,
-    projectId: number,
-    environment: string | undefined,
-    startIsoUtc: string,
-    endIsoUtc: string
-  ): { dashboard_url: string; issues_filtered_url: string } {
-    // 1) 대시보드 URL
-    const envDash = getPlatformEnv(this.platform, 'DASHBOARD_URL')
-    const dashId = getPlatformEnv(this.platform, 'DASH_BOARD_ID')
-    let dashboardUrl: string
-    if (envDash) {
-      dashboardUrl = envDash
-    } else if (dashId) {
-      dashboardUrl = `https://sentry.io/organizations/${org}/dashboard/${dashId}/?project=${projectId}`
-    } else {
-      dashboardUrl = `https://sentry.io/organizations/${org}/projects/`
-    }
-
-    // 2) 이슈 목록 URL
-    const base = `https://sentry.io/organizations/${org}/issues/`
-    const qParts = ['level:[error,fatal]']
-    if (environment) {
-      qParts.push(`environment:${environment}`)
-    }
-    const q = encodeURIComponent(qParts.join(' '))
-    const s = encodeURIComponent(startIsoUtc)
-    const e = encodeURIComponent(endIsoUtc)
-    const issuesFilteredUrl = `${base}?project=${projectId}&query=${q}&start=${s}&end=${e}`
-
-    return {
-      dashboard_url: dashboardUrl,
-      issues_filtered_url: issuesFilteredUrl
-    }
-  }
-
   private buildWeeklyReportPageUrl(weekRangeKst: string): string {
     // 주간 범위에서 시작 날짜 추출 (ex: "2024-01-01 ~ 2024-01-07 (KST)" -> "2024-01-01")
     const startDate = weekRangeKst.split(' ~ ')[0]
