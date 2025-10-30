@@ -190,7 +190,7 @@ export class SlackService {
         elements: [{
           type: 'button',
           text: { type: 'plain_text', text: '📊 대시보드 보기' },
-          url: `${WEB_URL}/monitor/version/${monitorId}`,
+          url: `${WEB_URL}/monitor`,
           style: 'primary'
         }]
       }
@@ -290,7 +290,7 @@ export class SlackService {
       elements: [{
         type: 'button',
         text: { type: 'plain_text', text: '📊 대시보드 보기' },
-        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        url: `${WEB_URL}/monitor`,
         style: cfg.buttonStyle
       }]
     })
@@ -349,7 +349,7 @@ export class SlackService {
         elements: [{
           type: 'button',
           text: { type: 'plain_text', text: '📊 최종 리포트 보기' },
-          url: `${WEB_URL}/monitor/version/${monitorId}`,
+          url: `${WEB_URL}/monitor`,
           style: 'primary'
         }]
       }
@@ -403,7 +403,7 @@ export class SlackService {
       elements: [{
         type: 'button',
         text: { type: 'plain_text', text: '📊 대시보드 보기' },
-        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        url: `${WEB_URL}/monitor`,
         style: 'primary'
       }]
     })
@@ -473,7 +473,7 @@ export class SlackService {
       elements: [{
         type: 'button',
         text: { type: 'plain_text', text: '📊 대시보드 보기' },
-        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        url: `${WEB_URL}/monitor`,
         style: 'danger'
       }]
     })
@@ -572,7 +572,7 @@ export class SlackService {
       elements: [{
         type: 'button',
         text: { type: 'plain_text', text: '📊 대시보드 보기' },
-        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        url: `${WEB_URL}/monitor`,
         style: 'danger'
       }]
     })
@@ -668,7 +668,7 @@ export class SlackService {
       elements: [{
         type: 'button',
         text: { type: 'plain_text', text: '📊 최종 리포트 보기' },
-        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        url: `${WEB_URL}/monitor`,
         style: config.style
       }]
     })

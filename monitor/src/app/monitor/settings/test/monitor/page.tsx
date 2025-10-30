@@ -815,7 +815,7 @@ export default function MonitorTestPage() {
                 const isSuccess = progress === 100 && test.notificationsFailed === 0
 
                 return (
-                  <Card key={test.id} withBorder p="md" style={{ backgroundColor: isSuccess ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)' }}>
+                  <Card key={test.id} withBorder p="md" style={{ backgroundColor: isSuccess ? 'rgba(34, 197, 94, 0.05)' : 'rgba(148, 163, 184, 0.05)' }}>
                     <Group justify="space-between">
                       <div>
                         <Group gap="xs">
@@ -823,8 +823,8 @@ export default function MonitorTestPage() {
                             {test.platform === 'android' ? 'Android' : 'iOS'}
                           </Badge>
                           <Text size="sm" fw={500}>{test.version}</Text>
-                          <Badge color={isSuccess ? 'green' : 'red'} size="sm">
-                            {isSuccess ? '성공' : '실패'}
+                          <Badge color={isSuccess ? 'green' : 'gray'} size="sm">
+                            {isSuccess ? '성공' : '중단됨'}
                           </Badge>
                         </Group>
                         <Text size="xs" c="dimmed" mt={4}>
