@@ -576,9 +576,9 @@ export default function MonitorPage() {
                         <Text size="lg" fw={600}>
                           {getStatusEmoji(monitor.status)} {monitor.platform.toUpperCase()} {monitor.matched_release || monitor.base_release}
                         </Text>
-                        {monitor.custom_interval_minutes && (
+                        {monitor.is_test_mode && (
                           <Badge color="violet" variant="light" size="sm">
-                            테스트 모드
+                            테스트
                           </Badge>
                         )}
                       </Group>
@@ -709,6 +709,11 @@ export default function MonitorPage() {
                         <Badge size="sm" color={getStatusColor(monitor.status)}>
                           {getStatusText(monitor.status)}
                         </Badge>
+                        {monitor.is_test_mode && (
+                          <Badge size="sm" color="violet" variant="light">
+                            테스트
+                          </Badge>
+                        )}
                       </Group>
                       <Text size="sm" c="dimmed">
                         {formatDateRange(monitor.started_at, monitor.expires_at)}

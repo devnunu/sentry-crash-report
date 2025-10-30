@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   ActionIcon,
+  Alert,
   Badge,
   Button,
   Card,
@@ -21,7 +22,8 @@ import {
   Title
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconClock, IconFilter, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSearch, IconSquare } from '@tabler/icons-react'
+import { IconClock, IconFilter, IconInfoCircle, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSearch, IconSquare } from '@tabler/icons-react'
+import Link from 'next/link'
 import type { Platform } from '@/lib/types'
 
 // ===== Data Structures =====
@@ -490,147 +492,21 @@ export default function MonitorTestPage() {
         </Button>
       </Group>
 
-      {/* Section 1: Active Tests */}
-      <Card withBorder radius="md" p="xl" mb="xl" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%)', borderColor: 'rgba(34, 197, 94, 0.2)' }}>
-        <Stack gap="md">
-          <Group justify="space-between">
-            <div>
-              <Text size="lg" fw={600}>진행 중인 테스트</Text>
-              <Text size="xs" c="dimmed">활성 모니터링 테스트의 진행 상황</Text>
-            </div>
-            {activeTests.length > 0 && (
-              <Badge color="green" variant="light" size="lg">{activeTests.length}개 실행 중</Badge>
-            )}
-          </Group>
-
-          {isLoadingActive ? (
-            <Text c="dimmed" ta="center" py="xl">로딩 중...</Text>
-          ) : activeTests.length === 0 ? (
-            <Card withBorder p="xl" style={{ backgroundColor: 'rgba(148, 163, 184, 0.05)' }}>
-              <Stack align="center" gap="xs">
-                <Text c="dimmed" size="sm">진행 중인 테스트가 없습니다</Text>
-                <Text c="dimmed" size="xs">아래 폼에서 새 테스트를 시작하세요</Text>
-              </Stack>
-            </Card>
-          ) : (
-            <Stack gap="md">
-              {activeTests.map(test => {
-                const progress = getProgress(test.runCount, test.expectedRuns)
-                const checkpoints = getNextCheckpoints(test.runCount, test.expectedRuns)
-                const notificationSuccess = test.notificationsSent - test.notificationsFailed
-
-                return (
-                  <Card key={test.id} padding="lg" withBorder style={test.isPaused ? { backgroundColor: 'rgba(234, 179, 8, 0.05)' } : undefined}>
-                    <Stack gap="md">
-                      {/* 헤더 */}
-                      <Group justify="space-between">
-                        <Group gap="xs">
-                          <Text size="lg" fw={600}>
-                            {test.platform === 'android' ? '🤖' : '🍎'} {test.platform.toUpperCase()} {test.version}
-                          </Text>
-                          <Badge color="violet" variant="light" size="sm">
-                            테스트 모드
-                          </Badge>
-                          {test.isPaused && <Badge color="yellow">일시정지</Badge>}
-                        </Group>
-                        <Group gap="xs">
-                          <ActionIcon
-                            variant="light"
-                            color={test.isPaused ? 'green' : 'yellow'}
-                            onClick={() => handlePauseTest(test.id)}
-                          >
-                            {test.isPaused ? <IconPlayerPlay size={16} /> : <IconPlayerPause size={16} />}
-                          </ActionIcon>
-                          <ActionIcon
-                            variant="light"
-                            color="red"
-                            onClick={() => handleStopTest(test.id)}
-                          >
-                            <IconSquare size={16} />
-                          </ActionIcon>
-                        </Group>
-                      </Group>
-
-                      {/* 진행 상황 */}
-                      <div>
-                        <Text size="sm" fw={600} mb={4}>🗓️ 진행 상황</Text>
-                        <Stack gap="xs">
-                          <Text size="sm" c="dimmed">
-                            • 시작: {formatDateTime(test.startedAt)}
-                          </Text>
-                          <Text size="sm" c="dimmed">
-                            • 실행 간격: {test.intervalMinutes}분마다
-                          </Text>
-                          <Text size="sm" c="dimmed">
-                            • 다음 실행: {test.isPaused ? '일시정지됨' : getNextRunTime(test.nextRunAt)}
-                          </Text>
-                          <Group gap="xs">
-                            <Text size="sm" c="dimmed">• 진행률:</Text>
-                            <Progress
-                              value={progress}
-                              style={{ flex: 1 }}
-                              color={progress > 80 ? 'orange' : 'blue'}
-                            />
-                            <Text size="sm" fw={500}>
-                              {progress}%
-                            </Text>
-                          </Group>
-                          <Text size="sm" c="dimmed">
-                            • 실행 횟수: {test.runCount} / {test.expectedRuns}회
-                          </Text>
-                        </Stack>
-                      </div>
-
-                      {/* 알림 상태 */}
-                      <div>
-                        <Text size="sm" fw={600} mb={4}>📊 알림 상태</Text>
-                        <Stack gap="xs">
-                          <Text size="sm">
-                            • 발송 성공: {notificationSuccess}건
-                          </Text>
-                          <Text size="sm">
-                            • 발송 실패: {test.notificationsFailed}건
-                          </Text>
-                          {test.lastNotificationAt && (
-                            <Text size="sm" c="dimmed">
-                              • 마지막 발송: {formatDateTime(test.lastNotificationAt)}
-                            </Text>
-                          )}
-                        </Stack>
-                      </div>
-
-                      {checkpoints.length > 0 && (
-                        <div>
-                          <Text size="sm" fw={600} mb={4}>🎯 다음 체크포인트</Text>
-                          <Group gap="xs">
-                            {checkpoints.map((checkpoint, idx) => (
-                              <Badge key={idx} variant="light" color="violet">
-                                {checkpoint}
-                              </Badge>
-                            ))}
-                          </Group>
-                        </div>
-                      )}
-
-                      {/* 액션 버튼 */}
-                      <Group gap="xs">
-                        <Button
-                          size="sm"
-                          variant="light"
-                          leftSection={<IconClock size={16} />}
-                          onClick={() => openLogsModal(test.id)}
-                        >
-                          실시간 로그
-                        </Button>
-                      </Group>
-                    </Stack>
-                  </Card>
-                )
-              })}
-            </Stack>
-          )}
-        </Stack>
-      </Card>
+      {/* 안내 메시지 */}
+      <Alert
+        icon={<IconInfoCircle size={16} />}
+        title="테스트 모니터링"
+        color="blue"
+        variant="light"
+        mb="xl"
+      >
+        <Text size="sm" mb="xs">
+          이 페이지에서는 커스텀 간격으로 테스트 모니터링을 시작할 수 있습니다.
+        </Text>
+        <Text size="sm">
+          진행 중인 테스트와 히스토리는 <Link href="/monitor" style={{ color: 'inherit', fontWeight: 600, textDecoration: 'underline' }}>버전별 모니터링 페이지</Link>에서 확인하세요. <Badge size="sm" color="violet" variant="light" style={{ verticalAlign: 'middle' }}>테스트</Badge> 태그로 구분됩니다.
+        </Text>
+      </Alert>
 
       {/* New Test Form */}
       <Card withBorder radius="md" p="xl" mb="xl" style={{ background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(147, 51, 234, 0.05) 100%)', borderColor: 'rgba(168, 85, 247, 0.2)' }}>
@@ -795,56 +671,6 @@ export default function MonitorTestPage() {
             </Button>
           </Stack>
         </form>
-      </Card>
-
-      {/* Section 2: History */}
-      <Card withBorder radius="md" p="xl" style={{ background: 'linear-gradient(135deg, rgba(148, 163, 184, 0.05) 0%, rgba(100, 116, 139, 0.05) 100%)', borderColor: 'rgba(148, 163, 184, 0.2)' }}>
-        <Stack gap="md">
-          <Text size="lg" fw={600}>최근 테스트 히스토리</Text>
-
-          {isLoadingHistory ? (
-            <Text c="dimmed" ta="center" py="xl">로딩 중...</Text>
-          ) : history.length === 0 ? (
-            <Card withBorder p="xl" style={{ backgroundColor: 'rgba(148, 163, 184, 0.05)' }}>
-              <Text c="dimmed" size="sm" ta="center">히스토리가 없습니다</Text>
-            </Card>
-          ) : (
-            <Stack gap="xs">
-              {history.map(test => {
-                const progress = getProgress(test.runCount, test.expectedRuns)
-                const isSuccess = progress === 100 && test.notificationsFailed === 0
-
-                return (
-                  <Card key={test.id} withBorder p="md" style={{ backgroundColor: isSuccess ? 'rgba(34, 197, 94, 0.05)' : 'rgba(148, 163, 184, 0.05)' }}>
-                    <Group justify="space-between">
-                      <div>
-                        <Group gap="xs">
-                          <Badge color={test.platform === 'android' ? 'blue' : 'gray'} size="sm">
-                            {test.platform === 'android' ? 'Android' : 'iOS'}
-                          </Badge>
-                          <Text size="sm" fw={500}>{test.version}</Text>
-                          <Badge color={isSuccess ? 'green' : 'gray'} size="sm">
-                            {isSuccess ? '성공' : '중단됨'}
-                          </Badge>
-                        </Group>
-                        <Text size="xs" c="dimmed" mt={4}>
-                          {getRelativeTime(test.startedAt)} · {test.runCount}/{test.expectedRuns} 실행 · 알림 {test.notificationsSent - test.notificationsFailed}/{test.notificationsSent}
-                        </Text>
-                      </div>
-                      <Button
-                        variant="subtle"
-                        size="xs"
-                        onClick={() => openLogsModal(test.id)}
-                      >
-                        로그 보기
-                      </Button>
-                    </Group>
-                  </Card>
-                )
-              })}
-            </Stack>
-          )}
-        </Stack>
       </Card>
 
       {/* Section 3: Real-time Logs Modal */}
