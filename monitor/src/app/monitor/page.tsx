@@ -649,11 +649,11 @@ export default function MonitorPage() {
                     <Group gap="xs">
                       <Button
                         size="sm"
-                        variant="filled"
-                        leftSection={<IconDashboard size={16} />}
-                        disabled
+                        variant="light"
+                        leftSection={<IconChartBar size={16} />}
+                        onClick={() => openHistoryModal(monitor.id)}
                       >
-                        실시간 대시보드
+                        상세 보기
                       </Button>
                       <Button
                         size="sm"

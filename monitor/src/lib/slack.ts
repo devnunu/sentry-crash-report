@@ -182,7 +182,7 @@ export class SlackService {
         type: 'context',
         elements: [{
           type: 'mrkdwn',
-          text: '💬 배포 직후 30분마다, 이후 1시간마다 리포트 발송'
+          text: '💬 1시간마다 리포트 발송'
         }]
       },
       {
