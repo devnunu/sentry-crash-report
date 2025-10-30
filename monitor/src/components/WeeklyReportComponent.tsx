@@ -209,18 +209,30 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     fetchWeeklyChartData()
   }, [selectedReport?.end_date, platform])
 
-  // 심각도 레벨 판단
+  // 심각도 레벨 판단 (weekly-report.ts의 calculateWeeklySeverity와 동일한 로직)
   const statusLevel = useMemo(() => {
-    if (!metrics) return 'normal'
+    if (!metrics || !payload) return 'normal'
 
-    if (metrics.crashFreeRate < 99.0 || metrics.dailyAvgChange > 50) {
-      return 'critical'
-    }
-    if (metrics.crashFreeRate < 99.5 || metrics.dailyAvgChange > 20) {
-      return 'warning'
-    }
+    const dailyAvg = metrics.dailyAvg
+    const cfr = metrics.crashFreeRate
+
+    // Critical 이슈 개수 (500건 이상)
+    const criticalIssuesCount = (payload.surge_issues || []).filter(
+      issue => issue.event_count >= 500
+    ).length
+
+    // Critical 조건 - 절대 건수 기준
+    if (criticalIssuesCount >= 2) return 'critical'
+    if (cfr < 99.0) return 'critical'
+    if (dailyAvg >= 500) return 'critical'
+
+    // Warning 조건 - 절대 건수 기준
+    if (metrics.newIssuesCount >= 3) return 'warning'
+    if (cfr < 99.5) return 'warning'
+    if (dailyAvg >= 100) return 'warning'
+
     return 'normal'
-  }, [metrics])
+  }, [metrics, payload])
 
   const statusConfig = useMemo(() => {
     switch (statusLevel) {

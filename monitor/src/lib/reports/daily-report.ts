@@ -255,13 +255,12 @@ export class DailyReportService {
             this.log(`  - 7일 평균: events=${Math.round(avg7DaysData.events)}, issues=${Math.round(avg7DaysData.issues)}, users=${Math.round(avg7DaysData.users)}`)
           }
 
-          // Critical 이슈 판별 (buildSlackBlocksForDay의 로직 참고)
+          // Critical 이슈 판별 (buildSlackBlocksForDay의 로직과 동일)
           const totalUsers = ySummary.impacted_users || 0
           criticalIssuesForAI = ySurgeAdv.filter(issue => {
             const isNewFatal = yNew.some(n => n.issue_id === issue.issue_id)
-            const highImpact = issue.event_count >= 100
-            const isHighCount = issue.event_count >= 500
-            return (isNewFatal && highImpact) || isHighCount
+            const veryHighImpact = issue.event_count >= 500
+            return (isNewFatal && issue.event_count >= 100) || veryHighImpact
           }).map(issue => ({
             issue_id: issue.issue_id,
             title: issue.title,
@@ -1111,11 +1110,11 @@ export class DailyReportService {
     const userChangePercent = prevUsers > 0 ? ((users - prevUsers) / prevUsers) * 100 : 0
     const cfuChange = prevCfU !== null && cfU !== null ? cfU - prevCfU : 0
 
-    // Critical 이슈 탐지 (신규 + fatal 레벨 or 영향 사용자 많음)
+    // Critical 이슈 탐지 (신규 + fatal 레벨 or 매우 많은 이벤트)
     const criticalIssues = surgeIssues.filter(issue => {
       const isNewFatal = newIssues.some(n => n.issue_id === issue.issue_id)
-      const highImpact = issue.event_count >= 100
-      return isNewFatal || highImpact
+      const veryHighImpact = issue.event_count >= 500
+      return (isNewFatal && issue.event_count >= 100) || veryHighImpact
     })
 
     // 상태 판정
@@ -1133,9 +1132,10 @@ export class DailyReportService {
       status = 'critical'
       reasons.push(`Crash Free Rate ${this.fmtPct(cfU)} (99% 미만)`)
     }
-    if (eventChangePercent >= 200) {
+    // 절대 건수 기준
+    if (events >= 500) {
       status = 'critical'
-      reasons.push(`이벤트 ${eventChangePercent.toFixed(0)}% 급증`)
+      reasons.push(`이벤트 ${events}건 (500건 이상)`)
     }
     if (cfuChange < -0.01) { // -1.0%p 이하 하락
       status = 'critical'
@@ -1152,9 +1152,10 @@ export class DailyReportService {
         status = 'warning'
         reasons.push(`Crash Free Rate ${this.fmtPct(cfU)} (99.5% 미만)`)
       }
-      if (eventChangePercent >= 100) {
+      // 절대 건수 기준
+      if (events >= 100) {
         status = 'warning'
-        reasons.push(`이벤트 ${eventChangePercent.toFixed(0)}% 증가`)
+        reasons.push(`이벤트 ${events}건 (100건 이상)`)
       }
       if (cfuChange < -0.005 && cfuChange >= -0.01) { // -0.5%p ~ -1.0%p 하락
         status = 'warning'

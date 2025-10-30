@@ -168,13 +168,13 @@ ${environment ? `- 환경: ${environment}` : ''}
 === 심각도 판단 기준 ===
 **critical** (긴급 조치 필요):
 - Crash Free Rate < 99.0%
-- 크래시 이벤트가 전일 대비 200% 이상 급증
+- 크래시 이벤트 500건 이상
 - Crash Free Rate가 1.0%p 이상 하락
-- Critical 이슈 발생 (신규 Fatal + 영향 사용자 많음, 또는 이벤트 500건 이상)
+- Critical 이슈 발생 (신규 Fatal 100건 이상, 또는 이벤트 500건 이상)
 
 **warning** (주의 필요):
 - Crash Free Rate 99.0~99.5%
-- 크래시 이벤트가 전일 대비 100% 이상 증가
+- 크래시 이벤트 100건 이상
 - Crash Free Rate가 0.5~1.0%p 하락
 - 급증 이슈 발생
 
@@ -624,9 +624,18 @@ ${JSON.stringify(releaseFixes.map(fix => ({
 === 분석 가이드라인 ===
 
 1. **weekly_summary.level** 판단:
-   - critical: CFR < 99.0% 또는 일평균 크래시 50% 이상 증가
-   - warning: CFR 99.0~99.5% 또는 일평균 크래시 20% 이상 증가
-   - normal: 위 조건에 해당하지 않음
+   **critical** (긴급 조치 필요):
+   - CFR < 99.0%
+   - 일평균 크래시 500건 이상
+   - Critical 이슈 2개 이상 (이벤트 500건 이상)
+
+   **warning** (주의 필요):
+   - CFR 99.0~99.5%
+   - 일평균 크래시 100건 이상
+   - 신규 이슈 3개 이상
+
+   **normal** (정상):
+   - 위 조건에 해당하지 않음
 
 2. **key_changes.improvements**:
    - 전주 대비 개선된 점 (최대 3개)

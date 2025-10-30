@@ -1036,19 +1036,23 @@ export class WeeklyReportService {
     const prevEvents = prevWeek?.events || 1
     const changePct = ((thisEvents - prevEvents) / prevEvents) * 100
 
+    // 일평균 계산
+    const dailyAvg = thisEvents / 7
+
+    // Critical 이슈: 500건 이상으로 기준 상향
     const criticalIssuesCount = (payload.surge_issues || []).filter(
-      issue => issue.event_count >= 100
+      issue => issue.event_count >= 500
     ).length
 
-    // Critical 조건
+    // Critical 조건 - 절대 건수 기준
     if (criticalIssuesCount >= 2) return 'critical'
     if (cfr < 99.0) return 'critical'
-    if (changePct > 50) return 'critical'
+    if (dailyAvg >= 500) return 'critical'
 
-    // Warning 조건
+    // Warning 조건 - 절대 건수 기준
     if ((payload.new_issues || []).length >= 3) return 'warning'
     if (cfr < 99.5) return 'warning'
-    if (changePct > 20) return 'warning'
+    if (dailyAvg >= 100) return 'warning'
 
     return 'normal'
   }
