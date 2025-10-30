@@ -225,6 +225,40 @@ export class ReportsDatabaseService {
     return data as ReportSettings[]
   }
   
+  // 날짜 범위로 리포트 이력 조회
+  async getReportHistory(
+    reportType: 'daily' | 'weekly',
+    platform: 'android' | 'ios',
+    limit: number = 30,
+    offset: number = 0,
+    startDate?: string,
+    endDate?: string
+  ): Promise<ReportExecution[]> {
+    let query = this.ensureSupabaseAdmin()
+      .from('report_executions')
+      .select('*')
+      .eq('report_type', reportType)
+      .eq('platform', platform)
+
+    // 날짜 범위 필터링 (target_date 기준)
+    if (startDate) {
+      query = query.gte('target_date', startDate)
+    }
+    if (endDate) {
+      query = query.lte('target_date', endDate)
+    }
+
+    const { data, error } = await query
+      .order('target_date', { ascending: false })
+      .range(offset, offset + limit - 1)
+
+    if (error) {
+      throw new Error(`Failed to get report history: ${error.message}`)
+    }
+
+    return data as ReportExecution[]
+  }
+
   // 실행 통계 조회
   async getReportStats(
     reportType?: 'daily' | 'weekly',
@@ -237,33 +271,33 @@ export class ReportsDatabaseService {
   }> {
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
-    
+
     let query = this.ensureSupabaseAdmin()
       .from('report_executions')
       .select('status, execution_time_ms')
       .gte('created_at', startDate.toISOString())
-    
+
     if (reportType) {
       query = query.eq('report_type', reportType)
     }
-    
+
     const { data, error } = await query
-    
+
     if (error) {
       throw new Error(`Failed to get report stats: ${error.message}`)
     }
-    
+
     const total = data.length
     const success = data.filter(r => r.status === 'success').length
     const errorCount = data.filter(r => r.status === 'error').length
     const executionTimes = data
       .filter(r => r.execution_time_ms != null)
       .map(r => r.execution_time_ms as number)
-    
+
     const avgExecutionTime = executionTimes.length > 0
       ? Math.round(executionTimes.reduce((a, b) => a + b, 0) / executionTimes.length)
       : undefined
-    
+
     return {
       total,
       success,
