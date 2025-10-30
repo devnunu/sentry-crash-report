@@ -1195,7 +1195,7 @@ export class WeeklyReportService {
       })
     }
 
-    // Normal일 경우 웹 유도
+// Normal일 경우 웹 유도
     if (severity === 'normal') {
       blocks.push({
         type: 'section',

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   ActionIcon,
@@ -120,6 +120,8 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
   const [expandedSections, setExpandedSections] = useState({ logs: false, data: false, slack: false, report: false })
   const [deleteModal, setDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [weeklyData, setWeeklyData] = useState<Array<{ day: number; crashes: number }>>([])
+  const [chartLoading, setChartLoading] = useState(false)
 
   const config = getPlatformConfig(platform)
 
@@ -176,27 +178,36 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     }
   }, [payload])
 
-  // 7일 데이터 - 일평균으로 계산
-  const weeklyData = useMemo(() => {
-    if (!payload) return []
+  // 7일 실제 데이터 조회
+  useEffect(() => {
+    const fetchWeeklyChartData = async () => {
+      if (!selectedReport?.end_date) return
 
-    const thisWeekAvg = payload.this_week?.events ? Math.round(payload.this_week.events / 7) : 0
-    const prevWeekAvg = payload.prev_week?.events ? Math.round(payload.prev_week.events / 7) : 0
+      setChartLoading(true)
+      try {
+        const response = await fetch(
+          `/api/reports/weekly/chart-data?platform=${platform}&endDate=${selectedReport.end_date}`
+        )
+        const json = await response.json()
 
-    // 일별 데이터가 없으므로 주간 평균을 기준으로 약간의 변동을 주어 표시
-    // 실제 일별 변동은 ±10% 정도로 가정
-    const variation = thisWeekAvg * 0.1
+        if (json.success && json.data) {
+          // API 데이터를 차트 형식으로 변환
+          const chartData = json.data.map((item: any, index: number) => ({
+            day: index,
+            crashes: item.events || 0
+          }))
+          setWeeklyData(chartData)
+        }
+      } catch (error) {
+        console.error('Failed to fetch weekly chart data:', error)
+        setWeeklyData([])
+      } finally {
+        setChartLoading(false)
+      }
+    }
 
-    return [
-      { day: 0, crashes: Math.round(thisWeekAvg - variation * 0.5) },
-      { day: 1, crashes: Math.round(thisWeekAvg - variation * 0.2) },
-      { day: 2, crashes: Math.round(thisWeekAvg + variation * 0.1) },
-      { day: 3, crashes: Math.round(thisWeekAvg) },
-      { day: 4, crashes: Math.round(thisWeekAvg - variation * 0.3) },
-      { day: 5, crashes: Math.round(thisWeekAvg + variation * 0.2) },
-      { day: 6, crashes: Math.round(thisWeekAvg + variation * 0.1) }
-    ]
-  }, [payload])
+    fetchWeeklyChartData()
+  }, [selectedReport?.end_date, platform])
 
   // 심각도 레벨 판단
   const statusLevel = useMemo(() => {
@@ -700,28 +711,34 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
             {/* 7일 추이 차트 */}
             <div>
               <Text size="sm" fw={600} mb="xs">7일 추이</Text>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={weeklyData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="day"
-                    tickFormatter={(day) => ['월', '화', '수', '목', '금', '토', '일'][day]}
-                  />
-                  <YAxis />
-                  <Tooltip
-                    labelFormatter={(day) => ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'][day as number]}
-                    formatter={(value: number) => [`${value}건`, '크래시']}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="crashes"
-                    stroke="#8884d8"
-                    strokeWidth={2}
-                    dot={{ r: 4, fill: '#8884d8' }}
-                    activeDot={{ r: 6 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              {chartLoading ? (
+                <Text c="dimmed" ta="center" py="xl">차트 데이터를 불러오는 중...</Text>
+              ) : weeklyData.length === 0 ? (
+                <Text c="dimmed" ta="center" py="xl">7일 데이터가 없습니다</Text>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={weeklyData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="day"
+                      tickFormatter={(day) => ['월', '화', '수', '목', '금', '토', '일'][day]}
+                    />
+                    <YAxis />
+                    <Tooltip
+                      labelFormatter={(day) => ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'][day as number]}
+                      formatter={(value: number) => [`${value}건`, '크래시']}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="crashes"
+                      stroke="#8884d8"
+                      strokeWidth={2}
+                      dot={{ r: 4, fill: '#8884d8' }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </Stack>
         </Paper>

@@ -84,6 +84,8 @@ interface IssueWithMetadata {
   delta: number
   level?: string
   sentryUrl: string
+  isNew: boolean
+  isSurge: boolean
 }
 
 interface DailyReportComponentProps {
@@ -483,6 +485,10 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
       ? storedIssues.map(it => ({ issueId: it.issue_id, title: it.title, events: it.events, users: it.users || 0, link: it.link }))
       : topIssues.map(it => ({ issueId: it.issueId, title: it.title, events: it.events, users: it.users || 0, link: it.link }))
 
+    // 신규/급증 이슈 ID 목록
+    const newIssueIds = new Set(((dayData as any)?.new_issues || []).map((i: any) => String(i.issue_id)))
+    const surgeIssueIds = new Set(((dayData as any)?.surge_issues || []).map((i: any) => String(i.issue_id)))
+
     return sourceIssues.map(issue => {
       // 전일 대비 델타 계산 (top_5_issues 기준, 없으면 0)
       const prevIssues = (previousDayData as any)?.issues as Array<{ issue_id: string; events: number }> | undefined
@@ -497,6 +503,10 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
       }
       const delta = previousCount > 0 ? ((issue.events - previousCount) / previousCount) * 100 : 0
 
+      // 신규/급증 플래그 계산
+      const isNew = newIssueIds.has(String(issue.issueId))
+      const isSurge = surgeIssueIds.has(String(issue.issueId))
+
       return {
         id: issue.issueId,
         title: issue.title,
@@ -504,7 +514,9 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         users: issue.users || 0,
         delta,
         level: issue.events >= 500 ? 'fatal' : undefined,
-        sentryUrl: issue.link || '#'
+        sentryUrl: issue.link || '#',
+        isNew,
+        isSurge
       }
     })
   }, [dayData, previousDayData, topIssues, selectedReport])
@@ -925,6 +937,23 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                 크래시 데이터 요약 (총 {reports.length}건 중 {selectedIndex + 1}번째)
               </Text>
             </div>
+
+            {/* 상태 배지 추가 */}
+            {(selectedReport.ai_analysis as any)?.status_summary?.level && (
+              <Badge
+                size="lg"
+                color={
+                  (selectedReport.ai_analysis as any).status_summary.level === 'critical' ? 'red' :
+                  (selectedReport.ai_analysis as any).status_summary.level === 'warning' ? 'orange' : 'green'
+                }
+                variant="filled"
+              >
+                {
+                  (selectedReport.ai_analysis as any).status_summary.level === 'critical' ? '🚨 긴급' :
+                  (selectedReport.ai_analysis as any).status_summary.level === 'warning' ? '⚠️ 주의' : '✅ 정상'
+                }
+              </Badge>
+            )}
           </Group>
 
           {selectedReport.status === 'error' && (
@@ -1716,9 +1745,30 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                       >
                         {issue.title || '<unknown>'}
                       </Text>
-                      {issue.level === 'fatal' && (
-                        <Badge size="sm" color="red" variant="filled" style={{ flexShrink: 0 }}>⚠️ Fatal</Badge>
-                      )}
+
+                      {/* 배지 그룹 */}
+                      <Group gap={4} style={{ flexShrink: 0 }}>
+                        {/* 신규 배지 */}
+                        {issue.isNew && (
+                          <Badge size="sm" color="cyan" variant="filled">
+                            🆕 신규
+                          </Badge>
+                        )}
+
+                        {/* 급증 배지 */}
+                        {issue.isSurge && (
+                          <Badge size="sm" color="orange" variant="filled">
+                            🔥 급증
+                          </Badge>
+                        )}
+
+                        {/* Fatal 배지 */}
+                        {issue.level === 'fatal' && (
+                          <Badge size="sm" color="red" variant="filled">
+                            ⚠️ Fatal
+                          </Badge>
+                        )}
+                      </Group>
                     </Group>
 
                     {/* 통계 배지 */}
