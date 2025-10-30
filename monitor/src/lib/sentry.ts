@@ -607,8 +607,21 @@ export class SentryService {
       // 응답 파싱 (Sentry stats API 응답 구조에 따라 조정 필요)
       if (response.groups && response.groups.length > 0) {
         const group = response.groups[0]
-        const crashFreeRate = group.totals?.['crash_free_rate(user)'] ?? 99.9
-        const crashFreeSessionRate = group.totals?.['crash_free_rate(session)'] ?? 99.9
+        let crashFreeRate = group.totals?.['crash_free_rate(user)'] ?? 99.9
+        let crashFreeSessionRate = group.totals?.['crash_free_rate(session)'] ?? 99.9
+
+        // Sentry API가 0-1 범위로 반환하는 경우 100을 곱함 (0.999 -> 99.9%)
+        // 1보다 작거나 같으면 0-1 범위로 판단
+        if (typeof crashFreeRate === 'number' && crashFreeRate <= 1) {
+          console.log(`[CFR] Converting from decimal: ${crashFreeRate} -> ${crashFreeRate * 100}%`)
+          crashFreeRate = crashFreeRate * 100
+        }
+        if (typeof crashFreeSessionRate === 'number' && crashFreeSessionRate <= 1) {
+          console.log(`[CFSR] Converting from decimal: ${crashFreeSessionRate} -> ${crashFreeSessionRate * 100}%`)
+          crashFreeSessionRate = crashFreeSessionRate * 100
+        }
+
+        console.log(`[Crash-Free Rates] User: ${crashFreeRate}%, Session: ${crashFreeSessionRate}%`)
 
         return {
           crashFreeRate: typeof crashFreeRate === 'number' ? crashFreeRate : 99.9,
@@ -617,6 +630,7 @@ export class SentryService {
       }
 
       // 기본값 반환
+      console.log('[Crash-Free Rates] No data found, using default: 99.9%')
       return { crashFreeRate: 99.9, crashFreeSessionRate: 99.9 }
     } catch (error) {
       console.error('Failed to get crash-free rates:', error)

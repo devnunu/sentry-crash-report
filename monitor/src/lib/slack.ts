@@ -75,37 +75,65 @@ function calculateMonitorSeverity(snapshot: MonitorSnapshot): 'normal' | 'warnin
 }
 
 // 버전 모니터링 심각도 판단 (누적 방식)
-function calculateVersionMonitorSeverity(snapshot: VersionMonitorSnapshot): 'normal' | 'warning' | 'critical' {
+interface SeverityResult {
+  severity: 'normal' | 'warning' | 'critical'
+  reasons: string[]
+}
+
+function calculateVersionMonitorSeverity(snapshot: VersionMonitorSnapshot): SeverityResult {
   const { cumulative, topIssues, daysElapsed } = snapshot
+  const reasons: string[] = []
 
-  // Critical 조건
-  // 1. CFR < 99.0%
-  if (cumulative.crashFreeRate < 99.0) return 'critical'
+  // 통계적으로 의미 있는 데이터인지 확인
+  // 크래시 10건 미만이고 영향받은 사용자 10명 미만이면 초기 단계로 판단
+  const hasSignificantData = cumulative.totalCrashes >= 10 && cumulative.affectedUsers >= 10
+  const fatalIssueCount = topIssues.filter(issue => issue.level === 'fatal').length
 
-  // 2. Crash-Free Session Rate < 98.5%
-  if (cumulative.crashFreeSessionRate < 98.5) return 'critical'
+  // Critical 조건 (모두 충분한 데이터가 있을 때만 적용)
+  if (hasSignificantData) {
+    // 1. 고유 이슈 20개 이상 (다양한 문제 발생)
+    if (cumulative.uniqueIssues >= 20) {
+      reasons.push(`고유 이슈가 ${cumulative.uniqueIssues}개로 매우 많음 (기준: 20개 미만)`)
+      return { severity: 'critical', reasons }
+    }
+  }
 
-  // 3. Fatal 이슈 존재
-  const hasFatalIssue = topIssues.some(issue => issue.level === 'fatal')
-  if (hasFatalIssue) return 'critical'
+  // 2. Fatal 이슈가 5개 이상 존재 (심각도와 무관하게 위험)
+  if (fatalIssueCount >= 5) {
+    reasons.push(`Fatal 이슈가 ${fatalIssueCount}개 발견됨 (기준: 5개 미만)`)
+    return { severity: 'critical', reasons }
+  }
 
-  // 4. 첫날에 100건 이상 크래시
-  if (daysElapsed === 1 && cumulative.totalCrashes > 100) return 'critical'
+  // 3. 크래시 건수가 매우 많음 (절대적 기준)
+  if (cumulative.totalCrashes >= 500) {
+    reasons.push(`총 크래시 건수가 ${cumulative.totalCrashes.toLocaleString()}건으로 매우 많음 (기준: 500건 미만)`)
+    return { severity: 'critical', reasons }
+  }
 
-  // Warning 조건
-  // 1. CFR < 99.5%
-  if (cumulative.crashFreeRate < 99.5) return 'warning'
+  // Warning 조건 (중간 수준의 데이터부터 적용)
+  const hasMediumData = cumulative.totalCrashes >= 5 && cumulative.affectedUsers >= 5
 
-  // 2. Crash-Free Session Rate < 99.0%
-  if (cumulative.crashFreeSessionRate < 99.0) return 'warning'
+  if (hasMediumData) {
+    // 1. 10개 이상의 고유 이슈
+    if (cumulative.uniqueIssues >= 10) {
+      reasons.push(`고유 이슈가 ${cumulative.uniqueIssues}개로 많음 (기준: 10개 미만)`)
+      return { severity: 'warning', reasons }
+    }
+  }
 
-  // 3. 10개 이상의 고유 이슈
-  if (cumulative.uniqueIssues >= 10) return 'warning'
+  // 2. Fatal 이슈가 3개 이상 존재
+  if (fatalIssueCount >= 3) {
+    reasons.push(`Fatal 이슈가 ${fatalIssueCount}개 발견됨 (기준: 3개 미만)`)
+    return { severity: 'warning', reasons }
+  }
 
-  // 4. 첫날에 50건 이상 크래시
-  if (daysElapsed === 1 && cumulative.totalCrashes > 50) return 'warning'
+  // 3. 크래시 건수가 많음
+  if (cumulative.totalCrashes >= 100) {
+    reasons.push(`총 크래시 건수가 ${cumulative.totalCrashes.toLocaleString()}건으로 많음 (기준: 100건 미만)`)
+    return { severity: 'warning', reasons }
+  }
 
-  return 'normal'
+  return { severity: 'normal', reasons: [] }
 }
 
 // Top 이슈를 텍스트로 변환
@@ -360,6 +388,13 @@ export class SlackService {
   buildNormalVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
     const { platform, version, monitorId, cumulative, daysElapsed, totalDurationDays, recentChange } = snapshot
 
+    // 진행률 계산 (100% 초과 방지)
+    const progressPercent = Math.min(100, Math.round((daysElapsed / totalDurationDays) * 100))
+    const isExpired = daysElapsed > totalDurationDays
+    const progressText = isExpired
+      ? `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (만료 ${daysElapsed - totalDurationDays}일 초과 ⚠️)`
+      : `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${progressPercent}%)`
+
     const blocks: SlackBlock[] = [
       { type: 'divider' },
       {
@@ -374,7 +409,7 @@ export class SlackService {
         type: 'context',
         elements: [{
           type: 'mrkdwn',
-          text: `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${Math.round((daysElapsed / totalDurationDays) * 100)}%)`
+          text: progressText
         }]
       },
       { type: 'divider' },
@@ -382,7 +417,7 @@ export class SlackService {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명\n• Crash-Free Rate: ${cumulative.crashFreeRate.toFixed(2)}%\n• Crash-Free Session Rate: ${cumulative.crashFreeSessionRate.toFixed(2)}%`
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
         }
       }
     ]
@@ -415,6 +450,16 @@ export class SlackService {
   buildWarningVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
     const { platform, version, monitorId, cumulative, topIssues, daysElapsed, totalDurationDays, recentChange } = snapshot
 
+    // 심각도 원인 계산
+    const severityResult = calculateVersionMonitorSeverity(snapshot)
+
+    // 진행률 계산 (100% 초과 방지)
+    const progressPercent = Math.min(100, Math.round((daysElapsed / totalDurationDays) * 100))
+    const isExpired = daysElapsed > totalDurationDays
+    const progressText = isExpired
+      ? `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (만료 ${daysElapsed - totalDurationDays}일 초과 ⚠️)`
+      : `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${progressPercent}%)`
+
     const blocks: SlackBlock[] = [
       { type: 'divider' },
       {
@@ -429,7 +474,7 @@ export class SlackService {
         type: 'context',
         elements: [{
           type: 'mrkdwn',
-          text: `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${Math.round((daysElapsed / totalDurationDays) * 100)}%)`
+          text: progressText
         }]
       },
       { type: 'divider' },
@@ -437,10 +482,21 @@ export class SlackService {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명\n• Crash-Free Rate: ${cumulative.crashFreeRate.toFixed(2)}%\n• Crash-Free Session Rate: ${cumulative.crashFreeSessionRate.toFixed(2)}%`
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
         }
       }
     ]
+
+    // 원인 추가
+    if (severityResult.reasons.length > 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('⚠️ 주의 원인')}\n• ${severityResult.reasons.join('\n• ')}`
+        }
+      })
+    }
 
     // 최근 변화 추가 (선택적)
     if (recentChange) {
@@ -485,6 +541,16 @@ export class SlackService {
   buildCriticalVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
     const { platform, version, monitorId, cumulative, topIssues, hourlyTrend, daysElapsed, totalDurationDays, recentChange } = snapshot
 
+    // 심각도 원인 계산
+    const severityResult = calculateVersionMonitorSeverity(snapshot)
+
+    // 진행률 계산 (100% 초과 방지)
+    const progressPercent = Math.min(100, Math.round((daysElapsed / totalDurationDays) * 100))
+    const isExpired = daysElapsed > totalDurationDays
+    const progressText = isExpired
+      ? `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (만료 ${daysElapsed - totalDurationDays}일 초과 ⚠️)`
+      : `📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${progressPercent}%)`
+
     // 테스트 모드에서는 @channel 태그 제거
     const channelMention = this.isTestMode ? '' : '<!channel> '
 
@@ -502,7 +568,7 @@ export class SlackService {
         type: 'context',
         elements: [{
           type: 'mrkdwn',
-          text: `${channelMention}📅 ${daysElapsed}일차 / ${totalDurationDays}일 (${Math.round((daysElapsed / totalDurationDays) * 100)}%)`
+          text: `${channelMention}${progressText}`
         }]
       },
       { type: 'divider' },
@@ -510,10 +576,21 @@ export class SlackService {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명\n• Crash-Free Rate: ${cumulative.crashFreeRate.toFixed(2)}%\n• Crash-Free Session Rate: ${cumulative.crashFreeSessionRate.toFixed(2)}%`
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
         }
       }
     ]
+
+    // 원인 추가
+    if (severityResult.reasons.length > 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('🚨 긴급 원인')}\n• ${severityResult.reasons.join('\n• ')}`
+        }
+      })
+    }
 
     // 최근 변화 추가 (선택적)
     if (recentChange) {
@@ -590,13 +667,13 @@ export class SlackService {
     const { platform, version, monitorId, cumulative, topIssues } = snapshot
 
     // 심각도 판단
-    const severity = calculateVersionMonitorSeverity(snapshot)
+    const severityResult = calculateVersionMonitorSeverity(snapshot)
     const severityConfig = {
       normal: { emoji: '✅', statusText: '안정적', style: 'primary' as const },
       warning: { emoji: '⚠️', statusText: '주의 필요', style: 'danger' as const },
       critical: { emoji: '🚨', statusText: '심각한 문제 발생', style: 'danger' as const }
     }
-    const config = severityConfig[severity]
+    const config = severityConfig[severityResult.severity]
 
     const blocks: SlackBlock[] = [
       { type: 'divider' },
@@ -627,13 +704,13 @@ export class SlackService {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${bold('📊 전체 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명\n• Crash-Free Rate: ${cumulative.crashFreeRate.toFixed(2)}%\n• Crash-Free Session Rate: ${cumulative.crashFreeSessionRate.toFixed(2)}%`
+          text: `${bold('📊 전체 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
         }
       }
     ]
 
     // Warning/Critical일 경우 Top 이슈 추가
-    if (severity !== 'normal' && topIssues.length > 0) {
+    if (severityResult.severity !== 'normal' && topIssues.length > 0) {
       const issuesText = topIssues.slice(0, 3).map((issue, idx) => {
         const levelEmoji = issue.level === 'fatal' ? '🔴' : '🟡'
         return `${idx + 1}. ${levelEmoji} <${issue.link}|${truncateTitle(issue.title, 60)}>\n   ${issue.count}건 · ${issue.users}명 영향`
@@ -649,9 +726,9 @@ export class SlackService {
     }
 
     // 최종 권고사항
-    const recommendation = severity === 'normal'
+    const recommendation = severityResult.severity === 'normal'
       ? '🎉 이 버전은 안정적으로 배포되었습니다.'
-      : severity === 'warning'
+      : severityResult.severity === 'warning'
       ? '⚠️ 지속적인 모니터링이 필요합니다.'
       : '🚨 롤백 또는 핫픽스 배포를 권장합니다.'
 
