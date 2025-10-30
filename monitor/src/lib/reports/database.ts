@@ -126,7 +126,19 @@ export class ReportsDatabaseService {
     
     return data as ReportExecution
   }
-  
+
+  // 리포트 실행 기록 삭제
+  async deleteReportExecution(id: string): Promise<void> {
+    const { error } = await this.ensureSupabaseAdmin()
+      .from('report_executions')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      throw new Error(`Failed to delete report execution: ${error.message}`)
+    }
+  }
+
   // 리포트 실행 기록 조회
   async getReportExecutions(
     reportType?: 'daily' | 'weekly',

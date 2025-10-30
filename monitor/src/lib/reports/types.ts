@@ -76,6 +76,7 @@ export interface WeeklyReportData {
     events: number
     issues: number
     users: number
+    crash_free_sessions?: number
   }
   top5_events: WeeklyIssue[]
   prev_top_events: WeeklyIssue[]
@@ -251,6 +252,9 @@ export interface WeeklyAIAnalysis {
       percentage: number
       context: string
       action: string
+      previousCount?: number
+      changeAmount?: number
+      changePercent?: string
     }>
   }
 

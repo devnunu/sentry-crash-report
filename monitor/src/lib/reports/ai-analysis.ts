@@ -599,10 +599,13 @@ ${JSON.stringify(releaseFixes.map(fix => ({
     "concerns": [
       {
         "title": "주목할 이슈 제목",
-        "count": 이슈 발생 건수,
-        "percentage": 전체 대비 비율 (숫자만),
-        "context": "맥락 (예: '신규 발생', '전주 대비 2배 증가')",
-        "action": "필요한 액션 (예: '즉시 원인 분석 필요')"
+        "count": 이번주 이슈 발생 건수,
+        "percentage": 전체 대비 비율 (숫자만, 예: 5.2),
+        "context": "맥락 (예: '신규 발생', '급증')",
+        "action": "필요한 액션 (예: '즉시 원인 분석 필요')",
+        "previousCount": 전주 발생 건수 (선택, surge issue인 경우 필수),
+        "changeAmount": 증감량 (선택, count - previousCount),
+        "changePercent": 증감률 문자열 (선택, 예: "10.5")
       }
     ]
   },
@@ -629,6 +632,10 @@ ${JSON.stringify(releaseFixes.map(fix => ({
    - 전주 대비 개선된 점 (최대 3개)
    - 릴리즈로 해결된 이슈, 크래시 감소 등
    - 구체적 수치와 이유 포함
+   - ⚠️ before와 after는 반드시 같은 단위여야 함:
+     * 크래시 건수: "1500건 → 1200건" (O), "0건 → 99.94%" (X)
+     * Crash Free Rate: "98.5% → 99.2%" (O), "100건 → 99%" (X)
+     * before와 after 중 하나라도 0이면 해당 항목 제외
 
 3. **key_changes.concerns**:
    - 주목해야 할 이슈 (최대 3개)
@@ -690,7 +697,10 @@ ${JSON.stringify(releaseFixes.map(fix => ({
               count: Number(item.count) || 0,
               percentage: Number(item.percentage) || 0,
               context: String(item.context || ''),
-              action: String(item.action || '')
+              action: String(item.action || ''),
+              previousCount: item.previousCount !== undefined ? Number(item.previousCount) : undefined,
+              changeAmount: item.changeAmount !== undefined ? Number(item.changeAmount) : undefined,
+              changePercent: item.changePercent ? String(item.changePercent) : undefined
             }))
           : []
       },

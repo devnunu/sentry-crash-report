@@ -226,7 +226,17 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
   const improvements = useMemo(() => {
     // AI 분석 결과가 있으면 우선 사용
     if (aiAnalysis?.key_changes?.improvements && aiAnalysis.key_changes.improvements.length > 0) {
-      return aiAnalysis.key_changes.improvements
+      // 데이터 검증: before와 after가 같은 스케일인지 확인
+      return aiAnalysis.key_changes.improvements.filter(item => {
+        // before나 after가 0이면 제외
+        if (item.before === 0 || item.after === 0) return false
+
+        // 둘 다 퍼센트(50 이상) 또는 둘 다 건수(50 이하)인지 확인
+        const bothPercentage = item.before > 50 && item.after > 50
+        const bothCount = item.before <= 50 && item.after <= 50
+
+        return bothPercentage || bothCount
+      })
     }
 
     // Fallback: 기존 로직
@@ -322,6 +332,9 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
       percentage: string
       context: string
       action: string
+      previousCount?: number
+      changeAmount?: number
+      changePercent?: string
     }> = []
 
     const thisWeekEvents = payload.this_week?.events || 1 // 0 방지
@@ -331,12 +344,17 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     surgeIssues.slice(0, 3).forEach(issue => {
       const pct = ((issue.event_count / thisWeekEvents) * 100).toFixed(1)
       const growth = issue.growth_multiplier ? `${issue.growth_multiplier.toFixed(1)}배` : ''
+      const changeAmount = issue.event_count - issue.prev_count
+      const changePct = issue.prev_count > 0 ? ((changeAmount / issue.prev_count) * 100).toFixed(1) : '0'
       items.push({
         title: issue.title,
         count: issue.event_count,
         percentage: pct,
-        context: `전주 ${issue.prev_count}건 → 이번주 ${issue.event_count}건 (${growth} 급증)`,
-        action: '즉시 원인 분석 및 수정 필요'
+        context: `급증 (${growth})`,
+        action: '즉시 원인 분석 및 수정 필요',
+        previousCount: issue.prev_count,
+        changeAmount,
+        changePercent: changePct
       })
     })
 
@@ -699,7 +717,8 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
                     dataKey="crashes"
                     stroke="#8884d8"
                     strokeWidth={2}
-                    dot={{ r: 4 }}
+                    dot={{ r: 4, fill: '#8884d8' }}
+                    activeDot={{ r: 6 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -723,24 +742,30 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
                 </Group>
 
                 <Stack gap="md">
-                  {improvements.map((item, i) => (
-                    <Card key={i} padding="md" withBorder>
-                      <Stack gap="xs">
-                        <Text fw={600}>{i + 1}. {item.title}</Text>
-                        <Text size="sm" c="dimmed">
-                          • 이전: {item.before}건 → 이번주: {item.after}건
-                        </Text>
-                        {item.reason && (
+                  {improvements.map((item, i) => {
+                    // before/after 값이 퍼센트인지 건수인지 판단
+                    const isPercentage = item.before > 50 || item.after > 50
+                    const unit = isPercentage ? '%' : '건'
+
+                    return (
+                      <Card key={i} padding="md" withBorder>
+                        <Stack gap="xs">
+                          <Text fw={600}>{i + 1}. {item.title}</Text>
                           <Text size="sm" c="dimmed">
-                            • 원인: {item.reason}
+                            • 이전: {item.before.toLocaleString()}{unit} → 이번주: {item.after.toLocaleString()}{unit}
                           </Text>
-                        )}
-                        <Text size="sm" c="green">
-                          • 영향: {item.impact}
-                        </Text>
-                      </Stack>
-                    </Card>
-                  ))}
+                          {item.reason && (
+                            <Text size="sm" c="dimmed">
+                              • 원인: {item.reason}
+                            </Text>
+                          )}
+                          <Text size="sm" c="green">
+                            • 영향: {item.impact}
+                          </Text>
+                        </Stack>
+                      </Card>
+                    )
+                  })}
                 </Stack>
               </div>
             )}
@@ -758,9 +783,20 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
                     <Card key={i} padding="md" withBorder>
                       <Stack gap="xs">
                         <Text fw={600}>{i + 1}. {item.title}</Text>
-                        <Text size="sm" c="dimmed">
-                          • {item.count}건 (전체의 {item.percentage}%)
-                        </Text>
+
+                        {/* 전주 대비 데이터가 있으면 상세 표시 */}
+                        {item.previousCount !== undefined && item.changeAmount !== undefined ? (
+                          <Text size="sm" c="dimmed">
+                            • 전주 {item.previousCount.toLocaleString()}건 대비
+                            {item.changeAmount > 0 ? '+' : ''}{item.changeAmount.toLocaleString()}건
+                            ({item.changePercent}% {Number(item.changePercent) > 0 ? '증가' : '감소'})
+                          </Text>
+                        ) : (
+                          <Text size="sm" c="dimmed">
+                            • {item.count.toLocaleString()}건 (전체의 {item.percentage}%)
+                          </Text>
+                        )}
+
                         {item.context && (
                           <Text size="sm" c="dimmed">
                             • {item.context}

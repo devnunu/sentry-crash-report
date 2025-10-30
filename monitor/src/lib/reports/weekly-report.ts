@@ -195,10 +195,16 @@ export class WeeklyReportService {
         prevWeekStart.toISOString(), prevWeekEnd.toISOString()
       )
       
-      // [5/13] Crash Free 주간 평균
+      // [5/13] Crash Free 주간 평균 (이번주)
       const { sessionsCrashFree, usersCrashFree } = await this.sessionsCrashFreeWeeklyAvg(
         token, org, projectId, environment,
         thisWeekStart.toISOString(), thisWeekEnd.toISOString()
+      )
+
+      // [5/13] Crash Free 주간 평균 (전주)
+      const { sessionsCrashFree: prevSessionsCrashFree, usersCrashFree: prevUsersCrashFree } = await this.sessionsCrashFreeWeeklyAvg(
+        token, org, projectId, environment,
+        prevWeekStart.toISOString(), prevWeekEnd.toISOString()
       )
       
       // [6/13] 상위 이슈 수집
@@ -246,7 +252,8 @@ export class WeeklyReportService {
         prev_week: {
           events: prevSum.events,
           issues: prevSum.issues,
-          users: prevSum.users
+          users: prevSum.users,
+          crash_free_sessions: prevSessionsCrashFree
         },
         top5_events: topEventsThis.slice(0, WEEKLY_TOP_LIMIT),
         prev_top_events: topEventsPrev.slice(0, WEEKLY_TOP_LIMIT),
