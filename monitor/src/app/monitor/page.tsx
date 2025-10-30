@@ -1,19 +1,22 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatKST, formatRelativeTime } from '@/lib/utils';
 import type { MonitorSession, Platform, MonitorHistory } from '@/lib/types';
 import {
+  ActionIcon,
   Badge,
   Button,
   Card,
+  Checkbox,
   Container,
   Divider,
   Group,
   Modal,
-  NumberInput,
   Paper,
   Progress,
+  Radio,
+  ScrollArea,
   Select,
   Stack,
   Text,
@@ -28,9 +31,9 @@ import {
   IconPlayerPause,
   IconPlus,
   IconRadar,
+  IconSearch,
   IconTrash
 } from '@tabler/icons-react';
-import ReleaseSearchModal from '@/components/ReleaseSearchModal';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -48,6 +51,15 @@ interface StatusData {
   active: number;
   stopped: number;
   expired: number;
+}
+
+interface Release {
+  version: string;
+  dateReleased?: string;
+  dateCreated?: string;
+  environments?: string[];
+  projectMatched?: boolean;
+  environmentMatched?: boolean;
 }
 
 // ========== 헬퍼 함수 ==========
@@ -136,6 +148,84 @@ function getResultEmoji(result?: string): string {
   return map[result] || '✅';
 }
 
+// 베이스 버전 추출 (4.72.0+920 → 4.72.0)
+function getBaseVersion(version: string): string {
+  return version.split('+')[0].split('-')[0];
+}
+
+// 버전 코드 추출 (4.72.0+920 → 920)
+function getVersionCode(version: string): number {
+  const parts = version.split('+');
+  if (parts.length > 1) {
+    const code = parseInt(parts[1]);
+    return isNaN(code) ? 0 : code;
+  }
+  return 0;
+}
+
+// 상대 시간 표시
+function getRelativeTime(dateStr: string): string {
+  const now = new Date();
+  const target = new Date(dateStr);
+  const diffMs = now.getTime() - target.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return '오늘';
+  if (diffDays === 1) return '어제';
+  if (diffDays < 7) return `${diffDays}일 전`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}주 전`;
+  return `${Math.floor(diffDays / 30)}개월 전`;
+}
+
+// 중복 제거 (같은 베이스 버전 중 최신만 유지)
+function deduplicateReleases(releases: Release[]): Release[] {
+  const versionMap = new Map<string, Release>();
+
+  releases.forEach(release => {
+    const baseVersion = getBaseVersion(release.version);
+    const existing = versionMap.get(baseVersion);
+
+    if (!existing) {
+      versionMap.set(baseVersion, release);
+      return;
+    }
+
+    // 버전 코드 비교 (+ 뒤의 숫자)
+    const releaseCode = getVersionCode(release.version);
+    const existingCode = getVersionCode(existing.version);
+
+    // 버전 코드가 다르면 버전 코드로 비교
+    if (releaseCode !== existingCode) {
+      if (releaseCode > existingCode) {
+        versionMap.set(baseVersion, release);
+      }
+      return;
+    }
+
+    // 버전 코드가 같으면 날짜로 비교
+    const releaseDate = new Date(release.dateReleased || release.dateCreated || 0);
+    const existingDate = new Date(existing.dateReleased || existing.dateCreated || 0);
+
+    if (releaseDate > existingDate) {
+      versionMap.set(baseVersion, release);
+    }
+  });
+
+  return Array.from(versionMap.values());
+}
+
+// 날짜 포맷
+function formatDateTime(dateStr?: string): string {
+  if (!dateStr) return '-';
+  const date = new Date(dateStr);
+  return date.toLocaleString('ko-KR', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
 // ========== 메인 컴포넌트 ==========
 
 export default function MonitorPage() {
@@ -146,21 +236,102 @@ export default function MonitorPage() {
 
   // 모달 관리
   const [newMonitorModalOpened, setNewMonitorModalOpened] = useState(false);
-  const [isReleaseSearchModalOpen, setIsReleaseSearchModalOpen] = useState(false);
 
   // 새 모니터링 폼
   const [platform, setPlatform] = useState<Platform>('android');
-  const [baseRelease, setBaseRelease] = useState('');
-  const [matchedRelease, setMatchedRelease] = useState('');
-  const [days, setDays] = useState(7);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedRelease, setSelectedRelease] = useState('');
+  const [duration, setDuration] = useState('1');
   const [startLoading, setStartLoading] = useState(false);
+
+  // 릴리즈 관련
+  const [allReleases, setAllReleases] = useState<Release[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // 액션 로딩
   const [actionLoading, setActionLoading] = useState<string>('');
 
+  // 플랫폼 변경 시 초기화
   useEffect(() => {
-    setMatchedRelease('');
+    setSearchQuery('');
+    setSelectedRelease('');
+    setAllReleases([]);
   }, [platform]);
+
+  // 검색어에 따라 릴리즈 검색
+  const searchReleases = async () => {
+    if (!searchQuery.trim()) {
+      notifications.show({ color: 'orange', message: '검색어를 입력해주세요' });
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    try {
+      const params = new URLSearchParams({
+        platform,
+        baseRelease: searchQuery.trim()
+      });
+
+      const response = await fetch(`/api/monitor/releases?${params.toString()}`);
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || '릴리즈 검색에 실패했습니다');
+      }
+
+      const releases = result.data?.releases || [];
+      setAllReleases(releases);
+
+      if (releases.length === 0) {
+        notifications.show({ color: 'orange', message: '검색 결과가 없습니다' });
+      }
+
+    } catch (err) {
+      const m = err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다';
+      notifications.show({ color: 'red', message: `릴리즈 검색 실패: ${m}` });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // 필터링된 릴리즈 (중복 제거, 정렬)
+  const filteredReleases = useMemo(() => {
+    let releases = [...allReleases];
+
+    // 검색어 필터링
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      releases = releases.filter(r =>
+        r.version.toLowerCase().includes(query)
+      );
+    }
+
+    // 중복 제거 (버전 코드가 높은 것을 최신으로)
+    releases = deduplicateReleases(releases);
+
+    // 최신순 정렬 (버전 코드 우선, 그 다음 날짜)
+    releases.sort((a, b) => {
+      // 먼저 베이스 버전으로 그룹핑
+      const baseA = getBaseVersion(a.version);
+      const baseB = getBaseVersion(b.version);
+
+      // 베이스 버전이 다르면 날짜로 비교
+      if (baseA !== baseB) {
+        const dateA = new Date(a.dateReleased || a.dateCreated || 0);
+        const dateB = new Date(b.dateReleased || b.dateCreated || 0);
+        return dateB.getTime() - dateA.getTime();
+      }
+
+      // 베이스 버전이 같으면 버전 코드로 비교
+      const codeA = getVersionCode(a.version);
+      const codeB = getVersionCode(b.version);
+      return codeB - codeA;
+    });
+
+    // 최대 10개만 표시
+    return releases.slice(0, 10);
+  }, [allReleases, searchQuery]);
 
   // 상태 조회 함수
   const fetchStatus = useCallback(async () => {
@@ -195,27 +366,24 @@ export default function MonitorPage() {
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!baseRelease.trim()) {
-      notifications.show({ color: 'red', message: '베이스 릴리즈를 입력해주세요' });
-      return;
-    }
-
-    if (!matchedRelease) {
-      notifications.show({ color: 'red', message: '릴리즈 검색 후 실제 릴리즈를 선택해주세요' });
+    if (!selectedRelease) {
+      notifications.show({ color: 'red', message: '릴리즈를 선택해주세요' });
       return;
     }
 
     setStartLoading(true);
 
     try {
+      const baseVersion = getBaseVersion(selectedRelease);
+
       const response = await fetch('/api/monitor/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           platform,
-          baseRelease: baseRelease.trim(),
-          matchedRelease,
-          days,
+          baseRelease: baseVersion,
+          matchedRelease: selectedRelease,
+          days: parseInt(duration),
           isTestMode: false
         })
       });
@@ -230,8 +398,9 @@ export default function MonitorPage() {
       notifications.show({ color: 'green', message: `모니터 시작: ${msg}` });
 
       // 폼 리셋
-      setBaseRelease('');
-      setMatchedRelease('');
+      setSearchQuery('');
+      setSelectedRelease('');
+      setAllReleases([]);
       setNewMonitorModalOpened(false);
 
       // 상태 새로고침
@@ -310,7 +479,7 @@ export default function MonitorPage() {
         <div>
           <Title order={2}>🚀 버전별 모니터링</Title>
           <Text c="dimmed" size="sm">
-            새 버전 배포 후 7일간 자동 모니터링
+            새 버전 배포 후 1~3일간 자동 모니터링
           </Text>
         </div>
 
@@ -512,7 +681,7 @@ export default function MonitorPage() {
         </Text>
       </Stack>
 
-      {/* ========== 새 모니터링 시작 모달 ========== */}
+      {/* ========== 새 모니터링 시작 모달 (단일 모달) ========== */}
       <Modal
         opened={newMonitorModalOpened}
         onClose={() => setNewMonitorModalOpened(false)}
@@ -520,55 +689,143 @@ export default function MonitorPage() {
         size="lg"
       >
         <form onSubmit={handleStart}>
-          <Stack gap="lg">
+          <Stack gap="md">
+            {/* 플랫폼 선택 */}
             <Select
               label="플랫폼"
-              description="모니터링할 플랫폼을 선택하세요"
               data={[
-                { value: 'android', label: '🤖 Android' },
-                { value: 'ios', label: '🍎 iOS' }
+                { value: 'android', label: 'Android' },
+                { value: 'ios', label: 'iOS' }
               ]}
               value={platform}
               onChange={(val) => setPlatform((val as Platform) ?? 'android')}
               allowDeselect={false}
-              size="md"
               required
             />
 
-            <TextInput
-              label="베이스 릴리즈"
-              description="릴리즈 검색 버튼을 통해 실제 버전을 선택하세요"
-              value={matchedRelease ? `${baseRelease} → ${matchedRelease}` : baseRelease}
-              placeholder="예: 4.70.0"
-              readOnly
-              onClick={() => setIsReleaseSearchModalOpen(true)}
-              size="md"
-              required
-              rightSection={
-                <Button
-                  size="xs"
+            <Divider />
+
+            {/* 베이스 릴리즈 선택 */}
+            <div>
+              <Text size="sm" fw={500} mb={4}>베이스 릴리즈</Text>
+              <Text size="xs" c="dimmed" mb="md">
+                모든 릴리즈 표시 (같은 버전은 버전 코드가 높은 것만 표시)
+              </Text>
+
+              {/* 검색창 */}
+              <Group mb="md">
+                <TextInput
+                  placeholder="버전 검색... (예: 4.72.0)"
+                  leftSection={<IconSearch size={16} />}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      searchReleases();
+                    }
+                  }}
+                  style={{ flex: 1 }}
+                />
+                <ActionIcon
                   variant="light"
-                  onClick={() => setIsReleaseSearchModalOpen(true)}
+                  onClick={searchReleases}
+                  loading={isRefreshing}
+                  size="lg"
                 >
-                  검색
-                </Button>
-              }
-              rightSectionWidth={80}
-              styles={{ input: { cursor: 'pointer' } }}
-            />
+                  <IconSearch size={16} />
+                </ActionIcon>
+              </Group>
 
-            <NumberInput
+              {/* 릴리즈 목록 */}
+              <ScrollArea h={300} type="auto">
+                <Stack gap="xs">
+                  <Text size="xs" fw={600} c="dimmed" mb={4}>
+                    📦 최근 릴리즈
+                  </Text>
+
+                  {allReleases.length === 0 ? (
+                    <Text size="sm" c="dimmed" ta="center" py="xl">
+                      검색 버튼을 클릭하거나<br />
+                      버전을 입력 후 Enter를 눌러 검색하세요
+                    </Text>
+                  ) : filteredReleases.length === 0 ? (
+                    <Text size="sm" c="dimmed" ta="center" py="xl">
+                      검색 결과가 없습니다
+                    </Text>
+                  ) : (
+                    <Radio.Group value={selectedRelease} onChange={setSelectedRelease}>
+                      <Stack gap="xs">
+                        {filteredReleases.map((release, idx) => {
+                          const deployDate = release.dateReleased || release.dateCreated;
+                          const versionCode = getVersionCode(release.version);
+                          return (
+                            <Card
+                              key={release.version}
+                              padding="sm"
+                              withBorder
+                              style={{
+                                cursor: 'pointer',
+                                borderColor: selectedRelease === release.version
+                                  ? 'var(--mantine-color-blue-6)'
+                                  : undefined
+                              }}
+                              onClick={() => setSelectedRelease(release.version)}
+                            >
+                              <Group wrap="nowrap">
+                                <Radio value={release.version} />
+                                <div style={{ flex: 1 }}>
+                                  <Group gap="xs">
+                                    <Text size="sm" fw={500}>
+                                      {release.version}
+                                    </Text>
+                                    {idx === 0 && (
+                                      <Badge size="xs" color="cyan">최신</Badge>
+                                    )}
+                                    {versionCode > 0 && (
+                                      <Badge size="xs" color="gray" variant="light">
+                                        +{versionCode}
+                                      </Badge>
+                                    )}
+                                    {release.environmentMatched && (
+                                      <Badge size="xs" color="green">★ 환경 일치</Badge>
+                                    )}
+                                  </Group>
+                                  <Text size="xs" c="dimmed">
+                                    {formatDateTime(deployDate)} 배포
+                                  </Text>
+                                  <Text size="xs" c="dimmed">
+                                    {release.environments?.join(', ') || 'env 정보 없음'} · {getRelativeTime(deployDate || '')}
+                                  </Text>
+                                </div>
+                              </Group>
+                            </Card>
+                          );
+                        })}
+                      </Stack>
+                    </Radio.Group>
+                  )}
+                </Stack>
+              </ScrollArea>
+            </div>
+
+            <Divider />
+
+            {/* 모니터링 기간 */}
+            <Select
               label="모니터링 기간"
-              description="모니터링할 일수 (최대 14일)"
-              value={days}
-              min={1}
-              max={14}
-              onChange={(v) => setDays(Number(v) || 7)}
-              size="md"
-              suffix="일"
+              data={[
+                { value: '1', label: '1일' },
+                { value: '2', label: '2일' },
+                { value: '3', label: '3일' }
+              ]}
+              value={duration}
+              onChange={(val) => setDuration(val ?? '1')}
+              allowDeselect={false}
             />
 
-            <Group justify="flex-end" gap="sm">
+            {/* 액션 버튼 */}
+            <Group justify="flex-end" gap="xs">
               <Button
                 variant="subtle"
                 onClick={() => setNewMonitorModalOpened(false)}
@@ -577,8 +834,8 @@ export default function MonitorPage() {
               </Button>
               <Button
                 type="submit"
+                disabled={!selectedRelease}
                 loading={startLoading}
-                disabled={startLoading || !matchedRelease}
               >
                 {startLoading ? '시작 중...' : '모니터링 시작'}
               </Button>
@@ -586,19 +843,6 @@ export default function MonitorPage() {
           </Stack>
         </form>
       </Modal>
-
-      {/* ========== 릴리즈 검색 모달 ========== */}
-      <ReleaseSearchModal
-        opened={isReleaseSearchModalOpen}
-        onClose={() => setIsReleaseSearchModalOpen(false)}
-        platform={platform}
-        baseRelease={baseRelease}
-        onApply={(base, matched) => {
-          setBaseRelease(base);
-          setMatchedRelease(matched);
-          setIsReleaseSearchModalOpen(false);
-        }}
-      />
     </Container>
   );
 }

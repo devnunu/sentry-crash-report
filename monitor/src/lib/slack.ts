@@ -10,12 +10,8 @@ interface SlackMessage {
   blocks: SlackBlock[]
 }
 
-// 델타 변화를 나타내는 이모지
-function getDeltaEmoji(delta: number): string {
-  if (delta > 0) return ':small_red_triangle:'
-  if (delta < 0) return ':small_red_triangle_down:'
-  return '—'
-}
+// 환경 변수에서 웹 URL 가져오기
+const WEB_URL = process.env.NEXT_PUBLIC_WEB_URL || 'http://localhost:3000'
 
 // 텍스트를 볼드체로 만들기
 function bold(text: string): string {
@@ -26,6 +22,77 @@ function bold(text: string): string {
 function truncateTitle(title: string | undefined, maxLength: number = 90): string {
   if (!title) return '(제목 없음)'
   return title.length <= maxLength ? title : title.substring(0, maxLength - 1) + '…'
+}
+
+// 짧은 날짜 포맷 (M/D)
+function formatShortDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
+// 날짜 범위 포맷 (M/D ~ M/D)
+function formatDateRange(start: string, end: string): string {
+  return `${formatShortDate(start)} ~ ${formatShortDate(end)}`
+}
+
+// 경과 일수 계산
+function getDaysElapsed(startDate: string): number {
+  const start = new Date(startDate)
+  const now = new Date()
+  const diff = now.getTime() - start.getTime()
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
+// 진행률 계산
+function getProgress(startDate: string, durationDays: number): number {
+  const elapsed = getDaysElapsed(startDate)
+  return Math.min(100, Math.round((elapsed / durationDays) * 100))
+}
+
+// ========== 심각도 판단 ==========
+
+interface MonitorSnapshot {
+  totalCrashes: number
+  totalIssues: number
+  totalUsers: number
+  newIssues: number
+  criticalIssues: number
+  comparisonPct: number // 이전 버전 대비 증감률 (양수: 악화, 음수: 개선)
+}
+
+function calculateMonitorSeverity(snapshot: MonitorSnapshot): 'normal' | 'warning' | 'critical' {
+  // Critical 조건
+  if (snapshot.criticalIssues >= 2) return 'critical'
+  if (snapshot.comparisonPct > 100) return 'critical' // 2배 이상 악화
+  if (snapshot.totalCrashes >= 500) return 'critical' // 절대 건수
+
+  // Warning 조건
+  if (snapshot.newIssues >= 3) return 'warning'
+  if (snapshot.comparisonPct > 30) return 'warning' // 30% 이상 악화
+  if (snapshot.totalCrashes >= 100) return 'warning' // 절대 건수
+
+  return 'normal'
+}
+
+// Top 이슈를 텍스트로 변환
+function getTopIssuesText(topIssues: TopIssue[], limit: number): string {
+  return topIssues
+    .slice(0, limit)
+    .map((issue, idx) => {
+      const title = truncateTitle(issue.title, 60)
+      return `${idx + 1}. <${issue.link}|${title}>\n   ${issue.events}건 · ${issue.users}명 영향`
+    })
+    .join('\n')
+}
+
+// Critical 이슈만 추출
+function getCriticalIssuesText(topIssues: TopIssue[]): string {
+  // TODO: 실제로는 이슈의 level이 'fatal'이거나 events >= 500인 것으로 필터링
+  const critical = topIssues.filter(issue => issue.events >= 100)
+  if (critical.length === 0) {
+    return topIssues.length > 0 ? getTopIssuesText(topIssues, 2) : '확인된 Critical 이슈 없음'
+  }
+  return getTopIssuesText(critical, 2)
 }
 
 export class SlackService {
@@ -51,125 +118,208 @@ export class SlackService {
     }
   }
 
-  // Slack 메시지 블록 생성
-  buildSlackBlocks(
-    releaseLabel: string,
-    windowLabel: string,
-    snapshot: WindowAggregation,
-    deltas: WindowAggregation,
-    totals: WindowAggregation,
-    topIssues: TopIssue[],
-    actionUrls: { dashboard: string; issues: string },
-    cadenceLabel: string
+  // ========== 패턴 1: 시작 알림 ==========
+  buildStartNotification(
+    platform: string,
+    version: string,
+    monitorId: string,
+    endDate: string,
+    durationDays: number
   ): SlackBlock[] {
-    const blocks: SlackBlock[] = []
-
-    // 헤더
-    blocks.push({
-      type: 'header',
-      text: {
-        type: 'plain_text',
-        text: `🚀 릴리즈 모니터링 — ${releaseLabel}`,
-        emoji: true
-      }
-    })
-
-    // 컨텍스트 정보
-    blocks.push({
-      type: 'context',
-      elements: [
-        {
-          type: 'mrkdwn',
-          text: `*집계 구간*: ${windowLabel} · *주기*: ${cadenceLabel}`
+    return [
+      { type: 'divider' },
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: '🚀 버전 모니터링 시작',
+          emoji: true
         }
-      ]
-    })
+      },
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold(platform.toUpperCase() + ' ' + version)}\n📅 ${durationDays}일간 자동 모니터링 (~ ${formatShortDate(endDate)})`
+        }
+      },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: '💬 배포 직후 30분마다, 이후 1시간마다 리포트 발송'
+        }]
+      },
+      {
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: '📊 대시보드 보기' },
+          url: `${WEB_URL}/monitor/version/${monitorId}`,
+          style: 'primary'
+        }]
+      }
+    ]
+  }
 
-    // 스냅샷 요약
-    const summaryLines = [
-      bold(':memo: 스냅샷 요약'),
-      this.buildMetricLine('💥 *총 이벤트*', totals.events, snapshot.events, deltas.events, '건', cadenceLabel),
-      this.buildMetricLine('🐞 *총 유니크 이슈*', totals.issues, snapshot.issues, deltas.issues, '개', cadenceLabel),
-      this.buildMetricLine('👥 *총 영향 사용자*', totals.users, snapshot.users, deltas.users, '명', cadenceLabel)
+  // ========== 패턴 2-4: 정기 리포트 (상태별) ==========
+  buildPeriodicReport(
+    platform: string,
+    version: string,
+    monitorId: string,
+    startDate: string,
+    durationDays: number,
+    snapshot: MonitorSnapshot,
+    topIssues: TopIssue[],
+    severity: 'normal' | 'warning' | 'critical'
+  ): SlackBlock[] {
+    const config = {
+      normal: {
+        emoji: '✅',
+        message: `${bold('💬 현재까지 안정적입니다')}\n총 ${snapshot.totalCrashes.toLocaleString()}건${snapshot.comparisonPct !== 0 ? ` (이전 버전 대비 ${Math.abs(snapshot.comparisonPct)}% 개선)` : ''}`,
+        buttonStyle: 'primary' as const,
+        issues: null,
+        warning: null
+      },
+      warning: {
+        emoji: '⚠️',
+        message: `${bold('💬 주의가 필요합니다')}\n총 ${snapshot.totalCrashes.toLocaleString()}건 (이전 버전 대비 +${snapshot.comparisonPct}% 악화)`,
+        buttonStyle: 'danger' as const,
+        issues: `${bold('⚠️ 확인 필요')}\n${getTopIssuesText(topIssues, 2)}`,
+        warning: null
+      },
+      critical: {
+        emoji: '🚨',
+        message: `${bold('💬 심각한 상황입니다')}\n총 ${snapshot.totalCrashes.toLocaleString()}건 (이전 버전 대비 +${snapshot.comparisonPct}% 악화)`,
+        buttonStyle: 'danger' as const,
+        issues: `${bold('🚨 즉시 확인 필요')}\n${getCriticalIssuesText(topIssues)}`,
+        warning: '💡 롤백 검토를 권장합니다'
+      }
+    }
+
+    const cfg = config[severity]
+    const progress = getProgress(startDate, durationDays)
+    const daysElapsed = getDaysElapsed(startDate)
+
+    const blocks: SlackBlock[] = [
+      { type: 'divider' },
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: `${cfg.emoji} ${platform.toUpperCase()} ${version} 모니터링`,
+          emoji: true
+        }
+      },
+      { type: 'divider' },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: `📅 ${daysElapsed}일차 / ${durationDays}일 (${progress}%)`
+        }]
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: cfg.message
+        }
+      }
     ]
 
-    blocks.push({
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: summaryLines.join('\n')
-      }
-    })
-
-    // Top 이슈 목록
-    if (topIssues.length > 0) {
+    // Warning/Critical일 경우 이슈 추가
+    if (cfg.issues) {
       blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: bold(':sports_medal: 윈도우 Top5 이슈')
-        }
-      })
-
-      const issueLines = topIssues.map(issue => {
-        const title = truncateTitle(issue.title)
-        return `• <${issue.link}|${title}> · ${issue.events}건 · ${issue.users}명`
-      })
-
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: issueLines.join('\n')
+          text: cfg.issues
         }
       })
     }
 
-    // 액션 버튼
+    // Critical일 경우 경고 추가
+    if (cfg.warning) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: cfg.warning
+        }
+      })
+    }
+
     blocks.push({
       type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '📊 대시보드 열기'
-          },
-          url: actionUrls.dashboard
-        },
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '🔎 이 구간 이슈 보기'
-          },
-          url: actionUrls.issues
-        }
-      ]
+      elements: [{
+        type: 'button',
+        text: { type: 'plain_text', text: '📊 대시보드 보기' },
+        url: `${WEB_URL}/monitor/version/${monitorId}`,
+        style: cfg.buttonStyle
+      }]
     })
 
     return blocks
   }
 
-  // 메트릭 라인 생성
-  private buildMetricLine(
-    name: string,
-    total: number,
-    windowValue: number,
-    delta: number,
-    unit: string,
-    cadenceLabel: string
-  ): string {
-    const totalFormatted = total.toLocaleString()
-    const windowFormatted = windowValue.toLocaleString()
-    const deltaEmoji = getDeltaEmoji(delta)
-    const deltaSign = delta > 0 ? '+' : delta < 0 ? '-' : ''
-    const deltaText = delta !== 0 ? `${deltaSign}${Math.abs(delta)}${unit}` : `0${unit}`
-    const trendText = delta === 0
-      ? '변화 없음'
-      : `${deltaEmoji} ${deltaText}`
+  // ========== 패턴 5: 완료 알림 ==========
+  buildCompletionNotification(
+    platform: string,
+    version: string,
+    monitorId: string,
+    startDate: string,
+    endDate: string,
+    durationDays: number,
+    finalSnapshot: MonitorSnapshot
+  ): SlackBlock[] {
+    const isStable = finalSnapshot.comparisonPct <= 0 || finalSnapshot.totalCrashes < 100
 
-    return `• ${name}: ${totalFormatted}${unit}  · 최근 ${cadenceLabel} ${windowFormatted}${unit} (${trendText})`
+    return [
+      { type: 'divider' },
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: `✅ ${platform.toUpperCase()} ${version} 모니터링 완료`,
+          emoji: true
+        }
+      },
+      { type: 'divider' },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: `📅 ${formatDateRange(startDate, endDate)} (${durationDays}일)`
+        }]
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${bold('💬 최종 결과: ' + (isStable ? '안정적' : '주의 필요'))}\n총 ${finalSnapshot.totalCrashes.toLocaleString()}건${finalSnapshot.comparisonPct !== 0 ? ` (이전 버전 대비 ${finalSnapshot.comparisonPct > 0 ? '+' : ''}${finalSnapshot.comparisonPct}% ${finalSnapshot.comparisonPct > 0 ? '악화' : '개선'})` : ''}`
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: isStable
+            ? '🎉 이 버전은 안정적으로 배포되었습니다'
+            : '⚠️ 지속적인 모니터링이 필요합니다'
+        }
+      },
+      {
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: '📊 최종 리포트 보기' },
+          url: `${WEB_URL}/monitor/version/${monitorId}`,
+          style: 'primary'
+        }]
+      }
+    ]
   }
 
   // Slack 메시지 전송
@@ -178,7 +328,7 @@ export class SlackService {
     const webhookUrl = this.getWebhookUrl(isMonitoring, isReport)
 
     const message: SlackMessage = { blocks }
-    
+
     // 테스트 모드인 경우 메시지에 표시
     if (this.isTestMode) {
       message.blocks.unshift({
@@ -216,7 +366,9 @@ export class SlackService {
     }
   }
 
-  // 모니터링 리포트 전송 (편의 메서드)
+  // ========== 기존 API 호환성 유지 (deprecated) ==========
+
+  // 모니터링 리포트 전송
   async sendMonitoringReport(
     platform: string,
     baseRelease: string,
@@ -230,18 +382,34 @@ export class SlackService {
     actionUrls: { dashboard: string; issues: string },
     cadenceLabel: string
   ): Promise<void> {
-    const releaseLabel = `${platform.toUpperCase()} ${matchedRelease}`
-    const windowLabel = `${formatKST(windowStart.toISOString())} ~ ${formatKST(windowEnd.toISOString())}`
+    // TODO: 이전 버전 데이터 조회하여 비교
+    // 현재는 임시로 comparisonPct = 0으로 설정
+    const monitorSnapshot: MonitorSnapshot = {
+      totalCrashes: totals.events,
+      totalIssues: totals.issues,
+      totalUsers: totals.users,
+      newIssues: 0, // TODO: 계산 필요
+      criticalIssues: topIssues.filter(i => i.events >= 100).length,
+      comparisonPct: 0 // TODO: 이전 버전과 비교
+    }
 
-    const blocks = this.buildSlackBlocks(
-      releaseLabel,
-      windowLabel,
-      snapshot,
-      deltas,
-      totals,
+    const severity = calculateMonitorSeverity(monitorSnapshot)
+
+    // 임시 monitorId (실제로는 monitor.id 전달 필요)
+    const monitorId = 'unknown'
+    // 임시 startDate, durationDays (실제로는 monitor에서 가져와야 함)
+    const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const durationDays = 7
+
+    const blocks = this.buildPeriodicReport(
+      platform,
+      matchedRelease,
+      monitorId,
+      startDate,
+      durationDays,
+      monitorSnapshot,
       topIssues,
-      actionUrls,
-      cadenceLabel
+      severity
     )
 
     await this.sendMessage(blocks)
@@ -256,45 +424,16 @@ export class SlackService {
     customIntervalMinutes?: number,
     isTestMode?: boolean
   ): Promise<void> {
-    const cadenceText = customIntervalMinutes
-      ? `${customIntervalMinutes}분 간격`
-      : '1시간 간격'
+    // 임시 durationDays 계산
+    const durationDays = 7
 
-    const blocks: SlackBlock[] = [
-      {
-        type: 'header',
-        text: {
-          type: 'plain_text',
-          text: '🚀 새로운 릴리즈 모니터링 시작',
-          emoji: true
-        }
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: [
-            `*플랫폼*: ${platform.toUpperCase()}`,
-            `*베이스 릴리즈*: ${baseRelease}`,
-            `*모니터 ID*: ${monitorId}`,
-            `*만료일*: ${formatKST(expiresAt.toISOString())}`,
-            `*주기*: ${cadenceText}`,
-            `*모드*: ${isTestMode ? '테스트' : '운영'}`
-          ].join('\n')
-        }
-      },
-      {
-        type: 'context',
-        elements: [
-          {
-            type: 'mrkdwn',
-            text: isTestMode
-              ? '테스트 모드는 지정한 간격(1~60분)으로 실행됩니다.'
-              : '운영 모드는 1시간 간격으로 실행됩니다.'
-          }
-        ]
-      }
-    ]
+    const blocks = this.buildStartNotification(
+      platform,
+      baseRelease,
+      monitorId,
+      expiresAt.toISOString(),
+      durationDays
+    )
 
     await this.sendMessage(blocks)
   }
@@ -306,30 +445,30 @@ export class SlackService {
     monitorId: string,
     reason: 'manual' | 'expired'
   ): Promise<void> {
-    const reasonText = reason === 'manual' ? '수동 중단' : '만료로 인한 자동 중단'
-    
-    const blocks: SlackBlock[] = [
-      {
-        type: 'header',
-        text: {
-          type: 'plain_text',
-          text: '🛑 릴리즈 모니터링 종료',
-          emoji: true
-        }
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: [
-            `*플랫폼*: ${platform.toUpperCase()}`,
-            `*베이스 릴리즈*: ${baseRelease}`,
-            `*모니터 ID*: ${monitorId}`,
-            `*종료 사유*: ${reasonText}`
-          ].join('\n')
-        }
-      }
-    ]
+    // 임시로 완료 알림 사용
+    // TODO: reason이 'manual'일 경우 다른 메시지 표시
+    const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const endDate = new Date().toISOString()
+    const durationDays = 7
+
+    const finalSnapshot: MonitorSnapshot = {
+      totalCrashes: 0,
+      totalIssues: 0,
+      totalUsers: 0,
+      newIssues: 0,
+      criticalIssues: 0,
+      comparisonPct: 0
+    }
+
+    const blocks = this.buildCompletionNotification(
+      platform,
+      baseRelease,
+      monitorId,
+      startDate,
+      endDate,
+      durationDays,
+      finalSnapshot
+    )
 
     await this.sendMessage(blocks)
   }
@@ -347,3 +486,7 @@ export function createSlackService(platform: Platform, isTestMode: boolean = fal
 
 // 기본 인스턴스 (Android, 운영 모드)
 export const slackService = new SlackService('android', false)
+
+// Export types for external use
+export type { MonitorSnapshot }
+export { calculateMonitorSeverity }
