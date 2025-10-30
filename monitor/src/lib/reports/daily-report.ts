@@ -231,6 +231,52 @@ export class DailyReportService {
       this.log(`[Daily] [11/14] 콘솔 출력(JSON)...`)
       this.log(`Report data: ${JSON.stringify(reportData, null, 2).substring(0, 500)}...`)
 
+      // AI 분석을 위한 추가 데이터 수집
+      let avg7DaysData: { events: number; issues: number; users: number; crashFreeRate: number } | undefined
+      let criticalIssuesForAI: Array<{ issue_id: string; title: string; event_count: number; users?: number }> = []
+
+      if (includeAI && process.env.OPENAI_API_KEY) {
+        this.log(`[Daily] [11.5/14] AI 분석을 위한 추가 데이터 수집...`)
+        try {
+          // 최근 7일 데이터 조회
+          const last7Days = await this.getLast7DaysData(formatKSTDate(yesterday))
+          if (last7Days.length > 0) {
+            const totalEvents = last7Days.reduce((sum, d) => sum + d.events, 0)
+            const totalIssues = last7Days.reduce((sum, d) => sum + d.issues, 0)
+            const totalUsers = last7Days.reduce((sum, d) => sum + d.users, 0)
+            const avgCrashFree = last7Days.reduce((sum, d) => sum + d.crashFreeRate, 0) / last7Days.length
+
+            avg7DaysData = {
+              events: totalEvents / last7Days.length,
+              issues: totalIssues / last7Days.length,
+              users: totalUsers / last7Days.length,
+              crashFreeRate: avgCrashFree
+            }
+            this.log(`  - 7일 평균: events=${Math.round(avg7DaysData.events)}, issues=${Math.round(avg7DaysData.issues)}, users=${Math.round(avg7DaysData.users)}`)
+          }
+
+          // Critical 이슈 판별 (buildSlackBlocksForDay의 로직 참고)
+          const totalUsers = ySummary.impacted_users || 0
+          criticalIssuesForAI = ySurgeAdv.filter(issue => {
+            const isNewFatal = yNew.some(n => n.issue_id === issue.issue_id)
+            const highImpact = issue.event_count >= 100
+            const isHighCount = issue.event_count >= 500
+            return (isNewFatal && highImpact) || isHighCount
+          }).map(issue => ({
+            issue_id: issue.issue_id,
+            title: issue.title,
+            event_count: issue.event_count,
+            users: undefined // surge issue에는 users 정보가 없음
+          }))
+
+          if (criticalIssuesForAI.length > 0) {
+            this.log(`  - Critical 이슈: ${criticalIssuesForAI.length}건`)
+          }
+        } catch (error) {
+          this.log(`  - 추가 데이터 수집 실패: ${error}`)
+        }
+      }
+
       // AI 분석
       let aiAnalysis: AIAnalysis | undefined
       if (includeAI && process.env.OPENAI_API_KEY) {
@@ -240,7 +286,9 @@ export class DailyReportService {
             reportData,
             formatKSTDate(yesterday),
             formatKSTDate(dayBeforeYesterday),
-            environment
+            environment,
+            avg7DaysData,
+            criticalIssuesForAI
           )
           if ('fallback_text' in aiAnalysis) {
             this.log(`  - AI 생성 실패: ${(aiAnalysis as any).fallback_text}`)

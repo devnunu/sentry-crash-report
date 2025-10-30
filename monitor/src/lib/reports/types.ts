@@ -153,19 +153,34 @@ export interface ReleaseFixIssue {
   link?: string
 }
 
-// AI 분석 결과 타입 (Python과 동일)
+// AI 분석 결과 타입 (개선된 버전)
 export interface AIAnalysis {
-  newsletter_summary: string
+  // 새로운 구조
+  status_summary?: {
+    level: 'normal' | 'warning' | 'critical'
+    headline: string
+    detail: string
+    full_analysis: {
+      overview: string
+      trend_analysis: string
+      key_insights: string[]
+      recommendations: string
+    }
+  }
   today_actions: AIAction[]
-  root_cause: string[]
-  per_issue_notes: AIIssueNote[]
+  important_issue_analysis?: AIImportantIssue[]
+
+  // 하위 호환성을 위한 필드
+  newsletter_summary?: string
+  root_cause?: string[]
+  per_issue_notes?: AIIssueNote[]
   full_analysis?: {
     overview: string
     trend_analysis: string
     key_insights: string[]
     recommendations: string
   }
-  fallback_text?: string // Python의 fallback 형태
+  fallback_text?: string // fallback 형태
 }
 
 export interface AIAction {
@@ -173,6 +188,11 @@ export interface AIAction {
   why: string
   owner_role: string
   suggestion: string
+  // 새로 추가된 필드
+  priority?: 'high' | 'medium' | 'low'
+  issue_id?: string
+  estimated_time?: string
+  impact?: string
 }
 
 export interface AIIssueNote {
@@ -184,6 +204,18 @@ export interface AIIssueNote {
     user_impact?: string
     fix_suggestion?: string
     code_location?: string
+    similar_issues?: string
+  }
+}
+
+export interface AIImportantIssue {
+  issue_id: string
+  issue_title: string
+  analysis: {
+    root_cause: string
+    user_impact: string
+    fix_suggestion: string
+    code_location: string
     similar_issues?: string
   }
 }

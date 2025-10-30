@@ -45,7 +45,9 @@ import {
   IconInfoCircle,
   IconSparkles,
   IconExternalLink,
-  IconHistory
+  IconHistory,
+  IconBulb,
+  IconChecklist
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
@@ -562,15 +564,17 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
   // AI 코멘트 추출
   const aiComment = useMemo(() => {
     if (!selectedReport) return null
-    
+
     // AI 분석 데이터는 selectedReport.ai_analysis 필드에 저장됨
     const aiAnalysis = selectedReport.ai_analysis as any
     if (!aiAnalysis) return null
-    
-    // newsletter_summary 필드가 AI 코멘트
-    const comment = aiAnalysis.newsletter_summary
-    
-    return comment || null
+
+    // 새로운 구조(status_summary) 우선 사용, 없으면 기존 newsletter_summary 사용
+    const comment = aiAnalysis.status_summary?.detail ||
+                    aiAnalysis.newsletter_summary ||
+                    null
+
+    return comment
   }, [selectedReport])
 
   // AI 오늘의 액션 추출
@@ -583,6 +587,38 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     return aiAnalysis.today_actions
   }, [selectedReport])
 
+  // AI 중요 이슈 분석 추출 (하위 호환성 유지)
+  const importantIssues = useMemo(() => {
+    if (!selectedReport) return []
+
+    const aiAnalysis = selectedReport.ai_analysis as any
+    if (!aiAnalysis) return []
+
+    // 새로운 구조: important_issue_analysis 우선 사용
+    if (aiAnalysis.important_issue_analysis && Array.isArray(aiAnalysis.important_issue_analysis)) {
+      return aiAnalysis.important_issue_analysis
+    }
+
+    // 하위 호환성: per_issue_notes를 important_issue_analysis 형태로 변환
+    if (aiAnalysis.per_issue_notes && Array.isArray(aiAnalysis.per_issue_notes)) {
+      return aiAnalysis.per_issue_notes
+        .filter((note: any) => note.analysis) // analysis가 있는 것만
+        .map((note: any) => ({
+          issue_id: note.issue_id || '',
+          issue_title: note.issue_title || '',
+          analysis: note.analysis || {
+            root_cause: note.note || '',
+            user_impact: '',
+            fix_suggestion: '',
+            code_location: '',
+            similar_issues: undefined
+          }
+        }))
+    }
+
+    return []
+  }, [selectedReport])
+
   // AI 종합 분석 추출
   const aiFullAnalysis = useMemo(() => {
     if (!selectedReport) return null
@@ -590,7 +626,12 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     const aiAnalysis = selectedReport.ai_analysis as any
     if (!aiAnalysis) return null
 
-    // full_analysis가 있으면 사용, 없으면 fallback
+    // 새로운 구조(status_summary.full_analysis) 우선 사용
+    if (aiAnalysis.status_summary?.full_analysis) {
+      return aiAnalysis.status_summary.full_analysis
+    }
+
+    // 구버전: full_analysis가 있으면 사용
     if (aiAnalysis.full_analysis) {
       return aiAnalysis.full_analysis
     }
@@ -992,19 +1033,48 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
       )}
 
       {/* AI 분석 섹션 */}
-      {aiFullAnalysis && (
+      {aiFullAnalysis && selectedReport && (
         <Paper p="xl" radius="md" withBorder mb="lg">
           <Group mb="md">
             <IconRobot size={24} color="teal" />
-            <Text size="lg" fw={700} c="teal.7">AI 분석</Text>
+            <Text size="lg" fw={700} c="teal.7">AI 종합 분석</Text>
+
+            {/* 심각도 배지 추가 */}
+            {(selectedReport.ai_analysis as any)?.status_summary?.level && (
+              <Badge
+                color={
+                  (selectedReport.ai_analysis as any).status_summary.level === 'critical' ? 'red' :
+                  (selectedReport.ai_analysis as any).status_summary.level === 'warning' ? 'orange' : 'green'
+                }
+                variant="filled"
+              >
+                {
+                  (selectedReport.ai_analysis as any).status_summary.level === 'critical' ? '🚨 긴급' :
+                  (selectedReport.ai_analysis as any).status_summary.level === 'warning' ? '⚠️ 주의' : '✅ 정상'
+                }
+              </Badge>
+            )}
           </Group>
 
           <Stack gap="md">
-            <div>
-              <Text size="sm" fw={600} c="teal.6" mb={4}>전체 상황</Text>
-              <Text>{aiFullAnalysis.overview}</Text>
-            </div>
+            {/* 헤드라인 */}
+            {(selectedReport.ai_analysis as any)?.status_summary?.headline && (
+              <Alert icon={<IconInfoCircle size={16} />} color="blue" variant="light">
+                <Text size="lg" fw={600}>
+                  {(selectedReport.ai_analysis as any).status_summary.headline}
+                </Text>
+              </Alert>
+            )}
 
+            {/* 전체 상황 */}
+            {aiFullAnalysis.overview && (
+              <div>
+                <Text size="sm" fw={600} c="teal.6" mb={4}>전체 상황</Text>
+                <Text>{aiFullAnalysis.overview}</Text>
+              </div>
+            )}
+
+            {/* 트렌드 분석 */}
             {aiFullAnalysis.trend_analysis && aiFullAnalysis.trend_analysis !== '데이터가 충분하지 않습니다.' && (
               <div>
                 <Text size="sm" fw={600} c="teal.6" mb={4}>트렌드 분석</Text>
@@ -1012,23 +1082,141 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
               </div>
             )}
 
+            {/* 핵심 인사이트 */}
             {aiFullAnalysis.key_insights && aiFullAnalysis.key_insights.length > 0 && (
               <div>
                 <Text size="sm" fw={600} c="teal.6" mb={4}>핵심 인사이트</Text>
-                <List>
+                <List spacing="xs" icon={<IconBulb size={16} />}>
                   {aiFullAnalysis.key_insights.map((insight: string, i: number) => (
-                    <List.Item key={i}>{insight}</List.Item>
+                    <List.Item key={i}>
+                      <Text size="sm">{insight}</Text>
+                    </List.Item>
                   ))}
                 </List>
               </div>
             )}
 
-            <div>
-              <Text size="sm" fw={600} c="teal.6" mb={4}>권장 사항</Text>
-              <Text>{aiFullAnalysis.recommendations}</Text>
-            </div>
+            {/* 권장 사항 */}
+            {aiFullAnalysis.recommendations && (
+              <div>
+                <Text size="sm" fw={600} c="teal.6" mb={4}>권장 사항</Text>
+                <Text>{aiFullAnalysis.recommendations}</Text>
+              </div>
+            )}
+
+            {/* 오늘의 액션 아이템 */}
+            {selectedReport && aiActions && aiActions.length > 0 && (
+              <>
+                <div style={{ margin: '24px 0', height: '1px', backgroundColor: 'var(--mantine-color-gray-3)' }} />
+
+                <div>
+                  <Group mb="md">
+                    <IconChecklist size={20} color="teal" />
+                    <Text size="md" fw={600} c="teal.6">AI가 제안 하는 오늘의 액션 아이템</Text>
+                    <Badge color="teal" variant="light">{aiActions.length}개</Badge>
+                  </Group>
+
+                  <Stack gap="md">
+                    {aiActions.map((action: any, index: number) => (
+                      <Card
+                        key={index}
+                        padding="md"
+                        radius="md"
+                        withBorder
+                        style={{
+                          borderLeftWidth: 4,
+                          borderLeftColor:
+                            action.priority === 'high' ? 'var(--mantine-color-red-6)' :
+                            action.priority === 'medium' ? 'var(--mantine-color-orange-6)' :
+                            'var(--mantine-color-green-6)'
+                        }}
+                      >
+                        <Stack gap="xs">
+                          {/* 우선순위 + 제목 */}
+                          <Group justify="space-between">
+                            <Text size="md" fw={600} style={{ flex: 1 }}>
+                              {action.title}
+                            </Text>
+                            {action.priority && (
+                              <Badge
+                                color={
+                                  action.priority === 'high' ? 'red' :
+                                  action.priority === 'medium' ? 'orange' : 'green'
+                                }
+                                variant="filled"
+                              >
+                                {
+                                  action.priority === 'high' ? '🔴 높음' :
+                                  action.priority === 'medium' ? '🟡 중간' : '🟢 낮음'
+                                }
+                              </Badge>
+                            )}
+                          </Group>
+
+                          {/* 이유 */}
+                          <div>
+                            <Text size="xs" fw={600} c="dimmed">📊 현황</Text>
+                            <Text size="sm">{action.why}</Text>
+                          </div>
+
+                          {/* 제안 */}
+                          {action.suggestion && (
+                            <div>
+                              <Text size="xs" fw={600} c="dimmed">💡 구체적 방법</Text>
+                              <Text size="sm">{action.suggestion}</Text>
+                            </div>
+                          )}
+
+                          {/* 예상 시간 + 영향 */}
+                          {(action.estimated_time || action.impact) && (
+                            <Group gap="md">
+                              {action.estimated_time && (
+                                <Badge variant="light" color="blue">
+                                  ⏱️ 예상 시간: {action.estimated_time}
+                                </Badge>
+                              )}
+                              {action.impact && (
+                                <Badge variant="light" color="grape">
+                                  📈 {action.impact}
+                                </Badge>
+                              )}
+                            </Group>
+                          )}
+
+                          {/* 액션 버튼 */}
+                          {action.issue_id && (
+                            <Group gap="xs" mt="xs">
+                              <Button
+                                size="xs"
+                                variant="light"
+                                leftSection={<IconSparkles size={14} />}
+                                component="a"
+                                href={`/monitor/sentry-analysis?id=${action.issue_id}`}
+                                target="_blank"
+                              >
+                                AI 상세 분석
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="light"
+                                leftSection={<IconExternalLink size={14} />}
+                                component="a"
+                                href={`https://sentry.io/issues/${action.issue_id}`}
+                                target="_blank"
+                              >
+                                Sentry에서 보기
+                              </Button>
+                            </Group>
+                          )}
+                        </Stack>
+                      </Card>
+                    ))}
+                  </Stack>
+                </div>
+              </>
+            )}
           </Stack>
-      </Paper>
+        </Paper>
       )}
 
       {/* 주요 이슈 섹션 (AI 분석과 7일 차트 사이) */}
@@ -1497,73 +1685,68 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         ) : (
           <Stack gap="md">
             {pagedIssues.map((issue, index) => (
-              <Card key={issue.id} padding="md" radius="md" withBorder>
-                <Stack gap="xs">
-                  {/* 제목 및 배지 */}
-                  <Group justify="space-between" wrap="nowrap" align="flex-start">
-                    <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
+              <Card key={issue.id} padding="sm" radius="md" withBorder>
+                <Group justify="space-between" wrap="nowrap" align="flex-start" gap="md">
+                  {/* 왼쪽: 번호 + 제목 + 통계 */}
+                  <Stack gap="xs" style={{ flex: 1, minWidth: 0 }}>
+                    {/* 제목 라인 */}
+                    <Group gap="xs" wrap="nowrap">
                       <Text size="sm" c="dimmed" fw={500} style={{ flexShrink: 0 }}>
                         {((issuePage - 1) * PAGE_SIZE) + index + 1}.
                       </Text>
-                      <Text size="md" fw={600} style={{ flex: 1, wordBreak: 'break-word' }}>
+                      <Text
+                        size="sm"
+                        fw={600}
+                        component="a"
+                        href={issue.sentryUrl}
+                        target="_blank"
+                        style={{
+                          flex: 1,
+                          wordBreak: 'break-word',
+                          color: 'var(--mantine-color-blue-6)',
+                          textDecoration: 'none',
+                          cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.textDecoration = 'underline'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.textDecoration = 'none'
+                        }}
+                      >
                         {issue.title || '<unknown>'}
                       </Text>
-                    </Group>
-
-                    <Group gap={4} style={{ flexShrink: 0 }}>
                       {issue.level === 'fatal' && (
-                        <Badge size="sm" color="red" variant="filled">⚠️ Fatal</Badge>
+                        <Badge size="sm" color="red" variant="filled" style={{ flexShrink: 0 }}>⚠️ Fatal</Badge>
                       )}
                     </Group>
-                  </Group>
 
-                  {/* 통계 */}
-                  <Group gap="md" wrap="wrap">
-                    <Badge variant="light" color="blue">
-                      💥 {formatNumber(issue.count)}건 ({formatDeltaPercent(issue.delta)})
-                    </Badge>
-                    <Badge variant="light" color="grape">
-                      👥 {formatNumber(issue.users)}명
-                    </Badge>
-                  </Group>
+                    {/* 통계 배지 */}
+                    <Group gap="xs" wrap="wrap">
+                      <Badge variant="light" color="blue" size="sm">
+                        💥 {formatNumber(issue.count)}건
+                      </Badge>
+                      <Badge variant="light" color="grape" size="sm">
+                        👥 {formatNumber(issue.users)}명
+                      </Badge>
+                    </Group>
+                  </Stack>
 
-                  {/* 최근 7일 평균, AI 짧은 요약: 사용하지 않아 제거 */}
-
-                  {/* 액션 버튼 */}
-                  <Group gap="xs" mt="xs" wrap="wrap">
-                    <Button
-                      size="xs"
-                      variant="light"
-                      leftSection={<IconSparkles size={14} />}
-                      component="a"
-                      href={`/monitor/sentry-analysis?id=${issue.id}`}
-                      target="_blank"
-                    >
-                      AI 분석
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="light"
-                      leftSection={<IconExternalLink size={14} />}
-                      component="a"
-                      href={issue.sentryUrl}
-                      target="_blank"
-                    >
-                      Sentry
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      leftSection={<IconHistory size={14} />}
-                      onClick={() => handleShowHistory(issue.id)}
-                    >
-                      히스토리
-                    </Button>
-                  </Group>
-                </Stack>
+                  {/* 우측: AI 분석 버튼 */}
+                  <Button
+                    size="xs"
+                    variant="light"
+                    leftSection={<IconSparkles size={14} />}
+                    component="a"
+                    href={`/monitor/sentry-analysis?id=${issue.id}`}
+                    target="_blank"
+                    style={{ flexShrink: 0 }}
+                  >
+                    AI 분석
+                  </Button>
+                </Group>
               </Card>
             ))}
-
             {Math.ceil(filteredAndSortedIssues.length / PAGE_SIZE) > 1 && (
               <Group justify="center" mt="sm">
                 <Pagination
@@ -1578,6 +1761,107 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
           </Stack>
         )}
       </Paper>
+
+      {/* 개별 이슈 AI 분석 */}
+      {importantIssues && importantIssues.length > 0 && (
+        <Paper p="xl" radius="md" withBorder mb="lg">
+          <Group mb="md">
+            <IconSparkles size={24} color="purple" />
+            <Text size="lg" fw={700}>개별 이슈 AI 분석</Text>
+            <Badge>{importantIssues.length}개</Badge>
+          </Group>
+
+          <Accordion multiple variant="separated">
+            {importantIssues.map((issue: any) => (
+              <Accordion.Item key={issue.issue_id || issue.issue_title} value={issue.issue_id || issue.issue_title}>
+                <Accordion.Control>
+                  <Text size="sm" fw={500}>{issue.issue_title}</Text>
+                </Accordion.Control>
+
+                <Accordion.Panel>
+                  <Stack gap="md" p="md">
+                    {/* 원인 분석 */}
+                    {issue.analysis?.root_cause && (
+                      <div>
+                        <Text size="sm" fw={600} c="dimmed" mb={4}>
+                          📍 원인 분석
+                        </Text>
+                        <Text size="sm">{issue.analysis.root_cause}</Text>
+                      </div>
+                    )}
+
+                    {/* 사용자 영향 */}
+                    {issue.analysis?.user_impact && (
+                      <div>
+                        <Text size="sm" fw={600} c="dimmed" mb={4}>
+                          👥 사용자 영향
+                        </Text>
+                        <Text size="sm">{issue.analysis.user_impact}</Text>
+                      </div>
+                    )}
+
+                    {/* 해결 방안 */}
+                    {issue.analysis?.fix_suggestion && (
+                      <div>
+                        <Text size="sm" fw={600} c="dimmed" mb={4}>
+                          🔧 해결 방안
+                        </Text>
+                        <Text size="sm">{issue.analysis.fix_suggestion}</Text>
+                      </div>
+                    )}
+
+                    {/* 코드 위치 */}
+                    {issue.analysis?.code_location && (
+                      <div>
+                        <Text size="sm" fw={600} c="dimmed" mb={4}>
+                          📝 코드 위치
+                        </Text>
+                        <Code block>{issue.analysis.code_location}</Code>
+                      </div>
+                    )}
+
+                    {/* 유사 이슈 */}
+                    {issue.analysis?.similar_issues && (
+                      <div>
+                        <Text size="sm" fw={600} c="dimmed" mb={4}>
+                          🔍 유사 이슈
+                        </Text>
+                        <Text size="sm">{issue.analysis.similar_issues}</Text>
+                      </div>
+                    )}
+
+                    {/* 액션 버튼 */}
+                    {issue.issue_id && (
+                      <Group gap="xs" mt="xs">
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconSparkles size={14} />}
+                          component="a"
+                          href={`/monitor/sentry-analysis?id=${issue.issue_id}`}
+                          target="_blank"
+                        >
+                          AI 상세 분석
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconExternalLink size={14} />}
+                          component="a"
+                          href={`https://sentry.io/issues/${issue.issue_id}`}
+                          target="_blank"
+                        >
+                          Sentry에서 보기
+                        </Button>
+                      </Group>
+                    )}
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+            ))}
+          </Accordion>
+        </Paper>
+      )}
 
       {/* 리포트 실행 결과 섹션 */}
       {selectedReport && (
