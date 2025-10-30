@@ -220,6 +220,51 @@ export interface AIImportantIssue {
   }
 }
 
+// 주간 AI 분석 결과 타입
+export interface WeeklyAIAnalysis {
+  weekly_summary: {
+    level: 'normal' | 'warning' | 'critical'
+    headline: string  // 10자 이내
+    daily_avg_crashes: {
+      current: number
+      previous: number
+      change_pct: number
+    }
+    crash_free_rate: {
+      current: number
+      previous: number
+      change_pp: number
+    }
+  }
+
+  key_changes: {
+    improvements: Array<{
+      title: string
+      before: number
+      after: number
+      reason?: string
+      impact: string
+    }>
+    concerns: Array<{
+      title: string
+      count: number
+      percentage: number
+      context: string
+      action: string
+    }>
+  }
+
+  next_week_focus: Array<{
+    priority: number  // 1, 2, 3
+    title: string
+    current_status: string
+    goal: string
+    expected_impact: string
+  }>
+
+  next_week_goal: string
+}
+
 // API 요청 스키마
 export const GenerateDailyReportSchema = z.object({
   targetDate: z.string().optional(),

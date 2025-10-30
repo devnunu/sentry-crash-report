@@ -35,7 +35,7 @@ import LoadingScreen from '@/components/LoadingScreen'
 import { formatExecutionTime } from '@/lib/utils'
 import { useReportHistory } from '@/lib/reports/useReportHistory'
 import type { Platform } from '@/lib/types'
-import type { WeeklyReportData, ReportExecution } from '@/lib/reports/types'
+import type { WeeklyReportData, ReportExecution, WeeklyAIAnalysis } from '@/lib/reports/types'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 type WeeklyReportPayload = (WeeklyReportData & { slack_blocks?: unknown }) | undefined
@@ -128,6 +128,11 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     return selectedReport.result_data as WeeklyReportPayload
   }, [selectedReport])
 
+  const aiAnalysis = useMemo<WeeklyAIAnalysis | undefined>(() => {
+    if (!selectedReport?.ai_analysis) return undefined
+    return selectedReport.ai_analysis as WeeklyAIAnalysis
+  }, [selectedReport])
+
   const weekRangeLabel = useMemo(() => formatWeekLabel(selectedReport), [selectedReport])
   const weekNumber = useMemo(() => {
     if (!selectedReport?.start_date) return 0
@@ -217,8 +222,14 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     }
   }, [statusLevel])
 
-  // 주요 변화 (개선된 점)
+  // 주요 변화 (개선된 점) - AI 분석 우선 사용
   const improvements = useMemo(() => {
+    // AI 분석 결과가 있으면 우선 사용
+    if (aiAnalysis?.key_changes?.improvements && aiAnalysis.key_changes.improvements.length > 0) {
+      return aiAnalysis.key_changes.improvements
+    }
+
+    // Fallback: 기존 로직
     if (!payload) return []
 
     const items: Array<{
@@ -290,10 +301,19 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     }
 
     return items
-  }, [payload])
+  }, [aiAnalysis, payload])
 
-  // 주요 변화 (주목할 점)
+  // 주요 변화 (주목할 점) - AI 분석 우선 사용
   const concerns = useMemo(() => {
+    // AI 분석 결과가 있으면 우선 사용
+    if (aiAnalysis?.key_changes?.concerns && aiAnalysis.key_changes.concerns.length > 0) {
+      return aiAnalysis.key_changes.concerns.map(item => ({
+        ...item,
+        percentage: item.percentage.toString()
+      }))
+    }
+
+    // Fallback: 기존 로직
     if (!payload) return []
 
     const items: Array<{
@@ -355,10 +375,16 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     }
 
     return items
-  }, [payload])
+  }, [aiAnalysis, payload])
 
-  // 다음 주 집중 영역
+  // 이번 주 집중 영역 - AI 분석 우선 사용
   const nextWeekFocus = useMemo(() => {
+    // AI 분석 결과가 있으면 우선 사용
+    if (aiAnalysis?.next_week_focus && aiAnalysis.next_week_focus.length > 0) {
+      return aiAnalysis.next_week_focus
+    }
+
+    // Fallback: 기존 로직
     if (!payload) return []
 
     const items: Array<{
@@ -436,7 +462,15 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     }
 
     return items
-  }, [payload])
+  }, [aiAnalysis, payload])
+
+  // 이번 주 목표 - AI 분석 우선 사용
+  const nextWeekGoal = useMemo(() => {
+    if (aiAnalysis?.next_week_goal) {
+      return aiAnalysis.next_week_goal
+    }
+    return 'Crash Free Rate 99.5% 이상 유지'
+  }, [aiAnalysis])
 
   const toggleSection = (section: 'logs' | 'data' | 'slack' | 'report') => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }))
@@ -783,7 +817,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
 
             {/* 이번 주 목표 */}
             <Alert icon={<IconTarget size={16} />} color="blue" variant="light">
-              <Text fw={600}>이번 주 목표: Crash Free Rate 99.5% 이상 유지</Text>
+              <Text fw={600}>이번 주 목표: {nextWeekGoal}</Text>
             </Alert>
           </Stack>
         </Paper>

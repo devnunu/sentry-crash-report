@@ -1,4 +1,4 @@
-import type { DailyReportData, AIAnalysis, TopIssue, NewIssue, SurgeIssue } from './types'
+import type { DailyReportData, AIAnalysis, TopIssue, NewIssue, SurgeIssue, WeeklyReportData, WeeklyAIAnalysis } from './types'
 
 interface CriticalIssue {
   issue_id: string
@@ -421,15 +421,325 @@ ${JSON.stringify(criticalIssues, null, 2)}
   }
 
   async generateWeeklyAdvice(
-    reportData: any,
+    reportData: WeeklyReportData,
+    weekNumber: number,
+    startDate: string,
+    endDate: string,
     environment?: string
-  ): Promise<AIAnalysis> {
-    // 주간 리포트는 일단 간단한 요약만 제공
+  ): Promise<WeeklyAIAnalysis> {
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      // AI 없이 기본값 반환
+      return this.getDefaultWeeklyAnalysis(reportData)
+    }
+
+    const maxRetries = 2
+    let lastError: Error | null = null
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const { default: OpenAI } = await import('openai')
+        const client = new OpenAI({ apiKey })
+
+        const prompt = this.buildWeeklyAnalysisPrompt(reportData, weekNumber, startDate, endDate, environment)
+
+        const response = await client.chat.completions.create({
+          model: 'gpt-4o-mini',
+          temperature: 0.7,
+          max_tokens: 4000,
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' }
+        })
+
+        let text = response.choices[0]?.message?.content?.trim() || ''
+
+        // 코드블록으로 감싸진 경우 JSON만 추출
+        if (text.startsWith('```')) {
+          const match = text.match(/\{.*\}/s)
+          if (match) {
+            text = match[0]
+          }
+        }
+
+        const data = JSON.parse(text)
+
+        // 데이터 정규화
+        return this.normalizeWeeklyAIAnalysis(data, reportData)
+      } catch (error) {
+        console.error(`Weekly AI analysis attempt ${attempt} failed:`, error)
+        lastError = error as Error
+
+        // 마지막 시도가 아니면 재시도
+        if (attempt < maxRetries) {
+          console.log(`Retrying... (${attempt}/${maxRetries})`)
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+          continue
+        }
+      }
+    }
+
+    // 모든 재시도 실패 시 fallback
+    console.error(`Weekly AI analysis failed after ${maxRetries} attempts:`, lastError)
+    return this.getDefaultWeeklyAnalysis(reportData)
+  }
+
+  private buildWeeklyAnalysisPrompt(
+    reportData: WeeklyReportData,
+    weekNumber: number,
+    startDate: string,
+    endDate: string,
+    environment?: string
+  ): string {
+    const thisWeek = reportData.this_week
+    const prevWeek = reportData.prev_week
+
+    // 일평균 계산
+    const thisDailyAvg = thisWeek?.events ? Math.round(thisWeek.events / 7) : 0
+    const prevDailyAvg = prevWeek?.events ? Math.round(prevWeek.events / 7) : 0
+    const dailyAvgChange = prevDailyAvg > 0 ? ((thisDailyAvg - prevDailyAvg) / prevDailyAvg * 100) : 0
+
+    // CFR
+    const thisCFR = thisWeek?.crash_free_sessions || 0
+    const prevCFR = prevWeek?.crash_free_sessions || 0
+    const cfrChange = thisCFR - prevCFR
+
+    // Top 5 이슈 변화
+    const top5Events = reportData.top5_events || []
+    const prevTopEvents = reportData.prev_top_events || []
+
+    // 간결한 이슈 정보
+    const top5Compact = top5Events.slice(0, 5).map((issue, idx) => {
+      const prevIssue = prevTopEvents.find(p => p.issue_id === issue.issue_id)
+      const prevCount = prevIssue ? prevIssue.events : 0
+      const change = prevCount > 0 ? ((issue.events - prevCount) / prevCount * 100).toFixed(1) : 'N/A'
+      return {
+        rank: idx + 1,
+        title: issue.title,
+        events: issue.events,
+        prev_events: prevCount,
+        change_pct: change
+      }
+    })
+
+    const newIssues = reportData.new_issues || []
+    const surgeIssues = reportData.surge_issues || []
+    const releaseFixes = reportData.this_week_release_fixes || []
+
+    return `당신은 Sentry 주간 리포트를 분석하는 회고 전문가입니다.
+주간 리포트는 일간 리포트와 달리, "한 주를 돌아보고 다음 주를 준비"하는 데 집중합니다.
+
+=== 분석 맥락 ===
+- 대상 주차: ${weekNumber}주차 (${startDate} ~ ${endDate})
+- 이번 주 전체 크래시 이벤트: ${thisWeek?.events || 0}건 (일평균 ${thisDailyAvg}건)
+- 전주 전체 크래시 이벤트: ${prevWeek?.events || 0}건 (일평균 ${prevDailyAvg}건)
+- 전주 대비 일평균 변화: ${dailyAvgChange > 0 ? '+' : ''}${dailyAvgChange.toFixed(1)}%
+- 이번 주 Crash Free Rate: ${(thisCFR > 1 ? thisCFR : thisCFR * 100).toFixed(2)}%
+- 전주 Crash Free Rate: ${(prevCFR > 1 ? prevCFR : prevCFR * 100).toFixed(2)}%
+- CFR 변화: ${cfrChange > 0 ? '+' : ''}${cfrChange.toFixed(2)}%p
+- 신규 이슈: ${newIssues.length}개
+- 해결된 이슈: ${releaseFixes.reduce((sum, fix) => sum + (fix.disappeared?.length || 0), 0)}개
+${environment ? `- 환경: ${environment}` : ''}
+
+=== Top 5 이슈 변화 ===
+${JSON.stringify(top5Compact, null, 2)}
+
+${newIssues.length > 0 ? `=== 신규 이슈 (${newIssues.length}개) ===
+${JSON.stringify(newIssues.slice(0, 5).map(i => ({
+  title: i.title,
+  event_count: i.event_count,
+  first_seen: i.first_seen
+})), null, 2)}
+` : ''}
+
+${surgeIssues.length > 0 ? `=== 급증 이슈 (${surgeIssues.length}개) ===
+${JSON.stringify(surgeIssues.slice(0, 5).map(i => ({
+  title: i.title,
+  this_week: i.event_count,
+  prev_week: i.prev_count,
+  growth_multiplier: i.growth_multiplier
+})), null, 2)}
+` : ''}
+
+${releaseFixes.length > 0 ? `=== 릴리즈로 해결된 이슈 ===
+${JSON.stringify(releaseFixes.map(fix => ({
+  release: fix.release,
+  disappeared_count: fix.disappeared?.length || 0,
+  decreased_count: fix.decreased?.length || 0
+})), null, 2)}
+` : ''}
+
+=== 출력 형식 (JSON) ===
+반드시 아래 형식의 순수 JSON만 출력하세요.
+
+{
+  "weekly_summary": {
+    "level": "critical" | "warning" | "normal",
+    "headline": "10자 이내 (예: '안정적', '주의 필요', '개선 중')",
+    "daily_avg_crashes": {
+      "current": ${thisDailyAvg},
+      "previous": ${prevDailyAvg},
+      "change_pct": ${dailyAvgChange.toFixed(1)}
+    },
+    "crash_free_rate": {
+      "current": ${thisCFR > 1 ? thisCFR.toFixed(2) : (thisCFR * 100).toFixed(2)},
+      "previous": ${prevCFR > 1 ? prevCFR.toFixed(2) : (prevCFR * 100).toFixed(2)},
+      "change_pp": ${cfrChange.toFixed(2)}
+    }
+  },
+  "key_changes": {
+    "improvements": [
+      {
+        "title": "개선 항목 제목",
+        "before": 전주 수치,
+        "after": 이번주 수치,
+        "reason": "개선 이유 (예: 'v1.2.3 배포로 MainActivity 버그 수정')",
+        "impact": "영향 (예: '일평균 50건 감소, 사용자 경험 개선')"
+      }
+    ],
+    "concerns": [
+      {
+        "title": "주목할 이슈 제목",
+        "count": 이슈 발생 건수,
+        "percentage": 전체 대비 비율 (숫자만),
+        "context": "맥락 (예: '신규 발생', '전주 대비 2배 증가')",
+        "action": "필요한 액션 (예: '즉시 원인 분석 필요')"
+      }
+    ]
+  },
+  "next_week_focus": [
+    {
+      "priority": 1,
+      "title": "다음 주 집중할 액션 제목",
+      "current_status": "현재 상태 (예: '일평균 150건 발생')",
+      "goal": "목표 (예: '일평균 100건 이하로 감소')",
+      "expected_impact": "기대 효과 (예: 'Crash Free Rate 0.5%p 향상')"
+    }
+  ],
+  "next_week_goal": "다음 주 전체 목표 한 줄 (예: 'Crash Free Rate 99.5% 이상 유지 및 신규 이슈 조기 대응')"
+}
+
+=== 분석 가이드라인 ===
+
+1. **weekly_summary.level** 판단:
+   - critical: CFR < 99.0% 또는 일평균 크래시 50% 이상 증가
+   - warning: CFR 99.0~99.5% 또는 일평균 크래시 20% 이상 증가
+   - normal: 위 조건에 해당하지 않음
+
+2. **key_changes.improvements**:
+   - 전주 대비 개선된 점 (최대 3개)
+   - 릴리즈로 해결된 이슈, 크래시 감소 등
+   - 구체적 수치와 이유 포함
+
+3. **key_changes.concerns**:
+   - 주목해야 할 이슈 (최대 3개)
+   - 신규 이슈, 급증 이슈, 지속되는 이슈
+   - percentage는 숫자만 (예: 5.2)
+
+4. **next_week_focus**:
+   - 우선순위 순으로 최대 3개
+   - 실행 가능하고 측정 가능한 목표 설정
+   - 기대 효과는 정량적으로
+
+5. **전체 톤**:
+   - 단순 숫자 나열 금지 → 스토리로 풀어내기
+   - "개선되었다"보다 "왜 개선되었는지" 설명
+   - 실행 가능하고 구체적인 액션 제시
+   - 모호한 표현 금지, 구체적 근거 제시`
+  }
+
+  private normalizeWeeklyAIAnalysis(data: any, reportData: WeeklyReportData): WeeklyAIAnalysis {
+    const thisWeek = reportData.this_week
+    const prevWeek = reportData.prev_week
+
+    const thisDailyAvg = thisWeek?.events ? Math.round(thisWeek.events / 7) : 0
+    const prevDailyAvg = prevWeek?.events ? Math.round(prevWeek.events / 7) : 0
+    const dailyAvgChange = prevDailyAvg > 0 ? ((thisDailyAvg - prevDailyAvg) / prevDailyAvg * 100) : 0
+
+    const thisCFR = thisWeek?.crash_free_sessions || 0
+    const prevCFR = prevWeek?.crash_free_sessions || 0
+    const cfrChange = thisCFR - prevCFR
+
     return {
-      newsletter_summary: '주간 리포트가 성공적으로 생성되었습니다. 상세한 분석은 각 섹션을 확인해주세요.',
-      today_actions: [],
-      root_cause: [],
-      per_issue_notes: []
+      weekly_summary: {
+        level: data.weekly_summary?.level || 'normal',
+        headline: data.weekly_summary?.headline || '주간 요약',
+        daily_avg_crashes: data.weekly_summary?.daily_avg_crashes || {
+          current: thisDailyAvg,
+          previous: prevDailyAvg,
+          change_pct: dailyAvgChange
+        },
+        crash_free_rate: data.weekly_summary?.crash_free_rate || {
+          current: thisCFR > 1 ? thisCFR : thisCFR * 100,
+          previous: prevCFR > 1 ? prevCFR : prevCFR * 100,
+          change_pp: cfrChange
+        }
+      },
+      key_changes: {
+        improvements: Array.isArray(data.key_changes?.improvements)
+          ? data.key_changes.improvements.map((item: any) => ({
+              title: String(item.title || ''),
+              before: Number(item.before) || 0,
+              after: Number(item.after) || 0,
+              reason: item.reason ? String(item.reason) : undefined,
+              impact: String(item.impact || '')
+            }))
+          : [],
+        concerns: Array.isArray(data.key_changes?.concerns)
+          ? data.key_changes.concerns.map((item: any) => ({
+              title: String(item.title || ''),
+              count: Number(item.count) || 0,
+              percentage: Number(item.percentage) || 0,
+              context: String(item.context || ''),
+              action: String(item.action || '')
+            }))
+          : []
+      },
+      next_week_focus: Array.isArray(data.next_week_focus)
+        ? data.next_week_focus.map((item: any) => ({
+            priority: Number(item.priority) || 1,
+            title: String(item.title || ''),
+            current_status: String(item.current_status || ''),
+            goal: String(item.goal || ''),
+            expected_impact: String(item.expected_impact || '')
+          }))
+        : [],
+      next_week_goal: String(data.next_week_goal || 'Crash Free Rate 99.5% 이상 유지')
+    }
+  }
+
+  private getDefaultWeeklyAnalysis(reportData: WeeklyReportData): WeeklyAIAnalysis {
+    const thisWeek = reportData.this_week
+    const prevWeek = reportData.prev_week
+
+    const thisDailyAvg = thisWeek?.events ? Math.round(thisWeek.events / 7) : 0
+    const prevDailyAvg = prevWeek?.events ? Math.round(prevWeek.events / 7) : 0
+    const dailyAvgChange = prevDailyAvg > 0 ? ((thisDailyAvg - prevDailyAvg) / prevDailyAvg * 100) : 0
+
+    const thisCFR = thisWeek?.crash_free_sessions || 0
+    const prevCFR = prevWeek?.crash_free_sessions || 0
+    const cfrChange = thisCFR - prevCFR
+
+    return {
+      weekly_summary: {
+        level: 'normal',
+        headline: '주간 요약',
+        daily_avg_crashes: {
+          current: thisDailyAvg,
+          previous: prevDailyAvg,
+          change_pct: dailyAvgChange
+        },
+        crash_free_rate: {
+          current: thisCFR > 1 ? thisCFR : thisCFR * 100,
+          previous: prevCFR > 1 ? prevCFR : prevCFR * 100,
+          change_pp: cfrChange
+        }
+      },
+      key_changes: {
+        improvements: [],
+        concerns: []
+      },
+      next_week_focus: [],
+      next_week_goal: 'Crash Free Rate 99.5% 이상 유지'
     }
   }
 }

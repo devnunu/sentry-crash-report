@@ -2,7 +2,8 @@ import { reportsDb } from './database'
 import { getPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl } from '../utils'
 import { buildWeeklyReportUrl } from '../url-utils'
 import type { Platform } from '../types'
-import type { WeeklyReportData, WeeklyIssue, NewIssue, WeeklySurgeIssue, ReleaseFix, AIAnalysis } from './types'
+import type { WeeklyReportData, WeeklyIssue, NewIssue, WeeklySurgeIssue, ReleaseFix, AIAnalysis, WeeklyAIAnalysis } from './types'
+import { aiAnalysisService } from './ai-analysis'
 
 // Python 스크립트와 동일한 상수들
 const API_BASE = "https://sentry.io/api/0"
@@ -98,11 +99,17 @@ export class WeeklyReportService {
     }
     return response
   }
+
+  private getWeekNumber(date: Date): number {
+    const startOfYear = new Date(date.getFullYear(), 0, 1)
+    const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000))
+    return Math.ceil((days + startOfYear.getDay() + 1) / 7)
+  }
   
   async generateReport(options: WeeklyReportOptions = {}): Promise<{
     executionId: string
     data: WeeklyReportData
-    aiAnalysis?: AIAnalysis
+    aiAnalysis?: WeeklyAIAnalysis
   }> {
     this.executionLogs = [] // 로그 초기화
     const startTime = Date.now()
@@ -251,8 +258,28 @@ export class WeeklyReportService {
       this.log(`[12/13] 결과 JSON 미리보기:`)
       this.log(JSON.stringify(reportData, null, 2))
 
-      // AI 분석 - 주간 리포트에서는 사용하지 않음
-      let aiAnalysis: AIAnalysis | undefined
+      // AI 분석 생성
+      let aiAnalysis: WeeklyAIAnalysis | undefined
+      if (options.includeAI !== false) {
+        try {
+          this.log('[12.5/13] AI 주간 분석 생성 중...')
+          const weekNumber = this.getWeekNumber(thisWeekStart)
+          const startDateStr = thisWeekStart.toISOString().split('T')[0]
+          const endDateStr = thisWeekEnd.toISOString().split('T')[0]
+
+          aiAnalysis = await aiAnalysisService.generateWeeklyAdvice(
+            reportData,
+            weekNumber,
+            startDateStr,
+            endDateStr,
+            environment
+          )
+          this.log(`  - AI 분석 완료: level=${aiAnalysis.weekly_summary.level}, headline="${aiAnalysis.weekly_summary.headline}"`)
+        } catch (error) {
+          this.log(`AI 분석 실패: ${error}`)
+          // AI 실패해도 리포트 생성은 계속 진행
+        }
+      }
 
       // [13/13] Slack 블록 구성 및 전송
       let slackSent = false
