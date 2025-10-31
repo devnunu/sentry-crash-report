@@ -98,6 +98,20 @@ async function processDailyReport() {
       const includeAI = settings?.ai_enabled ?? true
       const isTestMode = settings?.is_test_mode ?? false
 
+      // 현재 요일 확인 (KST 기준)
+      const now = new Date()
+      const kstOffset = 9 * 60 // KST는 UTC+9
+      const kstDate = new Date(now.getTime() + kstOffset * 60 * 1000)
+      const dayOfWeek = kstDate.getUTCDay() // 0=일요일, 1=월요일, ...
+      const dayMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+      const todayKey = dayMap[dayOfWeek]
+
+      // slack_days에 오늘이 포함되는지 확인
+      const slackDays = settings?.slack_days || []
+      const shouldSendSlack = retryCount === 0 && slackDays.includes(todayKey)
+
+      console.log(`[QStash Webhook] Daily report - Today: ${todayKey}, Slack days: ${slackDays.join(',')}, Send Slack: ${shouldSendSlack}`)
+
       // Run for both platforms
       const baseUrl = getBaseUrl()
       const platforms: Array<'android' | 'ios'> = ['android', 'ios']
@@ -107,8 +121,8 @@ async function processDailyReport() {
         const response = await fetch(`${baseUrl}/api/reports/daily/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Trigger-Type': 'scheduled' },
-          // 첫 시도만 Slack 전송, 재시도 시 중복 방지 위해 sendSlack=false
-          body: JSON.stringify({ sendSlack: retryCount === 0, includeAI, isTestMode, platform }),
+          // 첫 시도 && 오늘이 slack_days에 포함된 경우에만 Slack 전송
+          body: JSON.stringify({ sendSlack: shouldSendSlack, includeAI, isTestMode, platform }),
           signal: AbortSignal.timeout(120000)
         })
         if (!response.ok) {
@@ -123,11 +137,11 @@ async function processDailyReport() {
     } catch (error) {
       retryCount++
       console.error(`[QStash Webhook] Daily report failed (attempt ${retryCount}):`, error)
-      
+
       if (retryCount >= maxRetries) {
         throw new Error(`Daily report failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
-      
+
       // 재시도 전 대기
       await new Promise(resolve => setTimeout(resolve, retryDelay))
     }
@@ -146,6 +160,20 @@ async function processWeeklyReport() {
       const includeAI = settings?.ai_enabled ?? true
       const isTestMode = settings?.is_test_mode ?? false
 
+      // 현재 요일 확인 (KST 기준)
+      const now = new Date()
+      const kstOffset = 9 * 60 // KST는 UTC+9
+      const kstDate = new Date(now.getTime() + kstOffset * 60 * 1000)
+      const dayOfWeek = kstDate.getUTCDay() // 0=일요일, 1=월요일, ...
+      const dayMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+      const todayKey = dayMap[dayOfWeek]
+
+      // slack_days에 오늘이 포함되는지 확인
+      const slackDays = settings?.slack_days || []
+      const shouldSendSlack = retryCount === 0 && slackDays.includes(todayKey)
+
+      console.log(`[QStash Webhook] Weekly report - Today: ${todayKey}, Slack days: ${slackDays.join(',')}, Send Slack: ${shouldSendSlack}`)
+
       // Run for both platforms
       const baseUrl = getBaseUrl()
       const platforms: Array<'android' | 'ios'> = ['android', 'ios']
@@ -155,7 +183,8 @@ async function processWeeklyReport() {
         const response = await fetch(`${baseUrl}/api/reports/weekly/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Trigger-Type': 'scheduled' },
-          body: JSON.stringify({ sendSlack: retryCount === 0, includeAI, isTestMode, platform }),
+          // 첫 시도 && 오늘이 slack_days에 포함된 경우에만 Slack 전송
+          body: JSON.stringify({ sendSlack: shouldSendSlack, includeAI, isTestMode, platform }),
           signal: AbortSignal.timeout(120000)
         })
         if (!response.ok) {
@@ -170,11 +199,11 @@ async function processWeeklyReport() {
     } catch (error) {
       retryCount++
       console.error(`[QStash Webhook] Weekly report failed (attempt ${retryCount}):`, error)
-      
+
       if (retryCount >= maxRetries) {
         throw new Error(`Weekly report failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
-      
+
       // 재시도 전 대기
       await new Promise(resolve => setTimeout(resolve, retryDelay))
     }
