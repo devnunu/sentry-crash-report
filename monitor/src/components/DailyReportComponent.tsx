@@ -1073,22 +1073,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
           <Group mb="md">
             <IconRobot size={24} color="teal" />
             <Text size="lg" fw={700} c="teal.7">AI 종합 분석</Text>
-
-            {/* 심각도 배지 추가 */}
-            {(selectedReport.ai_analysis as any)?.status_summary?.level && (
-              <Badge
-                color={
-                  (selectedReport.ai_analysis as any).status_summary.level === 'critical' ? 'red' :
-                  (selectedReport.ai_analysis as any).status_summary.level === 'warning' ? 'orange' : 'green'
-                }
-                variant="filled"
-              >
-                {
-                  (selectedReport.ai_analysis as any).status_summary.level === 'critical' ? '🚨 긴급' :
-                  (selectedReport.ai_analysis as any).status_summary.level === 'warning' ? '⚠️ 주의' : '✅ 정상'
-                }
-              </Badge>
-            )}
           </Group>
 
           <Stack gap="md">
