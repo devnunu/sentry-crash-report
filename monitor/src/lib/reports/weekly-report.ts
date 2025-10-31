@@ -1136,6 +1136,10 @@ export class WeeklyReportService {
     const crashFreeRate = thisWeek?.crash_free_sessions || 0
     const cfr = crashFreeRate > 1 ? crashFreeRate : crashFreeRate * 100
 
+    // 주간 통계
+    const uniqueIssues = thisWeek?.issues || 0
+    const newIssuesCount = payload.new_issues?.length || 0
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = []
 
@@ -1168,12 +1172,29 @@ export class WeeklyReportService {
     // 메인 메시지
     let mainMessage: string
     if (severity === 'normal') {
-      mainMessage = `*💬 이번 주는 안정적이었습니다*\n일평균 ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)`
+      mainMessage = [
+        '*💬 이번 주는 안정적이었습니다*',
+        `• 일평균 크래시: ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)`,
+        `• 고유 이슈: ${uniqueIssues}개`,
+        `• 신규 이슈: ${newIssuesCount}개`,
+        `• Crash Free Rate: ${cfr.toFixed(2)}%`
+      ].join('\n')
     } else if (severity === 'warning') {
-      const newIssuesCount = payload.new_issues?.length || 0
-      mainMessage = `*💬 주의가 필요한 한 주였습니다*\n일평균 ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)\n신규 이슈 ${newIssuesCount}개 발생`
+      mainMessage = [
+        '*💬 주의가 필요한 한 주였습니다*',
+        `• 일평균 크래시: ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)`,
+        `• 고유 이슈: ${uniqueIssues}개`,
+        `• 신규 이슈: ${newIssuesCount}개`,
+        `• Crash Free Rate: ${cfr.toFixed(2)}%`
+      ].join('\n')
     } else {
-      mainMessage = `*💬 심각한 한 주였습니다*\n일평균 ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)\nCrash Free Rate ${cfr.toFixed(2)}% (목표 미달)`
+      mainMessage = [
+        '*💬 심각한 한 주였습니다*',
+        `• 일평균 크래시: ${dailyAvg}건 (전주 대비 ${changeSign}${changePct}%)`,
+        `• 고유 이슈: ${uniqueIssues}개`,
+        `• 신규 이슈: ${newIssuesCount}개`,
+        `• Crash Free Rate: ${cfr.toFixed(2)}%`
+      ].join('\n')
     }
 
     blocks.push({

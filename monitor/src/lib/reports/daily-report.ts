@@ -1095,6 +1095,14 @@ export class DailyReportService {
     const surgeIssues = (dayObj.surge_issues || []) as SurgeIssue[]
     const newIssues = (dayObj.new_issues || []) as NewIssue[]
 
+    // Fatal 이슈 개수 계산
+    const allIssues = (dayObj.issues || []) as any[]
+    const fatalIssues = allIssues.filter(issue => {
+      const level = (issue.level || '').toLowerCase()
+      return level === 'fatal' || level === 'error'
+    })
+    const fatalIssueCount = fatalIssues.length
+
     // 전일값
     let prevEvents = 0
     let prevUsers = 0
@@ -1211,6 +1219,8 @@ export class DailyReportService {
             '*📊 이슈 수치가 정상입니다*',
             `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
             `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
+            `• 고유 이슈: ${issues}개`,
+            `• Fatal 이슈: ${fatalIssueCount}개`,
             `• 영향 사용자: ${users}명 (전일 대비 ${this.formatDelta(userChangePercent)})`
           ].join('\n')
         }
@@ -1227,6 +1237,8 @@ export class DailyReportService {
             '*📊 오늘은 주의가 필요합니다*',
             `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
             `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
+            `• 고유 이슈: ${issues}개`,
+            `• Fatal 이슈: ${fatalIssueCount}개`,
             `• 영향 사용자: ${users}명 (전일 대비 ${this.formatDelta(userChangePercent)})${reasonText}`
           ].join('\n')
         }
@@ -1298,6 +1310,8 @@ export class DailyReportService {
           text: [
             `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
             `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
+            `• 고유 이슈: ${issues}개`,
+            `• Fatal 이슈: ${fatalIssueCount}개`,
             `• 영향 사용자: ${users}명 (전일 대비 ${this.formatDelta(userChangePercent)})${reasonText}`
           ].join('\n')
         }

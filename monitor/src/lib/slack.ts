@@ -75,11 +75,17 @@ function calculateMonitorSeverity(snapshot: MonitorSnapshot): 'normal' | 'warnin
 }
 
 // 버전 모니터링 심각도 판단 (누적 방식)
+// DEPRECATED: 이제 alert-engine의 calculateSeverity를 사용하세요
+// 이 함수는 하위 호환성을 위해 유지됩니다
 interface SeverityResult {
   severity: 'normal' | 'warning' | 'critical'
   reasons: string[]
 }
 
+/**
+ * @deprecated Alert Rules 시스템으로 교체되었습니다. alert-engine의 calculateSeverity를 사용하세요.
+ * 이 함수는 하위 호환성을 위해 유지됩니다.
+ */
 function calculateVersionMonitorSeverity(snapshot: VersionMonitorSnapshot): SeverityResult {
   const { cumulative, topIssues, daysElapsed } = snapshot
   const reasons: string[] = []
@@ -386,7 +392,10 @@ export class SlackService {
 
   // ========== 누적 방식 버전 모니터링 메시지 (Normal) ==========
   buildNormalVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
-    const { platform, version, monitorId, cumulative, daysElapsed, totalDurationDays, recentChange } = snapshot
+    const { platform, version, monitorId, cumulative, topIssues, daysElapsed, totalDurationDays, recentChange } = snapshot
+
+    // Fatal 이슈 개수 계산
+    const fatalIssueCount = topIssues.filter(issue => issue.level === 'fatal').length
 
     // 진행률 계산 (100% 초과 방지)
     const progressPercent = Math.min(100, Math.round((daysElapsed / totalDurationDays) * 100))
@@ -417,7 +426,7 @@ export class SlackService {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• Fatal 이슈: ${fatalIssueCount}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
         }
       }
     ]
@@ -447,11 +456,15 @@ export class SlackService {
   }
 
   // ========== 누적 방식 버전 모니터링 메시지 (Warning) ==========
-  buildWarningVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
+  async buildWarningVersionMonitorMessage(snapshot: VersionMonitorSnapshot): Promise<SlackBlock[]> {
     const { platform, version, monitorId, cumulative, topIssues, daysElapsed, totalDurationDays, recentChange } = snapshot
 
-    // 심각도 원인 계산
-    const severityResult = calculateVersionMonitorSeverity(snapshot)
+    // Fatal 이슈 개수 계산
+    const fatalIssueCount = topIssues.filter(issue => issue.level === 'fatal').length
+
+    // 심각도 원인 계산 (Alert Rules 시스템 사용)
+    const { calculateSeverity } = await import('./alert-engine')
+    const severityResult = await calculateSeverity('version-monitor', snapshot)
 
     // 진행률 계산 (100% 초과 방지)
     const progressPercent = Math.min(100, Math.round((daysElapsed / totalDurationDays) * 100))
@@ -482,7 +495,7 @@ export class SlackService {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• Fatal 이슈: ${fatalIssueCount}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
         }
       }
     ]
@@ -538,11 +551,15 @@ export class SlackService {
   }
 
   // ========== 누적 방식 버전 모니터링 메시지 (Critical) ==========
-  buildCriticalVersionMonitorMessage(snapshot: VersionMonitorSnapshot): SlackBlock[] {
+  async buildCriticalVersionMonitorMessage(snapshot: VersionMonitorSnapshot): Promise<SlackBlock[]> {
     const { platform, version, monitorId, cumulative, topIssues, hourlyTrend, daysElapsed, totalDurationDays, recentChange } = snapshot
 
-    // 심각도 원인 계산
-    const severityResult = calculateVersionMonitorSeverity(snapshot)
+    // Fatal 이슈 개수 계산
+    const fatalIssueCount = topIssues.filter(issue => issue.level === 'fatal').length
+
+    // 심각도 원인 계산 (Alert Rules 시스템 사용)
+    const { calculateSeverity } = await import('./alert-engine')
+    const severityResult = await calculateSeverity('version-monitor', snapshot)
 
     // 진행률 계산 (100% 초과 방지)
     const progressPercent = Math.min(100, Math.round((daysElapsed / totalDurationDays) * 100))
@@ -576,7 +593,7 @@ export class SlackService {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
+          text: `${bold('📊 누적 통계')}\n• 전체 크래시: ${cumulative.totalCrashes.toLocaleString()}건\n• 고유 이슈: ${cumulative.uniqueIssues}개\n• Fatal 이슈: ${fatalIssueCount}개\n• 영향받은 사용자: ${cumulative.affectedUsers.toLocaleString()}명`
         }
       }
     ]

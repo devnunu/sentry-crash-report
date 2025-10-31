@@ -3,14 +3,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatKST, formatRelativeTime } from '@/lib/utils';
 import type { MonitorSession, Platform, MonitorHistory } from '@/lib/types';
+import AlertRulesSummary from '@/components/AlertRulesSummary';
 import {
   ActionIcon,
   Alert,
   Badge,
   Button,
   Card,
-  Checkbox,
-  Collapse,
   Container,
   Divider,
   Group,
@@ -30,9 +29,6 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconChartBar,
-  IconChevronDown,
-  IconChevronUp,
-  IconDashboard,
   IconHistory,
   IconInfoCircle,
   IconPlayerPause,
@@ -289,9 +285,6 @@ export default function MonitorPage() {
   const [selectedMonitorId, setSelectedMonitorId] = useState<string | null>(null);
   const [monitorHistories, setMonitorHistories] = useState<MonitorHistory[]>([]);
   const [isLoadingHistories, setIsLoadingHistories] = useState(false);
-
-  // 상태 기준 안내 표시 상태
-  const [criteriaOpened, setCriteriaOpened] = useState(false);
 
   // 플랫폼 변경 시 초기화
   useEffect(() => {
@@ -559,62 +552,8 @@ export default function MonitorPage() {
           </Text>
         </div>
 
-        {/* ========== 상태 구분 기준 안내 ========== */}
-        <Alert
-          icon={<IconInfoCircle size={20} />}
-          title={
-            <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => setCriteriaOpened(!criteriaOpened)}>
-              <Text fw={600}>모니터링 상태 구분 기준</Text>
-              {criteriaOpened ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-            </Group>
-          }
-          color="blue"
-          variant="light"
-        >
-          <Collapse in={criteriaOpened}>
-            <Stack gap="md" mt="sm">
-              <div>
-                <Group gap="xs" mb="xs">
-                  <Text fw={600} size="sm">🚨 긴급 (Critical)</Text>
-                  <Text size="xs" c="dimmed">최소 10건 크래시 + 10명 영향 필요</Text>
-                </Group>
-                <Stack gap={4} pl="md">
-                  <Text size="xs" c="dimmed">• 고유 이슈 ≥ 20개</Text>
-                  <Text size="xs" c="dimmed">• Fatal 이슈 ≥ 5개</Text>
-                  <Text size="xs" c="dimmed">• 총 크래시 ≥ 500건</Text>
-                </Stack>
-              </div>
-
-              <div>
-                <Group gap="xs" mb="xs">
-                  <Text fw={600} size="sm">⚠️ 주의 (Warning)</Text>
-                  <Text size="xs" c="dimmed">최소 5건 크래시 + 5명 영향 필요</Text>
-                </Group>
-                <Stack gap={4} pl="md">
-                  <Text size="xs" c="dimmed">• 고유 이슈 ≥ 10개</Text>
-                  <Text size="xs" c="dimmed">• Fatal 이슈 ≥ 3개</Text>
-                  <Text size="xs" c="dimmed">• 총 크래시 ≥ 100건</Text>
-                </Stack>
-              </div>
-
-              <div>
-                <Group gap="xs" mb="xs">
-                  <Text fw={600} size="sm">✅ 정상 (Normal)</Text>
-                </Group>
-                <Stack gap={4} pl="md">
-                  <Text size="xs" c="dimmed">• 위 조건에 해당하지 않는 안정적인 상태</Text>
-                </Stack>
-              </div>
-
-              <Alert color="gray" variant="light" p="xs">
-                <Text size="xs" c="dimmed">
-                  💡 통계적 유의성: 긴급/주의 판단은 충분한 데이터가 수집된 경우에만 적용됩니다.
-                  초기 단계의 소수 크래시는 정상으로 분류됩니다.
-                </Text>
-              </Alert>
-            </Stack>
-          </Collapse>
-        </Alert>
+        {/* ========== Alert Rules 기준 안내 ========== */}
+        <AlertRulesSummary category="version-monitor" title="버전별 모니터링 알림 기준" />
 
         <Button
           size="lg"

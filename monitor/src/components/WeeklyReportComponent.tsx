@@ -32,6 +32,7 @@ import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
 import SlackPreview from '@/lib/SlackPreview'
 import LoadingScreen from '@/components/LoadingScreen'
+import AlertRulesSummary from '@/components/AlertRulesSummary'
 import { formatExecutionTime } from '@/lib/utils'
 import { useReportHistory } from '@/lib/reports/useReportHistory'
 import type { Platform } from '@/lib/types'
@@ -612,6 +613,11 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
           )}
         </Group>
       </Group>
+
+      {/* Alert Rules 기준 안내 */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <AlertRulesSummary category="weekly" title="주간 리포트 알림 기준" />
+      </div>
 
       {/* 에러 알림 */}
       {error && (

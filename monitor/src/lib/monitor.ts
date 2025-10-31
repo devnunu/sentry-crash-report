@@ -234,18 +234,18 @@ export class MonitoringService {
           windowEnd
         )
 
-        // 심각도 판단 (slack.ts에서 import)
-        const { calculateVersionMonitorSeverity } = await import('./slack')
-        const severity = calculateVersionMonitorSeverity(snapshot)
+        // 심각도 판단 (Alert Rules 시스템 사용)
+        const { calculateSeverity } = await import('./alert-engine')
+        const { severity, reasons } = await calculateSeverity('version-monitor', snapshot)
 
-        console.log(`📊 [${monitor.platform}:${monitor.base_release}] 심각도: ${severity}, CFR: ${snapshot.cumulative.crashFreeRate}%, 크래시: ${snapshot.cumulative.totalCrashes}건`)
+        console.log(`📊 [${monitor.platform}:${monitor.base_release}] 심각도: ${severity}, 크래시: ${snapshot.cumulative.totalCrashes}건${reasons.length > 0 ? `, 원인: ${reasons.join(', ')}` : ''}`)
 
         // 심각도에 따라 메시지 빌드
         let blocks
         if (severity === 'critical') {
-          blocks = platformSlackService.buildCriticalVersionMonitorMessage(snapshot)
+          blocks = await platformSlackService.buildCriticalVersionMonitorMessage(snapshot)
         } else if (severity === 'warning') {
-          blocks = platformSlackService.buildWarningVersionMonitorMessage(snapshot)
+          blocks = await platformSlackService.buildWarningVersionMonitorMessage(snapshot)
         } else {
           blocks = platformSlackService.buildNormalVersionMonitorMessage(snapshot)
         }
