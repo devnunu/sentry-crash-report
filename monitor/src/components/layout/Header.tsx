@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   AppShell,
@@ -27,19 +26,7 @@ interface HeaderProps {
 }
 
 export function Header({ opened, toggle }: HeaderProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [selectedPlatform, setSelectedPlatform] = useState<string>(
-    searchParams.get('platform') || 'all'
-  );
-
-  const handlePlatformChange = (value: string) => {
-    setSelectedPlatform(value);
-    const url = new URL(window.location.href);
-    url.searchParams.set('platform', value);
-    router.push(url.pathname + url.search);
-  };
+  const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
 
   return (
     <AppShell.Header>
@@ -66,7 +53,7 @@ export function Header({ opened, toggle }: HeaderProps) {
           {/* 플랫폼 선택기 */}
           <SegmentedControl
             value={selectedPlatform}
-            onChange={handlePlatformChange}
+            onChange={setSelectedPlatform}
             data={[
               { label: '전체', value: 'all' },
               {
