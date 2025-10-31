@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { formatKST, formatRelativeTime } from '@/lib/utils';
 import type { MonitorSession, Platform, MonitorHistory } from '@/lib/types';
 import AlertRulesSummary from '@/components/AlertRulesSummary';
@@ -10,9 +11,11 @@ import {
   Badge,
   Button,
   Card,
+  Center,
   Container,
   Divider,
   Group,
+  Loader,
   Modal,
   Pagination,
   Paper,
@@ -254,6 +257,8 @@ function formatDateTime(dateStr?: string): string {
 // ========== 메인 컴포넌트 ==========
 
 export default function MonitorPage() {
+  const router = useRouter();
+
   // 상태 관리
   const [monitors, setMonitors] = useState<MonitorWithHistory[]>([]);
   const [loading, setLoading] = useState(false);
@@ -565,7 +570,22 @@ export default function MonitorPage() {
 
         <Divider />
 
+        {/* 로딩 */}
+        {loading && (
+          <Center py="xl">
+            <Loader size="lg" />
+          </Center>
+        )}
+
+        {/* 에러 */}
+        {error && (
+          <Alert icon={<IconInfoCircle />} color="red" title="오류">
+            {error}
+          </Alert>
+        )}
+
         {/* ========== Section 2: 진행 중인 모니터링 ========== */}
+        {!loading && !error && (
         <Paper p="xl" radius="md" withBorder>
           <Group mb="md">
             <IconRadar size={24} />
@@ -666,7 +686,7 @@ export default function MonitorPage() {
                         size="sm"
                         variant="light"
                         leftSection={<IconChartBar size={16} />}
-                        onClick={() => openHistoryModal(monitor.id)}
+                        onClick={() => router.push(`/monitor/version/${monitor.id}`)}
                       >
                         상세 보기
                       </Button>
@@ -697,8 +717,10 @@ export default function MonitorPage() {
             </Stack>
           )}
         </Paper>
+        )}
 
         {/* ========== Section 3: 최근 모니터링 히스토리 ========== */}
+        {!loading && !error && (
         <Paper p="xl" radius="md" withBorder>
           <Group mb="md">
             <IconHistory size={24} />
@@ -745,7 +767,7 @@ export default function MonitorPage() {
                       size="sm"
                       variant="light"
                       leftSection={<IconChartBar size={16} />}
-                      onClick={() => openHistoryModal(monitor.id)}
+                      onClick={() => router.push(`/monitor/version/${monitor.id}`)}
                     >
                       상세 보기
                     </Button>
@@ -766,13 +788,16 @@ export default function MonitorPage() {
             </Stack>
           )}
         </Paper>
+        )}
 
         {/* 도움말 */}
+        {!loading && !error && (
         <Text size="xs" c="dimmed">
-          💡 <strong>참고:</strong> 모니터링은 Vercel Cron을 통해 자동 실행되며,
+          💡 <strong>참고:</strong> 모니터링은 QStash를 통해 자동 실행되며,
           level:[error,fatal] 이벤트만 수집합니다.
           실행 결과는 설정된 Slack 채널로 전송됩니다.
         </Text>
+        )}
       </Stack>
 
       {/* ========== 새 모니터링 시작 모달 (단일 모달) ========== */}

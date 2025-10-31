@@ -127,6 +127,42 @@ export class DatabaseService {
   async stopMonitorSession(id: string): Promise<MonitorSession> {
     return this.updateMonitorSession(id, { status: 'stopped' })
   }
+
+  // 모니터 상태 업데이트
+  async updateMonitorStatus(id: string, status: MonitorStatus): Promise<void> {
+    const { error } = await this.ensureSupabaseAdmin()
+      .from('monitor_sessions')
+      .update({ status })
+      .eq('id', id)
+
+    if (error) {
+      throw new Error(`Failed to update monitor status: ${error.message}`)
+    }
+  }
+
+  // 모니터 메타데이터 업데이트
+  async updateMonitorMetadata(id: string, metadata: any): Promise<void> {
+    const { error } = await this.ensureSupabaseAdmin()
+      .from('monitor_sessions')
+      .update({ metadata })
+      .eq('id', id)
+
+    if (error) {
+      throw new Error(`Failed to update monitor metadata: ${error.message}`)
+    }
+  }
+
+  // 모니터 QStash 스케줄 ID 업데이트
+  async updateMonitorQStashScheduleId(id: string, scheduleId: string): Promise<void> {
+    const { error } = await this.ensureSupabaseAdmin()
+      .from('monitor_sessions')
+      .update({ qstash_schedule_id: scheduleId })
+      .eq('id', id)
+
+    if (error) {
+      throw new Error(`Failed to update monitor QStash schedule ID: ${error.message}`)
+    }
+  }
   
   // 만료된 모니터 정리
   async cleanupExpiredMonitors(): Promise<number> {
