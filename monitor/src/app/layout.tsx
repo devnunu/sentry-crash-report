@@ -2,7 +2,7 @@ import '@mantine/core/styles.css'
 import '@mantine/notifications/styles.css'
 import './globals.css'
 import Providers from './providers'
-import DashboardShell from '@/components/DashboardShell'
+import { AppLayout } from '@/components/layout/AppLayout'
 import type React from 'react'
 import { ColorSchemeScript } from '@mantine/core'
 
@@ -19,9 +19,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body suppressHydrationWarning>
         <Providers>
-          <DashboardShell>
+          <AppLayout>
             {children}
-          </DashboardShell>
+          </AppLayout>
         </Providers>
       </body>
     </html>

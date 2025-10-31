@@ -10,9 +10,9 @@
   },
   "dependencies": {
     "@mantine/charts": "^8.3.6",
-    "@mantine/core": "^8.3.1",
-    "@mantine/hooks": "^8.3.1",
-    "@mantine/notifications": "^8.3.1",
+    "@mantine/core": "^8.3.6",
+    "@mantine/hooks": "^8.3.6",
+    "@mantine/notifications": "^8.3.6",
     "@supabase/supabase-js": "^2.57.4",
     "@tabler/icons-react": "^3.35.0",
     "@upstash/qstash": "^2.8.2",
