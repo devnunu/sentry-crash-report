@@ -448,11 +448,11 @@ export class SentryService {
   ): Promise<WindowAggregation> {
     const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
     const projectId = await this.resolveProjectId()
-    
+
     const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
       'level:[error,fatal]',
-      `release:${releaseVersion}`,
+      releaseVersion ? `release:${releaseVersion}` : '',
       environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
     
@@ -496,11 +496,11 @@ export class SentryService {
   ): Promise<TopIssue[]> {
     const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
     const projectId = await this.resolveProjectId()
-    
+
     const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
       'level:[error,fatal]',
-      `release:${releaseVersion}`,
+      releaseVersion ? `release:${releaseVersion}` : '',
       environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
     
@@ -556,7 +556,7 @@ export class SentryService {
     const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
       'level:[error,fatal]',
-      `release:${releaseVersion}`,
+      releaseVersion ? `release:${releaseVersion}` : '',
       environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
 
@@ -588,13 +588,18 @@ export class SentryService {
 
     try {
       // sessions:crash_free_rate 조회
+      const queryParts = [
+        releaseVersion ? `release:${releaseVersion}` : '',
+        environment ? `environment:${environment}` : ''
+      ].filter(Boolean).join(' ')
+
       const params = {
         field: ['crash_free_rate(user)', 'crash_free_rate(session)'],
-        groupBy: ['release'],
+        groupBy: releaseVersion ? ['release'] : [],
         project: projectId,
         start: startTime.toISOString(),
         end: endTime.toISOString(),
-        query: `release:${releaseVersion}${environment ? ` environment:${environment}` : ''}`,
+        query: queryParts || undefined,
         statsPeriod: '14d',
         interval: '1d'
       }
@@ -605,10 +610,14 @@ export class SentryService {
       )
 
       // 응답 파싱 (Sentry stats API 응답 구조에 따라 조정 필요)
-      if (response.groups && response.groups.length > 0) {
-        const group = response.groups[0]
-        let crashFreeRate = group.totals?.['crash_free_rate(user)'] ?? 99.9
-        let crashFreeSessionRate = group.totals?.['crash_free_rate(session)'] ?? 99.9
+      // groupBy가 있으면 response.groups[0].totals에서, 없으면 response.totals에서 가져오기
+      const totals = response.groups && response.groups.length > 0
+        ? response.groups[0].totals
+        : response.totals
+
+      if (totals) {
+        let crashFreeRate = totals?.['crash_free_rate(user)'] ?? 99.9
+        let crashFreeSessionRate = totals?.['crash_free_rate(session)'] ?? 99.9
 
         // Sentry API가 0-1 범위로 반환하는 경우 100을 곱함 (0.999 -> 99.9%)
         // 1보다 작거나 같으면 0-1 범위로 판단
@@ -663,7 +672,7 @@ export class SentryService {
     const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
       'level:[error,fatal]',
-      `release:${releaseVersion}`,
+      releaseVersion ? `release:${releaseVersion}` : '',
       environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
 
@@ -723,7 +732,7 @@ export class SentryService {
     const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
     const query = [
       'level:[error,fatal]',
-      `release:${releaseVersion}`,
+      releaseVersion ? `release:${releaseVersion}` : '',
       environment ? `environment:${environment}` : ''
     ].filter(Boolean).join(' ')
 
