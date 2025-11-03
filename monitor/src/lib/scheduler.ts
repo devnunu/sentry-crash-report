@@ -37,7 +37,9 @@ export class SchedulerService {
     const lastExecuted = new Date(lastExecutedAt)
     const minutesElapsed = Math.floor((now.getTime() - lastExecuted.getTime()) / (1000 * 60))
 
-    return minutesElapsed >= customIntervalMinutes
+    // 실행 시간을 고려하여 1분 여유를 둠
+    const requiredInterval = Math.max(1, customIntervalMinutes - 1)
+    return minutesElapsed >= requiredInterval
   }
 
   /**
@@ -57,10 +59,10 @@ export class SchedulerService {
     
     const lastExecuted = new Date(lastExecutedAt)
     const minutesElapsed = Math.floor((now.getTime() - lastExecuted.getTime()) / (1000 * 60))
-    
-    // 1시간 간격으로 통일
-    const requiredInterval = 60
-    
+
+    // 1시간 간격으로 통일 (QStash cron이 정각에 실행되므로 59분 이상이면 허용)
+    const requiredInterval = 59
+
     return minutesElapsed >= requiredInterval
   }
   
