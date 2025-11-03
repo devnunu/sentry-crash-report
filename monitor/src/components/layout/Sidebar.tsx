@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { AppShell, Stack, Text, NavLink, ScrollArea, Select } from '@mantine/core';
+import { AppShell, Stack, Text, NavLink, ScrollArea } from '@mantine/core';
 import {
   IconRocket,
   IconCalendar,
@@ -23,7 +22,6 @@ import {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [selectedPlatform, setSelectedPlatform] = useState<string>('android');
 
   const navGroups = [
     {
@@ -135,21 +133,6 @@ export function Sidebar() {
 
   return (
     <AppShell.Navbar p="md">
-      {/* 플랫폼 선택 드롭다운 */}
-      <AppShell.Section mb="md">
-        <Select
-          label="플랫폼"
-          placeholder="플랫폼 선택"
-          value={selectedPlatform}
-          onChange={(value) => setSelectedPlatform(value || 'android')}
-          data={[
-            { value: 'android', label: 'Android' },
-            { value: 'ios', label: 'iOS' }
-          ]}
-          leftSection={selectedPlatform === 'android' ? <IconBrandAndroid size={16} /> : <IconBrandApple size={16} />}
-        />
-      </AppShell.Section>
-
       <AppShell.Section grow component={ScrollArea}>
         <Stack gap="lg">
           {navGroups.map((group) => (
@@ -166,7 +149,7 @@ export function Sidebar() {
                         label={item.label}
                         leftSection={item.icon && <item.icon size={18} />}
                         childrenOffset={28}
-                        opened={item.children.some((child) => child.active)}
+                        defaultOpened={item.children.some((child) => child.active)}
                       >
                         {item.children.map((child) => (
                           <NavLink

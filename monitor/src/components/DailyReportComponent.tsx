@@ -1704,7 +1704,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
         ) : (
           <Stack gap="md">
             {pagedIssues.map((issue, index) => (
-              <Card key={issue.id} padding="sm" radius="md" withBorder>
+              <Card key={`${issue.id}-${((issuePage - 1) * PAGE_SIZE) + index}`} padding="sm" radius="md" withBorder>
                 <Group justify="space-between" wrap="nowrap" align="flex-start" gap="md">
                   {/* 왼쪽: 번호 + 제목 + 통계 */}
                   <Stack gap="xs" style={{ flex: 1, minWidth: 0 }}>
