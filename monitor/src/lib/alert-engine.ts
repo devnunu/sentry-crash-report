@@ -34,6 +34,10 @@ export function getMetricValue(data: any, metric: AlertMetric): number {
       }
       return d.fatalIssues || 0;
     },
+    fatal_issues_with_min_events: (d) => {
+      // 이 함수는 params.minEvents가 필요하므로 evaluateCondition에서 직접 처리
+      return 0;
+    },
     change_pct: (d) => Math.abs(d.changePct || d.comparisonPct || 0),
     daily_avg_crashes: (d) => d.dailyAvgCrashes || d.avgCrashesPerDay || 0
   };
@@ -43,6 +47,40 @@ export function getMetricValue(data: any, metric: AlertMetric): number {
 
 // 조건 평가
 export function evaluateCondition(condition: AlertCondition, data: any): boolean {
+  // fatal_issues_with_min_events는 특별 처리
+  if (condition.metric === 'fatal_issues_with_min_events') {
+    const minEvents = condition.params?.minEvents || 10; // 기본값 10
+
+    // topIssues에서 fatal이면서 eventCount >= minEvents인 이슈 개수 계산
+    let fatalIssuesCount = 0;
+
+    if (data.topIssues && Array.isArray(data.topIssues)) {
+      fatalIssuesCount = data.topIssues.filter(
+        (issue: any) => issue.level === 'fatal' && (issue.eventCount || issue.count || 0) >= minEvents
+      ).length;
+    } else if (data.fatalIssues && Array.isArray(data.fatalIssues)) {
+      fatalIssuesCount = data.fatalIssues.filter(
+        (issue: any) => (issue.eventCount || issue.count || 0) >= minEvents
+      ).length;
+    }
+
+    // threshold와 비교
+    switch (condition.operator) {
+      case 'gte':
+        return fatalIssuesCount >= condition.threshold;
+      case 'gt':
+        return fatalIssuesCount > condition.threshold;
+      case 'lte':
+        return fatalIssuesCount <= condition.threshold;
+      case 'lt':
+        return fatalIssuesCount < condition.threshold;
+      case 'eq':
+        return fatalIssuesCount === condition.threshold;
+      default:
+        return false;
+    }
+  }
+
   const value = getMetricValue(data, condition.metric);
   const threshold = condition.threshold;
 
@@ -110,9 +148,27 @@ function getMatchedConditions(rule: AlertRule, data: any): string[] {
     .map((condition) => {
       const metadata = METRIC_METADATA[condition.metric];
       const op = OPERATOR_METADATA[condition.operator];
-      const value = getMetricValue(data, condition.metric);
       const unit = metadata.unit === 'count' ? (metadata.label.includes('이슈') ? '개' : '건') : '%';
 
+      // fatal_issues_with_min_events는 특별 처리
+      if (condition.metric === 'fatal_issues_with_min_events') {
+        const minEvents = condition.params?.minEvents || 10;
+        let fatalIssuesCount = 0;
+
+        if (data.topIssues && Array.isArray(data.topIssues)) {
+          fatalIssuesCount = data.topIssues.filter(
+            (issue: any) => issue.level === 'fatal' && (issue.eventCount || issue.count || 0) >= minEvents
+          ).length;
+        } else if (data.fatalIssues && Array.isArray(data.fatalIssues)) {
+          fatalIssuesCount = data.fatalIssues.filter(
+            (issue: any) => (issue.eventCount || issue.count || 0) >= minEvents
+          ).length;
+        }
+
+        return `${metadata.label} (${minEvents}건 이상) ${op.symbol} ${condition.threshold}${unit} (실제: ${fatalIssuesCount}${unit})`;
+      }
+
+      const value = getMetricValue(data, condition.metric);
       return `${metadata.label} ${op.symbol} ${condition.threshold}${unit} (실제: ${value}${unit})`;
     });
 }
@@ -128,6 +184,12 @@ export function generateRuleDescription(rule: AlertRule): string {
       const metadata = METRIC_METADATA[condition.metric];
       const op = OPERATOR_METADATA[condition.operator];
       const unit = metadata.unit === 'count' ? (metadata.label.includes('이슈') ? '개' : '건') : '%';
+
+      // fatal_issues_with_min_events는 특별 처리
+      if (condition.metric === 'fatal_issues_with_min_events') {
+        const minEvents = condition.params?.minEvents || 10;
+        return `• ${metadata.label} (${minEvents}건 이상) ${op.symbol} ${condition.threshold}${unit}`;
+      }
 
       return `• ${metadata.label} ${op.symbol} ${condition.threshold}${unit}`;
     });

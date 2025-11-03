@@ -67,6 +67,7 @@ export class AlertRulesDb {
           metric: c.metric,
           operator: c.operator,
           threshold: c.threshold,
+          params: c.params || {},
           position: c.position
         })),
       createdAt: rule.created_at,
@@ -112,6 +113,7 @@ export class AlertRulesDb {
         metric: c.metric,
         operator: c.operator,
         threshold: c.threshold,
+        params: c.params || {},
         position: c.position
       })),
       createdAt: rule.created_at,
@@ -131,6 +133,7 @@ export class AlertRulesDb {
       metric: string;
       operator: string;
       threshold: number;
+      params?: Record<string, any>;
       position: number;
     }>;
     createdBy?: string;
@@ -161,6 +164,7 @@ export class AlertRulesDb {
       metric: c.metric,
       operator: c.operator,
       threshold: c.threshold,
+      params: c.params || {},
       position: c.position
     }));
 
@@ -188,6 +192,7 @@ export class AlertRulesDb {
         metric: c.metric,
         operator: c.operator,
         threshold: c.threshold,
+        params: c.params || {},
         position: c.position
       })),
       createdAt: rule.created_at,
@@ -207,6 +212,7 @@ export class AlertRulesDb {
         metric: string;
         operator: string;
         threshold: number;
+        params?: Record<string, any>;
         position: number;
       }>;
     }
@@ -253,6 +259,7 @@ export class AlertRulesDb {
         metric: c.metric,
         operator: c.operator,
         threshold: c.threshold,
+        params: c.params || {},
         position: c.position
       }));
 

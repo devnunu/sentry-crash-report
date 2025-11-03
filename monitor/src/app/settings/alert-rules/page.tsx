@@ -160,6 +160,7 @@ export default function AlertRulesPage() {
             metric: c.metric,
             operator: c.operator,
             threshold: c.threshold,
+            params: c.params || {},
             position: index
           }))
         })
@@ -196,6 +197,7 @@ export default function AlertRulesPage() {
       metric: string;
       operator: string;
       threshold: number;
+      params?: Record<string, any>;
       position: number;
     }>;
   }) => {
@@ -597,6 +599,8 @@ function ConditionEditor({ condition, index, category, onChange, onDelete }: Con
     m.applicableTo.includes(category)
   );
 
+  const isMinEventsMetric = condition.metric === 'fatal_issues_with_min_events';
+
   return (
     <Card withBorder padding="sm">
       <Stack gap="xs">
@@ -632,12 +636,28 @@ function ConditionEditor({ condition, index, category, onChange, onDelete }: Con
 
           {/* Threshold 입력 */}
           <NumberInput
+            label={isMinEventsMetric ? "이슈 개수" : undefined}
             value={condition.threshold}
             onChange={(value) => onChange({ ...condition, threshold: Number(value) })}
             min={0}
             step={1}
           />
         </Group>
+
+        {/* fatal_issues_with_min_events인 경우 추가 파라미터 */}
+        {isMinEventsMetric && (
+          <NumberInput
+            label="최소 이벤트 발생 수 (건)"
+            description="이 건수 이상 발생한 Fatal 이슈만 카운트합니다"
+            value={condition.params?.minEvents || 10}
+            onChange={(value) => onChange({
+              ...condition,
+              params: { ...condition.params, minEvents: Number(value) }
+            })}
+            min={1}
+            step={1}
+          />
+        )}
       </Stack>
     </Card>
   );
@@ -659,6 +679,7 @@ interface RuleCreateModalProps {
       metric: string;
       operator: string;
       threshold: number;
+      params?: Record<string, any>;
       position: number;
     }>;
   }) => void;
@@ -706,6 +727,7 @@ function RuleCreateModal({ category, severity, opened, onClose, onCreate }: Rule
         metric: c.metric,
         operator: c.operator,
         threshold: c.threshold,
+        params: c.params || {},
         position: index
       }))
     });

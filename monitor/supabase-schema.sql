@@ -223,6 +223,76 @@ UPDATE report_settings
 SET slack_days = ARRAY['mon'] 
 WHERE report_type = 'weekly' AND slack_days IS NULL;
 
+-- Alert Rules 테이블
+CREATE TABLE IF NOT EXISTS alert_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  category TEXT NOT NULL CHECK (category IN ('daily', 'weekly', 'version-monitor')),
+  severity TEXT NOT NULL CHECK (severity IN ('warning', 'critical')),
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  condition_operator TEXT NOT NULL DEFAULT 'OR' CHECK (condition_operator IN ('AND', 'OR')),
+  created_by TEXT DEFAULT 'system',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Alert Conditions 테이블
+CREATE TABLE IF NOT EXISTS alert_conditions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  rule_id UUID NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
+  metric TEXT NOT NULL,
+  operator TEXT NOT NULL CHECK (operator IN ('gte', 'gt', 'lte', 'lt', 'eq')),
+  threshold NUMERIC NOT NULL,
+  params JSONB DEFAULT '{}'::jsonb, -- 추가 파라미터 (예: minEvents)
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 인덱스 생성
+CREATE INDEX IF NOT EXISTS idx_alert_rules_category ON alert_rules(category);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON alert_rules(enabled);
+CREATE INDEX IF NOT EXISTS idx_alert_conditions_rule_id ON alert_conditions(rule_id);
+
+-- RLS 정책
+ALTER TABLE alert_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE alert_conditions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow all access to alert_rules" ON alert_rules FOR ALL USING (true);
+CREATE POLICY "Allow all access to alert_conditions" ON alert_conditions FOR ALL USING (true);
+
+-- updated_at 트리거
+CREATE TRIGGER update_alert_rules_updated_at
+  BEFORE UPDATE ON alert_rules
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- 기본 Alert Rules 데이터 삽입
+DO $$
+DECLARE
+  v_critical_rule_id UUID;
+  v_warning_rule_id UUID;
+BEGIN
+  -- Critical 규칙 (version-monitor)
+  INSERT INTO alert_rules (name, category, severity, enabled, condition_operator, created_by)
+  VALUES ('버전 모니터링 긴급 알림', 'version-monitor', 'critical', true, 'OR', 'system')
+  RETURNING id INTO v_critical_rule_id;
+
+  -- Critical 조건들
+  INSERT INTO alert_conditions (rule_id, metric, operator, threshold, position) VALUES
+    (v_critical_rule_id, 'total_crashes', 'gte', 100, 1),
+    (v_critical_rule_id, 'fatal_issues', 'gte', 5, 2);
+
+  -- Warning 규칙 (version-monitor)
+  INSERT INTO alert_rules (name, category, severity, enabled, condition_operator, created_by)
+  VALUES ('버전 모니터링 주의 알림', 'version-monitor', 'warning', true, 'OR', 'system')
+  RETURNING id INTO v_warning_rule_id;
+
+  -- Warning 조건들
+  INSERT INTO alert_conditions (rule_id, metric, operator, threshold, position) VALUES
+    (v_warning_rule_id, 'total_crashes', 'gte', 50, 1),
+    (v_warning_rule_id, 'fatal_issues', 'gte', 3, 2),
+    (v_warning_rule_id, 'unique_issues', 'gte', 10, 3);
+END $$;
+
 -- Sentry 이슈 분석 결과 저장 테이블
 CREATE TABLE IF NOT EXISTS sentry_issue_analyses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -253,6 +323,10 @@ ALTER TABLE sentry_issue_analyses ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all access to sentry_issue_analyses" ON sentry_issue_analyses FOR ALL USING (true);
 
 -- updated_at 트리거
-CREATE TRIGGER update_sentry_issue_analyses_updated_at 
-  BEFORE UPDATE ON sentry_issue_analyses 
+CREATE TRIGGER update_sentry_issue_analyses_updated_at
+  BEFORE UPDATE ON sentry_issue_analyses
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- 기존 alert_conditions 테이블에 params 컬럼 추가 (이미 있으면 무시)
+ALTER TABLE alert_conditions
+  ADD COLUMN IF NOT EXISTS params JSONB DEFAULT '{}'::jsonb;

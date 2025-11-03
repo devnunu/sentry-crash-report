@@ -8,6 +8,7 @@ export type AlertMetric =
   | 'crash_free_session_rate'
   | 'new_issues'
   | 'fatal_issues'
+  | 'fatal_issues_with_min_events' // n개 이상 발생한 fatal 이슈가 m개 이상
   | 'change_pct'
   | 'daily_avg_crashes';
 
@@ -38,6 +39,7 @@ export interface AlertCondition {
   metric: AlertMetric;
   operator: AlertOperator;
   threshold: number;
+  params?: Record<string, any>; // 추가 파라미터 (예: minEvents)
   position: number;
 }
 
@@ -97,6 +99,13 @@ export const METRIC_METADATA: Record<AlertMetric, MetricMetadata> = {
     key: 'fatal_issues',
     label: 'Fatal 이슈',
     description: 'Fatal 레벨 이슈 개수',
+    unit: 'count',
+    applicableTo: ['daily', 'weekly', 'version-monitor']
+  },
+  fatal_issues_with_min_events: {
+    key: 'fatal_issues_with_min_events',
+    label: '높은 발생 빈도 Fatal 이슈',
+    description: '특정 이벤트 수 이상 발생한 Fatal 이슈 개수',
     unit: 'count',
     applicableTo: ['daily', 'weekly', 'version-monitor']
   },
