@@ -1,30 +1,29 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, {useEffect, useMemo, useState} from 'react'
 import {
-  ActionIcon,
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Divider,
-  Group,
-  Modal,
-  NumberInput,
-  Progress,
-  Radio,
-  ScrollArea,
-  Select,
-  Stack,
-  Text,
-  TextInput,
-  Timeline,
-  Title
+    ActionIcon,
+    Alert,
+    Badge,
+    Button,
+    Card,
+    Divider,
+    Group,
+    Modal,
+    NumberInput,
+    Radio,
+    ScrollArea,
+    Select,
+    Stack,
+    Text,
+    TextInput,
+    Timeline,
+    Title
 } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
-import { IconClock, IconFilter, IconInfoCircle, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSearch, IconSquare } from '@tabler/icons-react'
+import {notifications} from '@mantine/notifications'
+import {IconClock, IconFilter, IconInfoCircle, IconPlayerPlay, IconRefresh, IconSearch} from '@tabler/icons-react'
 import Link from 'next/link'
-import type { Platform } from '@/lib/types'
+import type {Platform} from '@/lib/types'
 
 // ===== Data Structures =====
 interface TestMonitor {
@@ -70,37 +69,6 @@ interface ApiResponse<T> {
 }
 
 // ===== Helper Functions =====
-function getNextRunTime(nextRunAt: string): string {
-  const next = new Date(nextRunAt)
-  const now = new Date()
-  const diff = next.getTime() - now.getTime()
-
-  if (diff < 0) return '곧 실행'
-
-  const minutes = Math.floor(diff / 60000)
-  const seconds = Math.floor((diff % 60000) / 1000)
-
-  if (minutes > 0) return `${minutes}분 ${seconds}초 후`
-  return `${seconds}초 후`
-}
-
-function getProgress(runCount: number, expectedRuns: number): number {
-  if (expectedRuns === 0) return 0
-  return Math.min(100, Math.round((runCount / expectedRuns) * 100))
-}
-
-function getNextCheckpoints(runCount: number, expectedRuns: number): string[] {
-  const checkpoints: string[] = []
-  const progress = (runCount / expectedRuns) * 100
-
-  if (progress < 25) checkpoints.push('25% 완료')
-  if (progress < 50) checkpoints.push('50% 완료')
-  if (progress < 75) checkpoints.push('75% 완료')
-  if (progress < 100) checkpoints.push('100% 완료')
-
-  return checkpoints.slice(0, 2)
-}
-
 function getLogIcon(type: TestLog['type']): React.ReactNode {
   switch (type) {
     case 'run':
@@ -218,8 +186,8 @@ export default function MonitorTestPage() {
   const [isSearching, setIsSearching] = useState(false)
 
   // Active tests state
-  const [activeTests, setActiveTests] = useState<TestMonitor[]>([])
-  const [isLoadingActive, setIsLoadingActive] = useState(true)
+  const [, setActiveTests] = useState<TestMonitor[]>([])
+  const [, setIsLoadingActive] = useState(true)
 
   // Logs modal state
   const [logsModalOpened, setLogsModalOpened] = useState(false)
@@ -229,8 +197,8 @@ export default function MonitorTestPage() {
   const [isLoadingLogs, setIsLoadingLogs] = useState(false)
 
   // History state
-  const [history, setHistory] = useState<TestMonitor[]>([])
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [, setHistory] = useState<TestMonitor[]>([])
+  const [, setIsLoadingHistory] = useState(true)
 
   // Platform 변경 시 초기화
   useEffect(() => {

@@ -2,18 +2,18 @@
 
 import React, {useEffect, useRef, useState} from 'react'
 import {
-    Badge,
-    Button,
-    Card,
-    Checkbox,
-    Divider,
-    Group,
-    ScrollArea,
-    Select,
-    Stack,
-    Text,
-    TextInput,
-    Title
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  Divider,
+  Group,
+  ScrollArea,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Title
 } from '@mantine/core'
 import {notifications} from '@mantine/notifications'
 import type {GenerateDailyReportRequest, Platform} from '@/lib/reports/types'
@@ -178,11 +178,13 @@ export default function ReportTestPage() {
               <Stack gap="md">
                 <Select
                   label="대상 플랫폼"
-                  description="리포트를 생성할 플랫폼을 선택하세요"
+                  description={platform === 'all'
+                    ? "Android, iOS 각각 리포트 생성 및 Slack 메시지 발송 (총 2개)"
+                    : "선택한 플랫폼에 대해서만 리포트 생성"}
                   data={[
-                    { value: 'all', label: '🌐 전체 플랫폼' },
-                    { value: 'android', label: '🤖 Android' },
-                    { value: 'ios', label: '🍎 iOS' }
+                    { value: 'all', label: '🌐 전체 플랫폼 (Android + iOS)' },
+                    { value: 'android', label: '🤖 Android만' },
+                    { value: 'ios', label: '🍎 iOS만' }
                   ]}
                   value={platform}
                   onChange={val => setPlatform((val as Platform | 'all') ?? 'all')}
@@ -198,7 +200,9 @@ export default function ReportTestPage() {
                   />
                   <Checkbox
                     label="💬 Slack 전송"
-                    description="완성된 리포트를 Slack으로 전송"
+                    description={platform === 'all' && sendSlack
+                      ? "플랫폼별 메시지 발송 (총 2개)"
+                      : "완성된 리포트를 Slack으로 전송"}
                     checked={sendSlack}
                     onChange={event => setSendSlack(event.currentTarget.checked)}
                     size="md"
@@ -309,7 +313,13 @@ export default function ReportTestPage() {
           <Stack gap="xs">
             <Text size="sm" fw={500} c="blue.6">💡 사용 가이드</Text>
             <Text size="xs" c="dimmed">
-              테스트 모드를 활성화하면 테스트용 Slack 채널로 알림이 전송됩니다. 날짜를 비워두면 기본값(어제)으로 자동 처리됩니다.
+              • 전체 플랫폼 선택 시 Android와 iOS 각각 리포트가 생성되며, Slack 메시지도 플랫폼별로 발송됩니다 (총 2개).
+            </Text>
+            <Text size="xs" c="dimmed">
+              • 테스트 모드를 활성화하면 테스트용 Slack 채널로 알림이 전송됩니다.
+            </Text>
+            <Text size="xs" c="dimmed">
+              • 날짜를 비워두면 기본값(어제)으로 자동 처리됩니다.
             </Text>
           </Stack>
         </Card>
