@@ -435,9 +435,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     })
   }, [dayData])
 
-  const criticalIssues = useMemo(() => {
-    return topIssues.filter(issue => issue.events > 500 || (issue.users && issue.users > 100))
-  }, [topIssues])
 
   // 전체 이슈 목록 - 타겟 일자 기준 이슈만 사용
   const allIssuesWithMetadata = useMemo((): IssueWithMetadata[] => {
@@ -664,14 +661,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     setDateLabel(formatDateLabel(selectedReport?.target_date))
   }, [selectedReport?.target_date])
 
-  const handleOpenDetails = () => {
-    // 섹션으로 스크롤
-    const element = document.querySelector('[data-testid="report-details-section"]')
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }
-
   const toggleSection = (section: 'logs' | 'data' | 'slack' | 'report') => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }))
   }
@@ -739,12 +728,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     setIssueModal({ open: false })
     setIssueError('')
     setIssueAnalysis(null)
-  }
-
-  const handleShowHistory = (issueId: string) => {
-    // 모달 또는 새 창에서 이 이슈의 과거 7일 발생 추이 표시
-    // 현재는 alert로 대체 (추후 구현)
-    alert('히스토리 기능은 추후 구현 예정입니다.')
   }
 
   const triggerLabel = selectedReport?.trigger_type === 'scheduled' ? '🤖 자동 실행' : '🧪 테스트 실행'

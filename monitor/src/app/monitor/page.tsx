@@ -1,44 +1,43 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import { formatKST, formatRelativeTime } from '@/lib/utils';
-import type { MonitorSession, Platform, MonitorHistory } from '@/lib/types';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {useRouter} from 'next/navigation';
+import {formatKST} from '@/lib/utils';
+import type {MonitorHistory, MonitorSession, Platform} from '@/lib/types';
 import AlertRulesSummary from '@/components/AlertRulesSummary';
 import {
-  ActionIcon,
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Center,
-  Container,
-  Divider,
-  Group,
-  Loader,
-  Modal,
-  Pagination,
-  Paper,
-  Progress,
-  Radio,
-  ScrollArea,
-  Select,
-  Stack,
-  Text,
-  TextInput,
-  Timeline,
-  Title
+    ActionIcon,
+    Alert,
+    Badge,
+    Button,
+    Card,
+    Center,
+    Container,
+    Divider,
+    Group,
+    Loader,
+    Modal,
+    Pagination,
+    Paper,
+    Progress,
+    Radio,
+    ScrollArea,
+    Select,
+    Stack,
+    Text,
+    TextInput,
+    Title
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
+import {notifications} from '@mantine/notifications';
 import {
-  IconChartBar,
-  IconHistory,
-  IconInfoCircle,
-  IconPlayerPause,
-  IconPlus,
-  IconRadar,
-  IconSearch,
-  IconTrash
+    IconChartBar,
+    IconHistory,
+    IconInfoCircle,
+    IconPlayerPause,
+    IconPlus,
+    IconRadar,
+    IconSearch,
+    IconTrash
 } from '@tabler/icons-react';
 
 interface ApiResponse<T> {
@@ -285,11 +284,6 @@ export default function MonitorPage() {
   // 액션 로딩
   const [actionLoading, setActionLoading] = useState<string>('');
 
-  // 히스토리 모달 상태
-  const [historyModalOpened, setHistoryModalOpened] = useState(false);
-  const [selectedMonitorId, setSelectedMonitorId] = useState<string | null>(null);
-  const [monitorHistories, setMonitorHistories] = useState<MonitorHistory[]>([]);
-  const [isLoadingHistories, setIsLoadingHistories] = useState(false);
 
   // 플랫폼 변경 시 초기화
   useEffect(() => {
@@ -500,35 +494,6 @@ export default function MonitorPage() {
     }
   };
 
-  // 히스토리 모달 열기
-  const openHistoryModal = async (monitorId: string) => {
-    setSelectedMonitorId(monitorId);
-    setHistoryModalOpened(true);
-    await loadHistories(monitorId);
-  };
-
-  // 히스토리 로드
-  const loadHistories = async (monitorId: string) => {
-    setIsLoadingHistories(true);
-    try {
-      const response = await fetch(`/api/monitor/${monitorId}/history`);
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || '히스토리 조회에 실패했습니다');
-      }
-
-      setMonitorHistories(result.data?.histories || []);
-    } catch (err) {
-      notifications.show({
-        color: 'red',
-        message: err instanceof Error ? err.message : '히스토리 조회 실패'
-      });
-      setMonitorHistories([]);
-    } finally {
-      setIsLoadingHistories(false);
-    }
-  };
 
   // 모니터 분류
   const activeMonitors = monitors
@@ -961,78 +926,6 @@ export default function MonitorPage() {
             </Group>
           </Stack>
         </form>
-      </Modal>
-
-      {/* ========== 히스토리 상세보기 모달 ========== */}
-      <Modal
-        opened={historyModalOpened}
-        onClose={() => setHistoryModalOpened(false)}
-        title={<Text fw={700} size="lg">모니터링 히스토리</Text>}
-        size="xl"
-      >
-        <Stack gap="md">
-          {isLoadingHistories ? (
-            <Text ta="center" c="dimmed" py="xl">
-              히스토리를 불러오는 중...
-            </Text>
-          ) : monitorHistories.length === 0 ? (
-            <Text ta="center" c="dimmed" py="xl">
-              히스토리가 없습니다
-            </Text>
-          ) : (
-            <ScrollArea h={500}>
-              <Timeline active={-1} bulletSize={24} lineWidth={2}>
-                {monitorHistories.map((history, idx) => (
-                  <Timeline.Item
-                    key={history.id}
-                    bullet={
-                      <Text size="xs" fw={700}>
-                        {idx + 1}
-                      </Text>
-                    }
-                    title={
-                      <Group gap="xs">
-                        <Text size="sm" fw={600}>
-                          실행 완료
-                        </Text>
-                        {history.slack_sent && (
-                          <Badge size="xs" color="green">Slack 전송</Badge>
-                        )}
-                      </Group>
-                    }
-                  >
-                    <Text size="xs" c="dimmed" mb="xs">
-                      {formatKST(history.executed_at)}
-                    </Text>
-                    <Stack gap="xs">
-                      <Text size="sm">
-                        📊 크래시: <strong>{history.events_count.toLocaleString()}건</strong>
-                      </Text>
-                      <Text size="sm">
-                        🔍 고유 이슈: <strong>{history.issues_count}개</strong>
-                      </Text>
-                      <Text size="sm">
-                        👥 영향 사용자: <strong>{history.users_count.toLocaleString()}명</strong>
-                      </Text>
-                      {history.top_issues && history.top_issues.length > 0 && (
-                        <div>
-                          <Text size="sm" fw={600} mt="xs" mb={4}>
-                            Top 이슈:
-                          </Text>
-                          {history.top_issues.slice(0, 3).map((issue, issueIdx) => (
-                            <Text key={issueIdx} size="xs" c="dimmed" ml="md">
-                              • {issue.title || '(제목 없음)'} - {issue.events}건
-                            </Text>
-                          ))}
-                        </div>
-                      )}
-                    </Stack>
-                  </Timeline.Item>
-                ))}
-              </Timeline>
-            </ScrollArea>
-          )}
-        </Stack>
       </Modal>
     </Container>
   );

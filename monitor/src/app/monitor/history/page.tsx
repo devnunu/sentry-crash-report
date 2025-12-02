@@ -1,21 +1,32 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import React, {useCallback, useEffect, useState} from 'react'
+import {useRouter} from 'next/navigation'
 import SlackPreview from '@/lib/SlackPreview'
-import { Badge, Button, Card, Group, Modal, Pagination, Select, Stack, Table, Text, Title, useMantineTheme, Alert } from '@mantine/core'
-import { IconFileAnalytics, IconHistory, IconAlertTriangle } from '@tabler/icons-react'
+import {
+    Alert,
+    Badge,
+    Button,
+    Card,
+    Group,
+    Modal,
+    Pagination,
+    Select,
+    Stack,
+    Table,
+    Text,
+    Title,
+    useMantineTheme
+} from '@mantine/core'
+import {IconAlertTriangle, IconFileAnalytics, IconHistory} from '@tabler/icons-react'
 import TableWrapper from '@/components/TableWrapper'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
 import LoadingScreen from '@/components/LoadingScreen'
-import { useMediaQuery } from '@mantine/hooks'
+import {useMediaQuery} from '@mantine/hooks'
 import StatsCards from '@/components/StatsCards'
-import { formatKST, formatExecutionTime } from '@/lib/utils'
-import type { 
-  ReportExecution, 
-  ReportSettings
-} from '@/lib/reports/types'
+import {formatExecutionTime, formatKST} from '@/lib/utils'
+import type {ReportExecution} from '@/lib/reports/types'
 
 interface ApiResponse<T> {
   success: boolean
@@ -45,7 +56,6 @@ export default function ReportHistoryPage() {
   })
   
   // 필터 상태
-  const [reportType, setReportType] = useState<'all' | 'daily' | 'weekly'>('all')
   const [historyPlatform, setHistoryPlatform] = useState<'all' | 'android' | 'ios'>('all')
   
   const theme = useMantineTheme()
@@ -76,59 +86,30 @@ export default function ReportHistoryPage() {
   const fetchReports = useCallback(async () => {
     setLoading(true)
     setError('')
-    
+
     try {
-      let allReports: ReportExecution[] = []
-      
       // 플랫폼 필터 구성
       const platformQuery = historyPlatform === 'all' ? '' : `&platform=${historyPlatform}`
-      
-      // 리포트 타입별로 API 호출 (모든 데이터 가져오기)
-      if (reportType === 'all' || reportType === 'daily') {
-        try {
-          const dailyResponse = await fetch(`/api/reports/daily/history?limit=100${platformQuery}`)
-          const dailyResult: ApiResponse<{ reports: ReportExecution[] }> = await dailyResponse.json()
-          if (dailyResult.success && dailyResult.data) {
-            // 일간 리포트에 타입 정보 추가
-            const dailyReports = dailyResult.data.reports.map(report => ({
-              ...report,
-              report_type: 'daily' as const
-            }))
-            allReports = allReports.concat(dailyReports)
-          }
-        } catch (err) {
-          console.warn('일간 리포트 히스토리 조회 실패:', err)
-        }
+
+      const response = await fetch(`/api/reports/daily/history?limit=100${platformQuery}`)
+      const result: ApiResponse<{ reports: ReportExecution[] }> = await response.json()
+
+      if (result.success && result.data) {
+        // 생성 일시 기준으로 정렬 (최신순)
+        const reports = result.data.reports.sort((a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        setAllReports(reports)
+      } else {
+        setAllReports([])
       }
-      
-      if (reportType === 'all' || reportType === 'weekly') {
-        try {
-          const weeklyResponse = await fetch(`/api/reports/weekly/history?limit=100${platformQuery}`)
-          const weeklyResult: ApiResponse<{ reports: ReportExecution[] }> = await weeklyResponse.json()
-          if (weeklyResult.success && weeklyResult.data) {
-            // 주간 리포트에 타입 정보 추가
-            const weeklyReports = weeklyResult.data.reports.map(report => ({
-              ...report,
-              report_type: 'weekly' as const
-            }))
-            allReports = allReports.concat(weeklyReports)
-          }
-        } catch (err) {
-          console.warn('주간 리포트 히스토리 조회 실패:', err)
-        }
-      }
-      
-      // 생성 일시 기준으로 정렬 (최신순)
-      allReports.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      
-      setAllReports(allReports)
-      
     } catch (err) {
+      console.warn('일간 리포트 히스토리 조회 실패:', err)
       setError(err instanceof Error ? err.message : '알 수 없는 오류')
     } finally {
       setLoading(false)
     }
-  }, [reportType, historyPlatform])
+  }, [historyPlatform])
 
   // 컴포넌트 마운트 시 데이터 로드
   useEffect(() => {
@@ -138,7 +119,7 @@ export default function ReportHistoryPage() {
   // 필터 변경 시 첫 페이지로 이동
   useEffect(() => {
     setCurrentPage(1)
-  }, [reportType, historyPlatform])
+  }, [historyPlatform])
 
   // 페이지 변경 핸들러
   const handlePageChange = (page: number) => {
@@ -155,32 +136,21 @@ export default function ReportHistoryPage() {
   const totalPages = Math.ceil(allReports.length / pageSize)
   const totalCount = allReports.length
 
-  // 결과 보기 - 적절한 리포트 페이지로 이동
+  // 결과 보기 - 일간 리포트 페이지로 이동
   const handleViewReport = (report: ReportExecution) => {
-    const reportTypeFromData = (report as any).report_type
-    const reportType = reportTypeFromData || 'daily' // 기본값은 daily
-    const platform = report.platform || 'android' // 기본값은 android
+    const platform = report.platform || 'android'
     const targetDate = report.target_date
-    
+
     // 쿼리 파라미터로 날짜 전달
     const searchParams = new URLSearchParams()
     if (targetDate) {
       searchParams.set('date', targetDate)
     }
-    
+
     const queryString = searchParams.toString()
     const queryPath = queryString ? `?${queryString}` : ''
-    
-    if (reportType === 'daily') {
-      // 일간 리포트 페이지로 이동
-      router.push(`/monitor/daily/${platform}${queryPath}`)
-    } else if (reportType === 'weekly') {
-      // 주간 리포트 페이지로 이동
-      router.push(`/monitor/weekly/${platform}${queryPath}`)
-    } else {
-      // 일간 리포트를 기본값으로
-      router.push(`/monitor/daily/${platform}${queryPath}`)
-    }
+
+    router.push(`/monitor/daily/${platform}${queryPath}`)
   }
 
   // 섹션 토글
@@ -194,16 +164,11 @@ export default function ReportHistoryPage() {
   // Slack 메시지 렌더링
   const renderSlackMessage = (reportData: any) => {
     if (!reportData) return '리포트 데이터가 없습니다.'
-    
+
     try {
-      const isWeekly = selectedReport?.target_date?.includes('W') || selectedReport?.start_date
-      const period = isWeekly 
-        ? (selectedReport?.target_date 
-          ? `${selectedReport.target_date} 주차`
-          : `${selectedReport?.start_date} ~ ${selectedReport?.end_date}`)
-        : selectedReport?.target_date
-        
-      let message = `${isWeekly ? '📈' : '📊'} *${isWeekly ? '주간' : '일간'} 크래시 리포트 - ${period}*\n\n`
+      const period = selectedReport?.target_date
+
+      let message = `📊 *일간 크래시 리포트 - ${period}*\n\n`
       
       // 데이터 구조 디버깅을 위한 로그
       console.log('Report Data Structure:', reportData)
@@ -356,22 +321,10 @@ export default function ReportHistoryPage() {
         
         <Group gap={12} align="center" justify="flex-end" mb="md">
             <Select
-              placeholder="리포트 타입"
-              data={[
-                { value: 'all', label: '전체' }, 
-                { value: 'daily', label: '일간 리포트' }, 
-                { value: 'weekly', label: '주간 리포트' }
-              ]}
-              value={reportType}
-              onChange={(val) => setReportType((val as any) ?? 'all')}
-              allowDeselect={false}
-              w={160}
-            />
-            <Select
               placeholder="플랫폼"
               data={[
-                { value: 'all', label: '전체' }, 
-                { value: 'android', label: 'Android' }, 
+                { value: 'all', label: '전체' },
+                { value: 'android', label: 'Android' },
                 { value: 'ios', label: 'iOS' }
               ]}
               value={historyPlatform}
@@ -397,7 +350,6 @@ export default function ReportHistoryPage() {
                 <Table highlightOnHover withColumnBorders verticalSpacing="xs" stickyHeader stickyHeaderOffset={0}>
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>리포트 타입</Table.Th>
                       <Table.Th>분석 날짜</Table.Th>
                       <Table.Th>플랫폼</Table.Th>
                       <Table.Th>상태</Table.Th>
@@ -409,24 +361,20 @@ export default function ReportHistoryPage() {
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {paginatedReports.map((report) => {
-                      const reportTypeText = (report as any).report_type === 'daily' ? '일간' : '주간'
-                      return (
-                        <Table.Tr key={report.id}>
-                          <Table.Td>{reportTypeText}</Table.Td>
-                          <Table.Td>{toKstDate(report.target_date)}</Table.Td>
-                          <Table.Td>{report.platform ? report.platform.toUpperCase() : '-'}</Table.Td>
-                          <Table.Td><StatusBadge kind="report" status={report.status} /></Table.Td>
-                          <Table.Td>{getTriggerBadge(report.trigger_type)}</Table.Td>
-                          <Table.Td>{formatExecutionTime(report.execution_time_ms)}</Table.Td>
-                          <Table.Td>{report.slack_sent ? '✅' : '❌'}</Table.Td>
-                          <Table.Td>{formatKST(report.created_at)}</Table.Td>
-                          <Table.Td style={{ textAlign: 'right' }}>
-                            <Button size="xs" variant="light" onClick={() => handleViewReport(report)}>결과 보기</Button>
-                          </Table.Td>
-                        </Table.Tr>
-                      )
-                    })}
+                    {paginatedReports.map((report) => (
+                      <Table.Tr key={report.id}>
+                        <Table.Td>{toKstDate(report.target_date)}</Table.Td>
+                        <Table.Td>{report.platform ? report.platform.toUpperCase() : '-'}</Table.Td>
+                        <Table.Td><StatusBadge kind="report" status={report.status} /></Table.Td>
+                        <Table.Td>{getTriggerBadge(report.trigger_type)}</Table.Td>
+                        <Table.Td>{formatExecutionTime(report.execution_time_ms)}</Table.Td>
+                        <Table.Td>{report.slack_sent ? '✅' : '❌'}</Table.Td>
+                        <Table.Td>{formatKST(report.created_at)}</Table.Td>
+                        <Table.Td style={{ textAlign: 'right' }}>
+                          <Button size="xs" variant="light" onClick={() => handleViewReport(report)}>결과 보기</Button>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
                   </Table.Tbody>
                 </Table>
               </TableWrapper>
@@ -435,33 +383,28 @@ export default function ReportHistoryPage() {
           {/* 모바일 카드 */}
           {isMobile && (
           <div className="mobile-cards" style={{ marginTop: 16 }}>
-            {paginatedReports.map((report) => {
-              const reportTypeText = (report as any).report_type === 'daily' ? '일간' : '주간'
-              return (
-                <Card key={report.id} withBorder radius="md" p="md" style={{ marginBottom: 12 }}>
-                  <Group justify="space-between" align="center" mb={8}>
-                    <StatusBadge kind="report" status={report.status} />
-                    <Button size="xs" variant="light" onClick={() => handleViewReport(report)}>결과 보기</Button>
-                  </Group>
-                  <Stack gap={6}>
-                    <Text size="xs" c="dimmed">리포트 타입</Text>
-                    <Text size="sm">{reportTypeText}</Text>
-                    <Text size="xs" c="dimmed">분석 날짜</Text>
-                    <Text size="sm">{toKstDate(report.target_date)}</Text>
-                    <Text size="xs" c="dimmed">플랫폼</Text>
-                    <Text size="sm">{report.platform ? report.platform.toUpperCase() : '-'}</Text>
-                    <Text size="xs" c="dimmed">실행 방식</Text>
-                    <div>{getTriggerBadge(report.trigger_type)}</div>
-                    <Text size="xs" c="dimmed">실행 시간</Text>
-                    <Text size="sm">{formatExecutionTime(report.execution_time_ms)}</Text>
-                    <Text size="xs" c="dimmed">Slack 전송</Text>
-                    <Text size="sm">{report.slack_sent ? '✅ 성공' : '❌ 실패'}</Text>
-                    <Text size="xs" c="dimmed">생성 일시</Text>
-                    <Text size="sm">{formatKST(report.created_at)}</Text>
-                  </Stack>
-                </Card>
-              )
-            })}
+            {paginatedReports.map((report) => (
+              <Card key={report.id} withBorder radius="md" p="md" style={{ marginBottom: 12 }}>
+                <Group justify="space-between" align="center" mb={8}>
+                  <StatusBadge kind="report" status={report.status} />
+                  <Button size="xs" variant="light" onClick={() => handleViewReport(report)}>결과 보기</Button>
+                </Group>
+                <Stack gap={6}>
+                  <Text size="xs" c="dimmed">분석 날짜</Text>
+                  <Text size="sm">{toKstDate(report.target_date)}</Text>
+                  <Text size="xs" c="dimmed">플랫폼</Text>
+                  <Text size="sm">{report.platform ? report.platform.toUpperCase() : '-'}</Text>
+                  <Text size="xs" c="dimmed">실행 방식</Text>
+                  <div>{getTriggerBadge(report.trigger_type)}</div>
+                  <Text size="xs" c="dimmed">실행 시간</Text>
+                  <Text size="sm">{formatExecutionTime(report.execution_time_ms)}</Text>
+                  <Text size="xs" c="dimmed">Slack 전송</Text>
+                  <Text size="sm">{report.slack_sent ? '✅ 성공' : '❌ 실패'}</Text>
+                  <Text size="xs" c="dimmed">생성 일시</Text>
+                  <Text size="sm">{formatKST(report.created_at)}</Text>
+                </Stack>
+              </Card>
+            ))}
           </div>
           )}
           </>
