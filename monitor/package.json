@@ -13,6 +13,8 @@
     "@mantine/core": "^8.3.6",
     "@mantine/hooks": "^8.3.6",
     "@mantine/notifications": "^8.3.6",
+    "@modelcontextprotocol/sdk": "^1.23.0",
+    "@sentry/mcp-server": "^0.23.1",
     "@supabase/supabase-js": "^2.57.4",
     "@tabler/icons-react": "^3.35.0",
     "@upstash/qstash": "^2.8.2",

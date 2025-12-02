@@ -1,189 +1,192 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
-import { parseIssueInput, fetchSentryIssueData } from '@/lib/sentry-api'
-import { performAIAnalysis, type Platform } from '@/lib/ai-analysis'
-import { createClient } from '@supabase/supabase-js'
+import {NextRequest, NextResponse} from 'next/server'
+import {createApiError, createApiResponse, getErrorMessage} from '@/lib/utils'
+import {fetchSentryIssueData, parseIssueInput} from '@/lib/sentry-api'
+import {performAIAnalysis} from '@/lib/ai-analysis'
+import {
+    detectPlatform,
+    getExistingAnalysis,
+    type Platform,
+    saveAnalysisToDb,
+    type SentryIssueData
+} from '@/lib/sentry-analysis-utils'
+import {
+    type DetailedAnalysis,
+    generateDetailedAnalysis,
+    type IssueAnalysis,
+    type SentryIssueDetail
+} from '@/lib/sentry-issue-analyzer'
 
-interface SentryIssueInput {
-  input: string // 사용자 입력 (다양한 형식)
-  forceNewAnalysis?: boolean // 새로 분석 강제 실행 옵션
+interface AnalyzeRequest {
+  input: string // 이슈 ID, Short ID, 또는 Sentry URL
+  platform?: Platform // 명시적 플랫폼 지정 (선택)
+  forceNewAnalysis?: boolean // 캐시 무시하고 새로 분석
+  includeDetailedAnalysis?: boolean // 상세 분석 포함 (Stack Trace, Breadcrumbs 등)
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseKey)
-
-// 프로젝트 슬러그나 이슈 정보에서 플랫폼 추정
-function detectPlatformFromIssueData(issueData: any, projectSlug?: string): Platform {
-  // 1. 프로젝트 슬러그에서 플랫폼 추정
-  if (projectSlug) {
-    const slug = projectSlug.toLowerCase()
-    if (slug.includes('ios') || slug.includes('iphone') || slug.includes('ipad')) {
-      return 'ios'
-    }
-    if (slug.includes('android')) {
-      return 'android'
-    }
-    if (slug.includes('web') || slug.includes('webapp') || slug.includes('frontend')) {
-      return 'web'
-    }
-    if (slug.includes('backend') || slug.includes('api') || slug.includes('server')) {
-      return 'backend'
-    }
-  }
-
-  // 2. 이슈 데이터에서 플랫폼 추정
-  if (issueData?.sentryUrl) {
-    const url = issueData.sentryUrl.toLowerCase()
-    if (url.includes('finda-ios')) return 'ios'
-    if (url.includes('finda-android')) return 'android'
-    if (url.includes('finda-web')) return 'web'
-    if (url.includes('finda-backend') || url.includes('finda-api')) return 'backend'
-  }
-
-  // 3. 이슈 제목에서 플랫폼 추정
-  if (issueData?.title) {
-    const title = issueData.title.toLowerCase()
-    if (title.includes('android') || title.includes('kotlin') || title.includes('java')) {
-      return 'android'
-    }
-    if (title.includes('ios') || title.includes('swift')) {
-      return 'ios'
-    }
-  }
-
-  // 4. 기본값은 Android (에러 메시지가 Java/Gson 관련이므로)
-  return 'android'
+interface AnalyzeResponse {
+  issueInfo: SentryIssueData
+  analysis: unknown
+  detailedAnalysis?: DetailedAnalysis
+  source: 'cache' | 'openai'
 }
 
-
-
-// DB에서 기존 분석 결과 조회
-async function getExistingAnalysis(issueId: string) {
-  try {
-    const { data, error } = await supabase
-      .from('sentry_issue_analyses')
-      .select('*')
-      .eq('issue_id', issueId)
-      .single()
-    
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // No rows found
-        return null
-      }
-      throw error
-    }
-    
-    return {
-      issueInfo: {
-        issueId: data.issue_id,
-        shortId: data.issue_short_id,
-        title: data.issue_title,
-        level: data.issue_level,
-        status: data.issue_status,
-        eventCount: data.event_count,
-        userCount: data.user_count,
-        firstSeen: data.first_seen,
-        lastSeen: data.last_seen,
-        sentryUrl: data.sentry_url
-      },
-      analysis: data.ai_analysis
-    }
-  } catch (error) {
-    console.error('[DB] Failed to get existing analysis:', error)
-    return null
-  }
-}
-
-// DB에 분석 결과 저장 (모니터링 API와 동일한 구조)
-async function saveAnalysisResult(issueData: any, analysis: any, isNewAnalysis: boolean = false) {
-  try {
-    const analysisVersion = isNewAnalysis ? 'v2_enhanced_manual_new' : 'v2_enhanced_manual'
-    
-    const { error } = await supabase
-      .from('sentry_issue_analyses')
-      .upsert({
-        issue_id: issueData.issueId,
-        issue_short_id: issueData.shortId,
-        sentry_url: issueData.sentryUrl,
-        issue_title: issueData.title,
-        issue_level: issueData.level,
-        issue_status: issueData.status,
-        event_count: issueData.eventCount,
-        user_count: issueData.userCount,
-        first_seen: issueData.firstSeen,
-        last_seen: issueData.lastSeen,
-        ai_analysis: analysis,
-        analysis_version: analysisVersion,
-        is_monitored: false, // 수동 분석임을 표시
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'issue_id'
-      })
-    
-    if (error) {
-      throw error
-    }
-    
-    console.log(`[DB] Analysis saved successfully for issue: ${issueData.issueId} (${analysisVersion})`)
-  } catch (error) {
-    console.error('[DB] Failed to save analysis:', error)
-    // Don't throw error - analysis can still be returned even if saving fails
-  }
-}
-
+/**
+ * POST /api/sentry/analyze
+ *
+ * Sentry 이슈를 AI로 분석합니다.
+ *
+ * Request Body:
+ * - input: 이슈 ID, Short ID, 또는 Sentry URL (필수)
+ * - platform: 'ios' | 'android' | 'web' | 'backend' (선택, 자동 감지)
+ * - forceNewAnalysis: 캐시 무시하고 새로 분석 (선택, 기본 false)
+ * - includeDetailedAnalysis: 상세 분석 포함 (선택, 기본 false)
+ *
+ * Response:
+ * - issueInfo: Sentry 이슈 정보
+ * - analysis: AI 분석 결과
+ * - detailedAnalysis: 상세 분석 (includeDetailedAnalysis=true 시)
+ * - source: 'cache' | 'openai'
+ */
 export async function POST(request: NextRequest) {
   try {
-    const body: SentryIssueInput = await request.json()
-    
+    const body: AnalyzeRequest = await request.json()
+
     if (!body.input?.trim()) {
       return NextResponse.json(
-        createApiError('이슈 ID를 입력해주세요'),
+        createApiError('이슈 ID 또는 URL을 입력해주세요'),
         { status: 400 }
       )
     }
-    
-    console.log('[API] Analyzing Sentry issue:', body.input)
-    
+
+    console.log('[Analyze] Starting analysis:', body.input)
+
     // 1. 입력값 파싱
     const parsedInput = parseIssueInput(body.input)
-    
-    // 2. 기존 분석 결과 확인 (새로 분석 옵션이 false인 경우에만)
+
+    // 2. 캐시 확인 (forceNewAnalysis가 false인 경우)
     if (!body.forceNewAnalysis) {
-      const existingAnalysis = await getExistingAnalysis(parsedInput.issueId)
-      if (existingAnalysis) {
-        console.log('[API] Returning cached analysis for issue:', parsedInput.issueId)
-        return NextResponse.json(createApiResponse(existingAnalysis))
+      const cached = await getExistingAnalysis(parsedInput.issueId)
+      if (cached) {
+        console.log('[Analyze] Returning cached analysis for:', parsedInput.issueId)
+
+        const response: AnalyzeResponse = {
+          issueInfo: cached.issueInfo,
+          analysis: cached.analysis,
+          source: 'cache'
+        }
+
+        return NextResponse.json(createApiResponse(response))
       }
     } else {
-      console.log('[API] Force new analysis requested for issue:', parsedInput.issueId)
+      console.log('[Analyze] Force new analysis requested')
     }
-    
+
     // 3. Sentry에서 이슈 정보 가져오기
     const issueData = await fetchSentryIssueData(parsedInput.issueId, parsedInput.shortId)
-    
-    // 4. 플랫폼 감지
-    const detectedPlatform = detectPlatformFromIssueData(issueData, parsedInput.projectSlug)
-    console.log(`[API] Detected platform: ${detectedPlatform} for issue: ${parsedInput.issueId}`)
-    
-    // 5. AI 분석 수행 (플랫폼 정보 포함)
-    const analysis = await performAIAnalysis(issueData, detectedPlatform)
-    
-    // 6. 결과 DB에 저장
-    await saveAnalysisResult(issueData, analysis, body.forceNewAnalysis || false)
-    
-    // 7. 결과 반환
-    const result = {
-      issueInfo: issueData,
-      analysis
+
+    // 4. 플랫폼 감지 (공통 함수 사용)
+    const platform = detectPlatform(issueData, parsedInput.projectSlug, body.platform)
+    console.log(`[Analyze] Platform: ${platform}`)
+
+    // 5. AI 분석 수행
+    console.log('[Analyze] Calling OpenAI API...')
+    const analysis = await performAIAnalysis(issueData, platform)
+
+    // 6. 상세 분석 (옵션)
+    let detailedAnalysis: DetailedAnalysis | undefined
+    if (body.includeDetailedAnalysis) {
+      console.log('[Analyze] Generating detailed analysis...')
+
+      // 기본 분석을 IssueAnalysis 형식으로 변환
+      const basicAnalysis: IssueAnalysis = {
+        severity: analysis.severity.toLowerCase() as 'high' | 'medium' | 'low',
+        category: analysis.category,
+        rootCause: analysis.rootCause,
+        solution: analysis.solutions.immediate.join('\n')
+      }
+
+      const issueDetail: SentryIssueDetail = {
+        id: issueData.issueId,
+        shortId: issueData.shortId || '',
+        title: issueData.title,
+        level: issueData.level,
+        status: issueData.status,
+        count: issueData.eventCount,
+        userCount: issueData.userCount,
+        firstSeen: issueData.firstSeen,
+        lastSeen: issueData.lastSeen,
+        culprit: issueData.culprit,
+        permalink: issueData.sentryUrl
+      }
+
+      detailedAnalysis = await generateDetailedAnalysis(
+        parsedInput.issueId,
+        basicAnalysis,
+        issueDetail
+      )
     }
-    
-    return NextResponse.json(createApiResponse(result))
-    
+
+    // 7. 결과 DB에 저장 (공통 함수 사용)
+    await saveAnalysisToDb(issueData, analysis, {
+      source: body.forceNewAnalysis ? 'manual' : 'openai',
+      isMonitored: false
+    })
+
+    // 8. 결과 반환
+    const response: AnalyzeResponse = {
+      issueInfo: issueData,
+      analysis,
+      detailedAnalysis,
+      source: 'openai'
+    }
+
+    console.log('[Analyze] Analysis complete')
+    return NextResponse.json(createApiResponse(response))
+
   } catch (error) {
-    console.error('[API] Failed to analyze Sentry issue:', error)
-    
+    console.error('[Analyze] Failed:', error)
+
+    return NextResponse.json(
+      createApiError(getErrorMessage(error)),
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * GET /api/sentry/analyze?issueId=xxx
+ *
+ * 이슈의 기존 분석 결과를 조회합니다.
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const issueId = searchParams.get('issueId')
+
+    if (!issueId) {
+      return NextResponse.json(
+        createApiError('issueId 파라미터가 필요합니다'),
+        { status: 400 }
+      )
+    }
+
+    const cached = await getExistingAnalysis(issueId)
+
+    if (!cached) {
+      return NextResponse.json(
+        createApiError('분석 결과가 없습니다. POST 요청으로 분석을 수행해주세요.'),
+        { status: 404 }
+      )
+    }
+
+    return NextResponse.json(createApiResponse({
+      ...cached,
+      source: 'cache' as const
+    }))
+
+  } catch (error) {
+    console.error('[Analyze] GET failed:', error)
+
     return NextResponse.json(
       createApiError(getErrorMessage(error)),
       { status: 500 }

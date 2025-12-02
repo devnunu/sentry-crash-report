@@ -15,7 +15,10 @@
       "Bash(if [ -f .env.local ])",
       "Bash(then grep -E \"^(DATABASE_URL|POSTGRES_)\" .env.local)",
       "Bash(else echo \"No .env.local found\")",
-      "Bash(fi)"
+      "Bash(fi)",
+      "Bash(tree:*)",
+      "WebFetch(domain:github.com)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []

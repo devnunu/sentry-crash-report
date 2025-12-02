@@ -1,8 +1,11 @@
-import { createSentryService } from './sentry'
-import { createSlackService } from './slack'
-import { db } from './database'
-import { SchedulerService } from './scheduler'
-import type { MonitorSession, WindowAggregation, TopIssue, VersionMonitorSnapshot } from './types'
+import {createSentryHybridService} from './sentry-hybrid'
+import {createSlackService} from './slack'
+import {db} from './database'
+import {SchedulerService} from './scheduler'
+import type {MonitorSession, TopIssue, VersionMonitorSnapshot, WindowAggregation} from './types'
+
+// Sentry 서비스 생성 함수 (MCP + HTTP Hybrid)
+const createSentryService = createSentryHybridService
 
 export interface MonitorExecutionResult {
   monitorId: string
