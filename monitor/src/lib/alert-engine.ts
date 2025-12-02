@@ -144,6 +144,13 @@ function getMatchedConditions(rule: AlertRule, data: any): string[] {
     .map((condition) => {
       const metadata = METRIC_METADATA[condition.metric];
       const op = OPERATOR_METADATA[condition.operator];
+
+      // 알 수 없는 metric인 경우 기본값 사용
+      if (!metadata) {
+        const value = getMetricValue(data, condition.metric);
+        return `${condition.metric} ${op?.symbol || '?'} ${condition.threshold} (실제: ${value})`;
+      }
+
       const unit = metadata.unit === 'count' ? (metadata.label.includes('이슈') ? '개' : '건') : '%';
 
       // fatal_issues_with_min_events는 특별 처리
@@ -179,6 +186,12 @@ export function generateRuleDescription(rule: AlertRule): string {
     .map((condition) => {
       const metadata = METRIC_METADATA[condition.metric];
       const op = OPERATOR_METADATA[condition.operator];
+
+      // 알 수 없는 metric인 경우 기본값 사용
+      if (!metadata) {
+        return `• ${condition.metric} ${op?.symbol || '?'} ${condition.threshold}`;
+      }
+
       const unit = metadata.unit === 'count' ? (metadata.label.includes('이슈') ? '개' : '건') : '%';
 
       // fatal_issues_with_min_events는 특별 처리

@@ -1,6 +1,6 @@
 'use client'
 
-import React, {useEffect, useMemo, useState} from 'react'
+import React, {useEffect, useState} from 'react'
 import {Alert, Badge, Button, Card, Grid, Group, SegmentedControl, Stack, Text, Title} from '@mantine/core'
 import {
   IconAlertTriangle,
@@ -15,7 +15,6 @@ import {
   IconUsers
 } from '@tabler/icons-react'
 import Link from 'next/link'
-import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts'
 import LoadingScreen from '@/components/LoadingScreen'
 
 interface DashboardData {
@@ -64,25 +63,6 @@ interface ApiResponse<T> {
   error?: string
 }
 
-interface TrendData {
-  date: string
-  android: {
-    events: number
-    issues: number
-    users: number
-  }
-  ios: {
-    events: number
-    issues: number
-    users: number
-  }
-  total: {
-    events: number
-    issues: number
-    users: number
-  }
-}
-
 interface PlatformDashboardProps {
   platform: 'android' | 'ios'
 }
@@ -92,16 +72,6 @@ const formatNumber = (num: number) => {
     return `${(num / 1000).toFixed(1)}k`
   }
   return num.toString()
-}
-
-const getSeverityColor = (severity: string) => {
-  switch (severity) {
-    case 'critical': return 'red'
-    case 'high': return 'orange'
-    case 'medium': return 'yellow'
-    case 'low': return 'gray'
-    default: return 'gray'
-  }
 }
 
 const getTrendIcon = (trend: string, size = 16) => {
@@ -116,43 +86,35 @@ const getPlatformConfig = (platform: 'android' | 'ios') => {
   if (platform === 'android') {
     return {
       title: 'Android 대시보드',
-      description: 'Android 플랫폼 크래시 모니터링 및 이슈 추이 분석',
+      description: 'Android 플랫폼 크래시 모니터링',
       icon: <IconBrandAndroid size={32} color="green" />,
       color: 'green',
       gradient: 'linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%)',
       borderColor: 'rgba(34, 197, 94, 0.2)',
       dailyRoute: '/monitor/daily/android',
-      chartColor: 'var(--mantine-color-green-6)',
-      ringColor: 'green',
-      eventsColor: 'blue.6'
+      ringColor: 'green'
     }
   } else {
     return {
       title: 'iOS 대시보드',
-      description: 'iOS 플랫폼 크래시 모니터링 및 이슈 추이 분석',
+      description: 'iOS 플랫폼 크래시 모니터링',
       icon: <IconBrandApple size={32} color="blue" />,
       color: 'blue',
       gradient: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 51, 234, 0.05) 100%)',
       borderColor: 'rgba(59, 130, 246, 0.2)',
       dailyRoute: '/monitor/daily/ios',
-      chartColor: 'var(--mantine-color-blue-6)',
-      ringColor: 'blue',
-      eventsColor: 'teal.6'
+      ringColor: 'blue'
     }
   }
 }
 
 export default function PlatformDashboard({ platform }: PlatformDashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null)
-  const [trendData, setTrendData] = useState<TrendData[]>([])
   const [periodSummary, setPeriodSummary] = useState<PeriodSummary | null>(null)
   const [loading, setLoading] = useState(true)
-  const [trendLoading, setTrendLoading] = useState(true)
-  const [summaryLoading, setSummaryLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState(new Date())
-  const [trendDays, setTrendDays] = useState<'7' | '14' | '30'>('7')
-  const [chartMetric, setChartMetric] = useState<'events' | 'issues' | 'users'>('events')
+  const [periodDays, setPeriodDays] = useState<'7' | '14' | '30'>('7')
 
   const config = getPlatformConfig(platform)
 
@@ -161,11 +123,11 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
       setError(null)
       const response = await fetch(`/api/dashboard/overview?platform=${platform}`)
       const result: ApiResponse<DashboardData> = await response.json()
-      
+
       if (!result.success || !result.data) {
         throw new Error(result.error || 'Failed to fetch dashboard data')
       }
-      
+
       setData(result.data)
       setLastRefresh(new Date())
     } catch (err) {
@@ -177,116 +139,43 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
     }
   }
 
-  const fetchTrendData = async () => {
-    try {
-      setTrendLoading(true)
-      const response = await fetch(`/api/dashboard/trends?days=${trendDays}&platform=${platform}`)
-      const result: ApiResponse<TrendData[]> = await response.json()
-      
-      if (!result.success || !result.data) {
-        throw new Error(result.error || 'Failed to fetch trend data')
-      }
-      
-      setTrendData(result.data)
-    } catch (err) {
-      console.error('Failed to fetch trend data:', err)
-    } finally {
-      setTrendLoading(false)
-    }
-  }
-
   const fetchPeriodSummary = async () => {
     try {
-      setSummaryLoading(true)
-      const response = await fetch(`/api/dashboard/period-summary?days=${trendDays}&platform=${platform}`)
+      const response = await fetch(`/api/dashboard/period-summary?days=${periodDays}&platform=${platform}`)
       const result: ApiResponse<PeriodSummary> = await response.json()
-      
+
       if (!result.success || !result.data) {
         throw new Error(result.error || 'Failed to fetch period summary')
       }
-      
+
       setPeriodSummary(result.data)
     } catch (err) {
       console.error('Failed to fetch period summary:', err)
-      generateSummaryFromTrendData()
-    } finally {
-      setSummaryLoading(false)
     }
-  }
-
-  const generateSummaryFromTrendData = () => {
-    if (trendData.length === 0) return
-
-    const platformData = trendData.map(d => d[platform])
-    const platformDataWithReports = trendData.filter(d => d[platform].events > 0 || d[platform].issues > 0 || d[platform].users > 0)
-
-    if (platformDataWithReports.length === 0) return
-
-    const totalEvents = platformData.reduce((sum, d) => sum + d.events, 0)
-    const totalIssues = platformData.reduce((sum, d) => sum + d.issues, 0)
-    const totalUsers = platformData.reduce((sum, d) => sum + d.users, 0)
-
-    const missingDates = trendData
-      .filter(d => d[platform].events === 0 && d[platform].issues === 0 && d[platform].users === 0)
-      .map(d => d.date)
-
-    const firstDate = trendData[0]?.date
-    const lastDate = trendData[trendData.length - 1]?.date
-    const dateRange = firstDate && lastDate ? `${firstDate} ~ ${lastDate}` : ''
-
-    setPeriodSummary({
-      totalEvents,
-      totalIssues,
-      criticalIssues: 0,
-      affectedUsers: totalUsers,
-      dateRange,
-      reportCount: trendData.length,
-      actualReportCount: platformDataWithReports.length,
-      missingDates
-    })
   }
 
   const handleRefresh = async () => {
     setLoading(true)
-    await Promise.all([fetchDashboardData(), fetchTrendData(), fetchPeriodSummary()])
+    await Promise.all([fetchDashboardData(), fetchPeriodSummary()])
   }
 
   useEffect(() => {
     fetchDashboardData()
-    fetchTrendData()
     fetchPeriodSummary()
   }, [])
 
   useEffect(() => {
-    fetchTrendData()
     fetchPeriodSummary()
-  }, [trendDays])
-
-  useEffect(() => {
-    if (trendData.length > 0 && !periodSummary) {
-      generateSummaryFromTrendData()
-    }
-  }, [trendData, periodSummary])
+  }, [periodDays])
 
   useEffect(() => {
     const interval = setInterval(() => {
       fetchDashboardData()
-      fetchTrendData()
       fetchPeriodSummary()
     }, 5 * 60 * 1000)
 
     return () => clearInterval(interval)
-  }, [trendDays])
-
-  const chartData = useMemo(() => {
-    return trendData
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .map(item => ({
-        date: new Date(item.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
-        fullDate: item.date,
-        [platform === 'android' ? 'Android' : 'iOS']: item[platform][chartMetric]
-      }))
-  }, [trendData, chartMetric, platform])
+  }, [periodDays])
 
   const criticalIssuesCount = data?.recentIssues.filter(issue => issue.severity === 'critical').length || 0
   const platformInfo = data?.platforms.find(p => p.platform === platform)
@@ -387,8 +276,8 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           </div>
           <Group gap="md" align="center" style={{ minWidth: '200px', justifyContent: 'flex-end' }}>
             <SegmentedControl
-              value={trendDays}
-              onChange={(value) => setTrendDays(value as typeof trendDays)}
+              value={periodDays}
+              onChange={(value) => setPeriodDays(value as typeof periodDays)}
               data={[
                 { label: '7일', value: '7' },
                 { label: '14일', value: '14' },
@@ -405,9 +294,9 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
 
       {/* Critical Alerts */}
       {criticalIssuesCount > 0 && (
-        <Alert 
-          icon={<IconAlertTriangle size={16} />} 
-          color="red" 
+        <Alert
+          icon={<IconAlertTriangle size={16} />}
+          color="red"
           variant="light"
           mb="lg"
         >
@@ -415,11 +304,11 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
             <Text fw={600}>
               🚨 {platform.toUpperCase()} Critical 이슈: {criticalIssuesCount}개의 긴급 처리가 필요한 이슈가 발견되었습니다
             </Text>
-            <Button 
-              component={Link} 
-              href={config.dailyRoute} 
-              size="xs" 
-              color="red" 
+            <Button
+              component={Link}
+              href={config.dailyRoute}
+              size="xs"
+              color="red"
               variant="light"
             >
               즉시 확인
@@ -429,16 +318,16 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
       )}
 
       {/* Platform Metrics */}
-      <Card withBorder radius="lg" p="xl" mb="lg" style={{ 
-        background: config.gradient, 
-        borderColor: config.borderColor 
+      <Card withBorder radius="lg" p="xl" mb="lg" style={{
+        background: config.gradient,
+        borderColor: config.borderColor
       }}>
         <Group justify="space-between" align="center" mb="lg">
           <div>
             <Title order={3} c={`${config.color}.6`}>🎯 기간별 현황</Title>
             <Text size="xs" c="dimmed" mt={4}>
-              {periodSummary ? 
-                `기간별 집계 데이터 (${periodSummary.actualReportCount}개 리포트)` : 
+              {periodSummary ?
+                `기간별 집계 데이터 (${periodSummary.actualReportCount}개 리포트)` :
                 '데이터 수집 중'
               }
             </Text>
@@ -447,7 +336,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
             {periodSummary ? '기간 집계' : '리포트 기반'}
           </Badge>
         </Group>
-        
+
         <Grid>
           <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
             <Card withBorder p="md" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)', minHeight: '100px' }}>
@@ -505,9 +394,9 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
 
       {/* 리포트 누락 일자 알림 */}
       {periodSummary && periodSummary.missingDates.length > 0 && (
-        <Alert 
-          icon={<IconAlertTriangle size={16} />} 
-          color="orange" 
+        <Alert
+          icon={<IconAlertTriangle size={16} />}
+          color="orange"
           variant="light"
           mb="lg"
         >
@@ -519,84 +408,6 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           </Text>
         </Alert>
       )}
-
-      {/* Trend Chart */}
-      <Card withBorder radius="lg" p="lg" mb="lg">
-        <Group justify="space-between" align="center" mb="lg">
-          <Group gap="md">
-            <IconChartLine size={20} color={config.chartColor} />
-            <div>
-              <Title order={4}>이슈 발생 트렌드</Title>
-              <Text size="xs" c="dimmed" mt={2}>
-                생성된 일간 리포트 데이터 기반 ({trendDays}일간)
-              </Text>
-            </div>
-          </Group>
-          <Group gap="md">
-            <SegmentedControl
-              value={chartMetric}
-              onChange={(value) => setChartMetric(value as typeof chartMetric)}
-              data={[
-                { label: '이벤트', value: 'events' },
-                { label: '이슈', value: 'issues' },
-                { label: '사용자', value: 'users' }
-              ]}
-              size="xs"
-            />
-          </Group>
-        </Group>
-
-        {trendLoading ? (
-          <Group justify="center" align="center" style={{ height: '300px' }}>
-            <Text c="dimmed">차트 데이터 로딩 중...</Text>
-          </Group>
-        ) : chartData.length === 0 ? (
-          <Group justify="center" align="center" style={{ height: '300px' }}>
-            <Stack align="center" gap="sm">
-              <Text c="dimmed">표시할 트렌드 데이터가 없습니다</Text>
-              <Text size="xs" c="dimmed">
-                {platform.toUpperCase()} 일간 리포트가 생성되지 않았거나 데이터가 없습니다
-              </Text>
-            </Stack>
-          </Group>
-        ) : (
-          <div style={{ height: '300px', width: '100%' }}>
-            <ResponsiveContainer>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-3)" />
-                <XAxis
-                  dataKey="date"
-                  stroke="var(--mantine-color-gray-6)"
-                  fontSize={12}
-                />
-                <YAxis
-                  stroke="var(--mantine-color-gray-6)"
-                  fontSize={12}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--mantine-color-dark-7)',
-                    border: '1px solid var(--mantine-color-gray-4)',
-                    borderRadius: '8px'
-                  }}
-                  formatter={(value: number) => [value.toLocaleString(), platform.toUpperCase()]}
-                  labelFormatter={(label) => `날짜: ${label}`}
-                />
-                <Line
-                  type="monotone"
-                  dataKey={platform === 'android' ? 'Android' : 'iOS'}
-                  stroke={config.chartColor}
-                  strokeWidth={3}
-                  dot={{ fill: config.chartColor, strokeWidth: 2, r: 4 }}
-                  activeDot={{ r: 6, stroke: config.chartColor, strokeWidth: 2 }}
-                  name={platform.toUpperCase()}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-        
-      </Card>
 
       {/* Critical 이슈 섹션 */}
       <Card withBorder p="lg" mt="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.02)' }}>
@@ -619,7 +430,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           <Stack gap="xs">
             {data?.recentIssues
               .filter(issue => issue.severity === 'critical')
-              .map((issue, index) => (
+              .map((issue) => (
                 <Card key={issue.id} withBorder p="md" style={{ backgroundColor: 'rgba(255, 255, 255, 0.5)' }}>
                   <Group justify="space-between" align="flex-start">
                     <div style={{ flex: 1 }}>
@@ -641,9 +452,9 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
                       </Group>
                     </div>
                     <div>
-                      <Badge 
-                        color="red" 
-                        variant="filled" 
+                      <Badge
+                        color="red"
+                        variant="filled"
                         size="sm"
                         leftSection={<IconAlertTriangle size={12} />}
                       >
