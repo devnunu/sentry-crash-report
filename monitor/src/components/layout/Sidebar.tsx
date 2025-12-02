@@ -4,18 +4,18 @@ import {usePathname} from 'next/navigation';
 import Link from 'next/link';
 import {AppShell, NavLink, ScrollArea, Stack, Text} from '@mantine/core';
 import {
-    IconBell,
-    IconBrandAndroid,
-    IconBrandApple,
-    IconCalendar,
-    IconClock,
-    IconFileAnalytics,
-    IconHistory,
-    IconPlaystationTriangle,
-    IconRobot,
-    IconRocket,
-    IconSearch,
-    IconVariable
+  IconBell,
+  IconBrandAndroid,
+  IconBrandApple,
+  IconCalendar,
+  IconClock,
+  IconFileAnalytics,
+  IconHistory,
+  IconPlaystationTriangle,
+  IconRobot,
+  IconRocket,
+  IconSearch,
+  IconVariable
 } from '@tabler/icons-react';
 
 export function Sidebar() {
@@ -23,7 +23,7 @@ export function Sidebar() {
 
   const navGroups = [
     {
-      label: '모니터링',
+      label: '기능',
       items: [
         {
           label: '버전별 모니터링',
@@ -32,22 +32,11 @@ export function Sidebar() {
           active: pathname === '/monitor'
         },
         {
-          label: '리포트 실행 내역',
-          icon: IconHistory,
-          href: '/monitor/history',
-          active: pathname.startsWith('/monitor/history')
-        },
-        {
           label: 'Sentry 이슈 분석',
           icon: IconSearch,
           href: '/monitor/sentry-analysis',
           active: pathname.startsWith('/monitor/sentry-analysis')
-        }
-      ]
-    },
-    {
-      label: '리포트',
-      items: [
+        },
         {
           label: '일간 리포트',
           icon: IconCalendar,
@@ -69,8 +58,14 @@ export function Sidebar() {
       ]
     },
     {
-      label: '설정',
+      label: '관리',
       items: [
+        {
+          label: '리포트 실행 내역',
+          icon: IconHistory,
+          href: '/monitor/history',
+          active: pathname.startsWith('/monitor/history')
+        },
         {
           label: '테스트 실행',
           icon: IconPlaystationTriangle,
