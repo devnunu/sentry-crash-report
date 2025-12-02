@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { qstashService } from '@/lib/qstash-client'
-import { reportsDb } from '@/lib/reports/database'
+import {NextRequest, NextResponse} from 'next/server'
+import {qstashService} from '@/lib/qstash-client'
+import {reportsDb} from '@/lib/reports/database'
 
 export const runtime = 'nodejs'
 
@@ -44,9 +44,6 @@ export async function POST(request: NextRequest) {
     if (qstashJobId?.includes('daily-report')) {
       console.log('[QStash Webhook] Processing daily report')
       return await processDailyReport()
-    } else if (qstashJobId?.includes('weekly-report')) {
-      console.log('[QStash Webhook] Processing weekly report')  
-      return await processWeeklyReport()
     } else if (qstashJobId?.includes('monitor-tick') || qstashJobId?.includes('test-monitor')) {
       console.log('[QStash Webhook] Processing monitor tick')
       return await processMonitorTick(monitorId, isTestMode, customInterval)
@@ -140,68 +137,6 @@ async function processDailyReport() {
 
       if (retryCount >= maxRetries) {
         throw new Error(`Daily report failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      }
-
-      // 재시도 전 대기
-      await new Promise(resolve => setTimeout(resolve, retryDelay))
-    }
-  }
-}
-
-async function processWeeklyReport() {
-  let retryCount = 0
-  const maxRetries = 3
-  const retryDelay = 5000 // 5초
-
-  while (retryCount < maxRetries) {
-    try {
-      // Fetch settings to apply AI/test flags
-      const settings = await reportsDb.getReportSettings('weekly')
-      const includeAI = settings?.ai_enabled ?? true
-      const isTestMode = settings?.is_test_mode ?? false
-
-      // 현재 요일 확인 (KST 기준)
-      const now = new Date()
-      const kstOffset = 9 * 60 // KST는 UTC+9
-      const kstDate = new Date(now.getTime() + kstOffset * 60 * 1000)
-      const dayOfWeek = kstDate.getUTCDay() // 0=일요일, 1=월요일, ...
-      const dayMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-      const todayKey = dayMap[dayOfWeek]
-
-      // slack_days에 오늘이 포함되는지 확인
-      const slackDays = settings?.slack_days || []
-      const shouldSendSlack = retryCount === 0 && slackDays.includes(todayKey)
-
-      console.log(`[QStash Webhook] Weekly report - Today: ${todayKey}, Slack days: ${slackDays.join(',')}, Send Slack: ${shouldSendSlack}`)
-
-      // Run for both platforms
-      const baseUrl = getBaseUrl()
-      const platforms: Array<'android' | 'ios'> = ['android', 'ios']
-
-      for (const platform of platforms) {
-        console.log(`[QStash Webhook] Triggering weekly generate for ${platform} -> ${baseUrl}/api/reports/weekly/generate`)
-        const response = await fetch(`${baseUrl}/api/reports/weekly/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Trigger-Type': 'scheduled' },
-          // 첫 시도 && 오늘이 slack_days에 포함된 경우에만 Slack 전송
-          body: JSON.stringify({ sendSlack: shouldSendSlack, includeAI, isTestMode, platform }),
-          signal: AbortSignal.timeout(120000)
-        })
-        if (!response.ok) {
-          const text = await response.text().catch(() => '')
-          throw new Error(`Weekly report API failed for ${platform}: ${response.status} ${text?.slice(0,200)}`)
-        }
-        await response.json()
-      }
-
-      console.log('[QStash Webhook] Weekly report completed successfully')
-      return NextResponse.json({ success: true, type: 'weekly-report', result: { platforms: ['android','ios'] }, attempts: retryCount + 1 })
-    } catch (error) {
-      retryCount++
-      console.error(`[QStash Webhook] Weekly report failed (attempt ${retryCount}):`, error)
-
-      if (retryCount >= maxRetries) {
-        throw new Error(`Weekly report failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
 
       // 재시도 전 대기

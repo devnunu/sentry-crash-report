@@ -1,4 +1,4 @@
-import { Client, Receiver } from '@upstash/qstash'
+import {Client, Receiver} from '@upstash/qstash'
 
 // 로컬 개발용 스케줄러 인터페이스
 interface LocalScheduler {
@@ -335,10 +335,9 @@ export class QStashService {
   }
 
   // 리포트별 스케줄 ID 생성
-  getJobId(reportType: 'daily' | 'weekly' | 'monitor', suffix?: string): string {
+  getJobId(reportType: 'daily' | 'monitor', suffix?: string): string {
     // Align IDs with webhook expectations
     // - daily => sentry-daily-report
-    // - weekly => sentry-weekly-report
     // - monitor => sentry-monitor-tick (instead of previous "monitor-report")
     const base = reportType === 'monitor' ? 'sentry-monitor-tick' : `sentry-${reportType}-report`
     return suffix ? `${base}-${suffix}` : base

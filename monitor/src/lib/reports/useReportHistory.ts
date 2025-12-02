@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { Platform } from '@/lib/types'
-import type { ReportExecution } from './types'
+import {useCallback, useEffect, useState} from 'react'
+import type {Platform} from '@/lib/types'
+import type {ReportExecution} from './types'
 
-type ReportType = 'daily' | 'weekly'
+type ReportType = 'daily'
 
 type HistoryResponse = {
   success: boolean

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { reportsDb } from '@/lib/reports/database'
-import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
-import { getLatestEventIdForIssue, getEventDetails } from '@/lib/sentry-issues'
+import {NextRequest, NextResponse} from 'next/server'
+import {reportsDb} from '@/lib/reports/database'
+import {createApiError, createApiResponse} from '@/lib/utils'
+import {getEventDetails, getLatestEventIdForIssue} from '@/lib/sentry-issues'
 import OpenAI from 'openai'
 
 function hashPrompt(s: string) {
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ iss
     const { issueId } = await context.params
     const { searchParams } = new URL(request.url)
     const platform = searchParams.get('platform') as 'android'|'ios'
-    const reportType = searchParams.get('type') as 'daily'|'weekly'
+    const reportType = searchParams.get('type') as 'daily'
     const dateKey = searchParams.get('dateKey') as string
     if (!platform || !reportType || !dateKey) {
       return NextResponse.json(createApiError('platform, type, dateKey required'), { status: 400 })
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ is
     const { issueId } = await context.params
     const body = await request.json().catch(() => ({}))
     const platform = body.platform as 'android'|'ios'
-    const reportType = body.type as 'daily'|'weekly'
+    const reportType = body.type as 'daily'
     const dateKey = body.dateKey as string
     const force = !!body.force
     if (!platform || !reportType || !dateKey) {

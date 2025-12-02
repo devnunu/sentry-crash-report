@@ -1,7 +1,7 @@
 import {NextRequest, NextResponse} from 'next/server'
 import {reportsDb} from '@/lib/reports/database'
 import {createApiError, createApiResponse, getErrorMessage} from '@/lib/utils'
-import type {DailyReportData, ReportExecution, WeeklyReportData} from '@/lib/reports/types'
+import type {DailyReportData, ReportExecution} from '@/lib/reports/types'
 
 interface TrendData {
   date: string
@@ -52,20 +52,6 @@ function extractMetricsFromReport(report: ReportExecution): {
 
       const result = { events, issues, users }
       console.log(`[extractMetrics] Extracted metrics:`, result)
-      return result
-    }
-  } else if (report.report_type === 'weekly') {
-    const weeklyData = data as WeeklyReportData
-    const thisWeek = weeklyData.this_week
-    console.log(`[extractMetrics] Weekly this_week:`, thisWeek)
-
-    if (thisWeek) {
-      const result = {
-        events: thisWeek.events || 0,
-        issues: thisWeek.issues || 0,
-        users: thisWeek.users || 0
-      }
-      console.log(`[extractMetrics] Extracted weekly metrics:`, result)
       return result
     }
   }

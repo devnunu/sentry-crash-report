@@ -16,7 +16,7 @@ class DevCronService {
     const dailyTask = cron.schedule('* * * * *', async () => {
       try {
         console.log('⏰ [DEV CRON] Triggering daily report via QStash webhook simulation...')
-        
+
         const response = await fetch('http://localhost:3000/api/qstash/webhook', {
           method: 'POST',
           headers: {
@@ -30,7 +30,7 @@ class DevCronService {
         })
 
         const result = await response.json()
-        
+
         if (result.success) {
           console.log(`✅ [DEV CRON] Daily report executed: ${result.type}`)
         } else {
@@ -38,37 +38,6 @@ class DevCronService {
         }
       } catch (error) {
         console.error('❌ [DEV CRON] Daily report API call failed:', error)
-      }
-    }, {
-      scheduled: false // 수동으로 시작
-    })
-
-    // 주간 리포트 스케줄 (매분 실행) - QStash webhook 시뮬레이션
-    const weeklyTask = cron.schedule('* * * * *', async () => {
-      try {
-        console.log('⏰ [DEV CRON] Triggering weekly report via QStash webhook simulation...')
-        
-        const response = await fetch('http://localhost:3000/api/qstash/webhook', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'upstash-signature': 'dev-signature' // 개발 환경용 더미 서명
-          },
-          body: JSON.stringify({
-            qstashJobId: 'sentry-weekly-report',
-            triggeredBy: 'dev-cron'
-          })
-        })
-
-        const result = await response.json()
-        
-        if (result.success) {
-          console.log(`✅ [DEV CRON] Weekly report executed: ${result.type}`)
-        } else {
-          console.error(`❌ [DEV CRON] Weekly report failed: ${result.error}`)
-        }
-      } catch (error) {
-        console.error('❌ [DEV CRON] Weekly report API call failed:', error)
       }
     }, {
       scheduled: false // 수동으로 시작
@@ -105,14 +74,13 @@ class DevCronService {
       scheduled: false // 수동으로 시작
     })
 
-    this.tasks = [dailyTask, weeklyTask, monitorTask]
-    
+    this.tasks = [dailyTask, monitorTask]
+
     // 모든 태스크 시작
     this.tasks.forEach(task => task.start())
-    
+
     console.log(`✅ Development cron service started with ${this.tasks.length} tasks`)
     console.log('   - Daily report: Every minute (QStash webhook simulation)')
-    console.log('   - Weekly report: Every minute (QStash webhook simulation)') 
     console.log('   - Monitor tick: Every hour (QStash webhook simulation)')
   }
 
@@ -166,28 +134,6 @@ class DevCronService {
     }
   }
 
-  async triggerWeekly() {
-    console.log('🔧 [MANUAL TRIGGER] Triggering weekly report...')
-    try {
-      const response = await fetch('http://localhost:3000/api/qstash/webhook', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'upstash-signature': 'dev-signature'
-        },
-        body: JSON.stringify({
-          qstashJobId: 'sentry-weekly-report',
-          triggeredBy: 'manual-dev'
-        })
-      })
-      const result = await response.json()
-      console.log('🔧 [MANUAL TRIGGER] Weekly result:', result)
-      return result
-    } catch (error) {
-      console.error('🔧 [MANUAL TRIGGER] Weekly error:', error)
-      throw error
-    }
-  }
 }
 
 // 싱글톤 인스턴스

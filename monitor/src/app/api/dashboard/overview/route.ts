@@ -1,7 +1,7 @@
 import {NextRequest, NextResponse} from 'next/server'
 import {reportsDb} from '@/lib/reports/database'
 import {createApiError, createApiResponse, getErrorMessage} from '@/lib/utils'
-import type {DailyReportData, ReportExecution, WeeklyReportData} from '@/lib/reports/types'
+import type {DailyReportData, ReportExecution} from '@/lib/reports/types'
 
 interface DashboardMetrics {
   overall: {
@@ -61,25 +61,6 @@ function extractMetricsFromReport(report: ReportExecution): {
       const topIssues = dayData.top_5_issues || dayData.top5_events || []
       const criticalIssues = topIssues.filter((issue: any) =>
         (issue.events || issue.event_count || 0) > 100 || (issue.users || issue.user_count || 0) > 50
-      )
-
-      return { events, issues, users, criticalIssues }
-    }
-  } else if (report.report_type === 'weekly') {
-    const weeklyData = data as WeeklyReportData
-    const thisWeek = weeklyData.this_week
-
-    if (thisWeek) {
-      const events = thisWeek.events || 0
-      const issues = thisWeek.issues || 0
-      const users = thisWeek.users || 0
-
-      // Top 이슈와 surge 이슈에서 critical 찾기
-      const topIssues = weeklyData.top5_events || []
-      const surgeIssues = weeklyData.surge_issues || []
-      const allIssues = [...topIssues, ...surgeIssues]
-      const criticalIssues = allIssues.filter((issue: any) =>
-        (issue.events || issue.event_count || 0) > 200 || (issue.users || 0) > 100
       )
 
       return { events, issues, users, criticalIssues }
@@ -196,14 +177,10 @@ export async function GET(request: NextRequest) {
     if ((!platform || platform === 'android') && androidLatest && androidLatest.result_data) {
       const data = androidLatest.result_data as any
       let issues: any[] = []
-      
-      if (androidLatest.report_type === 'daily') {
-        const dayKey = Object.keys(data).find(key => key !== 'slack_blocks')
-        if (dayKey && data[dayKey]?.top5_events) {
-          issues = data[dayKey].top5_events
-        }
-      } else if (androidLatest.report_type === 'weekly') {
-        issues = [...(data.top5_events || []), ...(data.surge_issues || [])]
+
+      const dayKey = Object.keys(data).find(key => key !== 'slack_blocks')
+      if (dayKey && data[dayKey]?.top5_events) {
+        issues = data[dayKey].top5_events
       }
 
       issues.slice(0, 5).forEach((issue, idx) => {
@@ -226,14 +203,10 @@ export async function GET(request: NextRequest) {
     if ((!platform || platform === 'ios') && iosLatest && iosLatest.result_data) {
       const data = iosLatest.result_data as any
       let issues: any[] = []
-      
-      if (iosLatest.report_type === 'daily') {
-        const dayKey = Object.keys(data).find(key => key !== 'slack_blocks')
-        if (dayKey && data[dayKey]?.top5_events) {
-          issues = data[dayKey].top5_events
-        }
-      } else if (iosLatest.report_type === 'weekly') {
-        issues = [...(data.top5_events || []), ...(data.surge_issues || [])]
+
+      const dayKey = Object.keys(data).find(key => key !== 'slack_blocks')
+      if (dayKey && data[dayKey]?.top5_events) {
+        issues = data[dayKey].top5_events
       }
 
       issues.slice(0, 5).forEach((issue, idx) => {

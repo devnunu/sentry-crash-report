@@ -1,5 +1,5 @@
-import { supabaseAdmin } from '../supabase'
-import type { ReportExecution, ReportSettings } from './types'
+import {supabaseAdmin} from '../supabase'
+import type {ReportExecution, ReportSettings} from './types'
 
 export class ReportsDatabaseService {
   
@@ -13,7 +13,7 @@ export class ReportsDatabaseService {
   async getIssueAnalysis(
     platform: 'android' | 'ios',
     issueId: string,
-    reportType: 'daily' | 'weekly',
+    reportType: 'daily',
     dateKey: string
   ): Promise<any | null> {
     const { data, error } = await this.ensureSupabaseAdmin()
@@ -34,7 +34,7 @@ export class ReportsDatabaseService {
   async upsertIssueAnalysis(
     platform: 'android' | 'ios',
     issueId: string,
-    reportType: 'daily' | 'weekly',
+    reportType: 'daily',
     dateKey: string,
     analysis: any,
     promptDigest?: string
@@ -57,7 +57,7 @@ export class ReportsDatabaseService {
   
   // 리포트 실행 기록 생성
   async createReportExecution(
-    reportType: 'daily' | 'weekly',
+    reportType: 'daily',
     triggerType: 'scheduled' | 'manual',
     targetDate: Date,
     startDate: Date,
@@ -141,7 +141,7 @@ export class ReportsDatabaseService {
 
   // 리포트 실행 기록 조회
   async getReportExecutions(
-    reportType?: 'daily' | 'weekly',
+    reportType?: 'daily',
     limit: number = 30,
     offset: number = 0,
     platform?: 'android' | 'ios'
@@ -187,7 +187,7 @@ export class ReportsDatabaseService {
   }
   
   // 리포트 설정 조회
-  async getReportSettings(reportType: 'daily' | 'weekly'): Promise<ReportSettings | null> {
+  async getReportSettings(reportType: 'daily'): Promise<ReportSettings | null> {
     const { data, error } = await this.ensureSupabaseAdmin()
       .from('report_settings')
       .select('*')
@@ -206,7 +206,7 @@ export class ReportsDatabaseService {
   
   // 리포트 설정 업데이트
   async updateReportSettings(
-    reportType: 'daily' | 'weekly',
+    reportType: 'daily',
     updates: Partial<Pick<ReportSettings, 'auto_enabled' | 'schedule_time' | 'schedule_days' | 'ai_enabled' | 'is_test_mode'>>
   ): Promise<ReportSettings> {
     const { data, error } = await this.ensureSupabaseAdmin()
@@ -239,7 +239,7 @@ export class ReportsDatabaseService {
   
   // 날짜 범위로 리포트 이력 조회
   async getReportHistory(
-    reportType: 'daily' | 'weekly',
+    reportType: 'daily',
     platform: 'android' | 'ios',
     limit: number = 30,
     offset: number = 0,
@@ -273,7 +273,7 @@ export class ReportsDatabaseService {
 
   // 실행 통계 조회
   async getReportStats(
-    reportType?: 'daily' | 'weekly',
+    reportType?: 'daily',
     days: number = 30
   ): Promise<{
     total: number

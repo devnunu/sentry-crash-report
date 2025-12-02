@@ -1,47 +1,40 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
-  Container,
-  Stack,
-  Title,
-  Text,
-  Paper,
-  Group,
-  Badge,
-  Button,
-  Card,
-  ActionIcon,
-  Modal,
-  Select,
-  NumberInput,
-  Radio,
-  Divider,
-  Alert,
-  Checkbox,
-  Loader,
-  TextInput
+    ActionIcon,
+    Alert,
+    Badge,
+    Button,
+    Card,
+    Checkbox,
+    Container,
+    Divider,
+    Group,
+    Loader,
+    Modal,
+    NumberInput,
+    Paper,
+    Radio,
+    Select,
+    Stack,
+    Text,
+    TextInput,
+    Title
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
+import {notifications} from '@mantine/notifications';
+import {IconAlertCircle, IconAlertTriangle, IconEdit, IconInfoCircle, IconPlus, IconTrash} from '@tabler/icons-react';
 import {
-  IconEdit,
-  IconTrash,
-  IconPlus,
-  IconInfoCircle,
-  IconAlertTriangle,
-  IconAlertCircle
-} from '@tabler/icons-react';
-import {
-  AlertRule,
-  AlertCondition,
-  AlertCategory,
-  AlertMetric,
-  AlertOperator,
-  METRIC_METADATA,
-  OPERATOR_METADATA,
-  CATEGORY_LABELS
+    AlertCategory,
+    AlertCondition,
+    AlertMetric,
+    AlertOperator,
+    AlertRule,
+    CATEGORY_LABELS,
+    METRIC_METADATA,
+    OPERATOR_METADATA
 } from '@/lib/types/alert-rules';
-import { generateRuleDescription } from '@/lib/alert-engine';
+import {generateRuleDescription} from '@/lib/alert-engine';
 
 export default function AlertRulesPage() {
   const [rules, setRules] = useState<AlertRule[]>([]);
@@ -81,7 +74,6 @@ export default function AlertRulesPage() {
   const rulesByCategory = useMemo(() => {
     return {
       daily: rules.filter((r) => r.category === 'daily'),
-      weekly: rules.filter((r) => r.category === 'weekly'),
       'version-monitor': rules.filter((r) => r.category === 'version-monitor')
     };
   }, [rules]);
@@ -259,7 +251,7 @@ export default function AlertRulesPage() {
         {/* 안내 메시지 */}
         <Alert icon={<IconInfoCircle />} color="blue" variant="light">
           <Text size="sm">
-            각 카테고리(일간/주간/버전별)마다 Warning과 Critical 규칙을 설정할 수 있습니다.
+            각 카테고리(일간/버전별)마다 Warning과 Critical 규칙을 설정할 수 있습니다.
             <br />
             조건을 충족하면 해당 심각도로 알림이 발송됩니다.
           </Text>
@@ -283,17 +275,6 @@ export default function AlertRulesPage() {
             title="📊 일간 리포트"
             category="daily"
             rules={rulesByCategory.daily}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onToggle={handleToggle}
-            onCreate={openCreateModal}
-          />
-
-          {/* 주간 리포트 */}
-          <RuleCategorySection
-            title="📅 주간 리포트"
-            category="weekly"
-            rules={rulesByCategory.weekly}
             onEdit={handleEdit}
             onDelete={handleDelete}
             onToggle={handleToggle}

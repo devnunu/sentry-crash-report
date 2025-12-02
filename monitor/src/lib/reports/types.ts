@@ -4,7 +4,7 @@ import type {Platform} from '../types'
 // 리포트 실행 기록 타입
 export interface ReportExecution {
   id: string
-  report_type: 'daily' | 'weekly'
+  report_type: 'daily'
   status: 'success' | 'error' | 'running'
   trigger_type: 'scheduled' | 'manual'
   platform?: Platform
@@ -26,7 +26,7 @@ export type WeekDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
 // 리포트 설정 타입
 export interface ReportSettings {
   id: string
-  report_type: 'daily' | 'weekly'
+  report_type: 'daily'
   auto_enabled: boolean
   schedule_time: string
   schedule_days: WeekDay[]
@@ -57,27 +57,6 @@ export interface DailyReportData {
       end: string
     }
   } | string
-}
-
-// 주간 리포트 데이터 타입
-export interface WeeklyReportData {
-  this_week_range_kst: string
-  prev_week_range_kst: string
-  this_week: {
-    events: number
-    issues: number
-    users: number
-  }
-  prev_week: {
-    events: number
-    issues: number
-    users: number
-  }
-  top5_events: WeeklyIssue[]
-  prev_top_events: WeeklyIssue[]
-  new_issues: NewIssue[]
-  surge_issues: WeeklySurgeIssue[]
-  this_week_release_fixes: ReleaseFix[]
 }
 
 // 공통 이슈 타입
@@ -111,42 +90,6 @@ export interface SurgeIssue {
   baseline_mad?: number
   baseline_counts?: number[]
   reasons: string[]
-}
-
-export interface WeeklyIssue {
-  issue_id: string
-  short_id: string
-  title: string
-  events: number
-  users: number
-  link?: string
-}
-
-export interface WeeklySurgeIssue {
-  issue_id: string
-  title: string
-  event_count: number
-  prev_count: number
-  growth_multiplier: number
-  zscore?: number
-  mad_score?: number
-  link?: string
-  reasons: string[]
-}
-
-export interface ReleaseFix {
-  release: string
-  disappeared: ReleaseFixIssue[]
-  decreased: ReleaseFixIssue[]
-}
-
-export interface ReleaseFixIssue {
-  issue_id: string
-  title: string
-  pre_7d_events: number
-  post_7d_events: number
-  delta_pct?: number
-  link?: string
 }
 
 // AI 분석 결과 타입 (개선된 버전)
@@ -216,62 +159,9 @@ export interface AIImportantIssue {
   }
 }
 
-// 주간 AI 분석 결과 타입
-export interface WeeklyAIAnalysis {
-  weekly_summary: {
-    level: 'normal' | 'warning' | 'critical'
-    headline: string  // 10자 이내
-    daily_avg_crashes: {
-      current: number
-      previous: number
-      change_pct: number
-    }
-  }
-
-  key_changes: {
-    improvements: Array<{
-      title: string
-      before: number
-      after: number
-      reason?: string
-      impact: string
-    }>
-    concerns: Array<{
-      title: string
-      count: number
-      percentage: number
-      context: string
-      action: string
-      previousCount?: number
-      changeAmount?: number
-      changePercent?: string
-    }>
-  }
-
-  next_week_focus: Array<{
-    priority: number  // 1, 2, 3
-    title: string
-    current_status: string
-    goal: string
-    expected_impact: string
-  }>
-
-  next_week_goal: string
-}
-
 // API 요청 스키마
 export const GenerateDailyReportSchema = z.object({
   targetDate: z.string().optional(),
-  sendSlack: z.boolean().default(true),
-  includeAI: z.boolean().default(true),
-  isTestMode: z.boolean().optional().default(false),
-  platform: z.enum(['android', 'ios', 'all']).optional().default('all')
-})
-
-export const GenerateWeeklyReportSchema = z.object({
-  targetWeek: z.string().optional(), // 'YYYY-MM-DD' format (월요일)
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
   sendSlack: z.boolean().default(true),
   includeAI: z.boolean().default(true),
   isTestMode: z.boolean().optional().default(false),
@@ -288,7 +178,6 @@ export const UpdateReportSettingsSchema = z.object({
 })
 
 export type GenerateDailyReportRequest = z.infer<typeof GenerateDailyReportSchema>
-export type GenerateWeeklyReportRequest = z.infer<typeof GenerateWeeklyReportSchema>
 export type UpdateReportSettingsRequest = z.infer<typeof UpdateReportSettingsSchema>
 
 // API 응답 타입

@@ -1,4 +1,4 @@
-import { headers } from 'next/headers'
+import {headers} from 'next/headers'
 
 /**
  * 현재 요청의 호스트 정보를 기반으로 베이스 URL을 동적으로 생성합니다.
@@ -41,10 +41,3 @@ export function buildDailyReportUrl(platform: string, date: string): string {
   return `${baseUrl}/monitor/daily/${platform}?date=${date}`
 }
 
-/**
- * 플랫폼별 주간 리포트 페이지 URL을 생성합니다.
- */
-export function buildWeeklyReportUrl(platform: string, startDate: string): string {
-  const baseUrl = getBaseUrl()
-  return `${baseUrl}/monitor/weekly/${platform}?startDate=${startDate}`
-}

@@ -12,7 +12,7 @@ export type AlertMetric =
 
 export type AlertOperator = 'gte' | 'gt' | 'lte' | 'lt' | 'eq';
 
-export type AlertCategory = 'daily' | 'weekly' | 'version-monitor';
+export type AlertCategory = 'daily' | 'version-monitor';
 
 export type AlertSeverity = 'warning' | 'critical';
 
@@ -56,56 +56,56 @@ export const METRIC_METADATA: Record<AlertMetric, MetricMetadata> = {
     label: '총 크래시',
     description: '전체 크래시 이벤트 수',
     unit: 'count',
-    applicableTo: ['daily', 'weekly', 'version-monitor']
+    applicableTo: ['daily', 'version-monitor']
   },
   unique_issues: {
     key: 'unique_issues',
     label: '고유 이슈',
     description: '유니크한 이슈의 개수',
     unit: 'count',
-    applicableTo: ['daily', 'weekly', 'version-monitor']
+    applicableTo: ['daily', 'version-monitor']
   },
   affected_users: {
     key: 'affected_users',
     label: '영향받은 사용자',
     description: '크래시를 경험한 사용자 수',
     unit: 'count',
-    applicableTo: ['daily', 'weekly', 'version-monitor']
+    applicableTo: ['daily', 'version-monitor']
   },
   new_issues: {
     key: 'new_issues',
     label: '신규 이슈',
     description: '새로 발생한 이슈 개수',
     unit: 'count',
-    applicableTo: ['daily', 'weekly', 'version-monitor']
+    applicableTo: ['daily', 'version-monitor']
   },
   fatal_issues: {
     key: 'fatal_issues',
     label: 'Fatal 이슈',
     description: 'Fatal 레벨 이슈 개수',
     unit: 'count',
-    applicableTo: ['daily', 'weekly', 'version-monitor']
+    applicableTo: ['daily', 'version-monitor']
   },
   fatal_issues_with_min_events: {
     key: 'fatal_issues_with_min_events',
     label: '높은 발생 빈도 Fatal 이슈',
     description: '특정 이벤트 수 이상 발생한 Fatal 이슈 개수',
     unit: 'count',
-    applicableTo: ['daily', 'weekly', 'version-monitor']
+    applicableTo: ['daily', 'version-monitor']
   },
   change_pct: {
     key: 'change_pct',
     label: '변화율',
     description: '이전 대비 변화율 (%)',
     unit: 'percentage',
-    applicableTo: ['daily', 'weekly']
+    applicableTo: ['daily']
   },
   daily_avg_crashes: {
     key: 'daily_avg_crashes',
     label: '일평균 크래시',
     description: '하루 평균 크래시 수',
     unit: 'count',
-    applicableTo: ['weekly']
+    applicableTo: ['daily']
   }
 };
 
@@ -121,6 +121,5 @@ export const OPERATOR_METADATA: Record<AlertOperator, { label: string; symbol: s
 // Category 레이블
 export const CATEGORY_LABELS: Record<AlertCategory, string> = {
   'daily': '일간 리포트',
-  'weekly': '주간 리포트',
   'version-monitor': '버전별 모니터링'
 };

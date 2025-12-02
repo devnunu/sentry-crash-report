@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { alertRulesDb } from '@/lib/database/alert-rules';
-import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils';
-import type { AlertCategory } from '@/lib/types/alert-rules';
+import {NextRequest, NextResponse} from 'next/server';
+import {alertRulesDb} from '@/lib/database/alert-rules';
+import {createApiError, createApiResponse, getErrorMessage} from '@/lib/utils';
+import type {AlertCategory} from '@/lib/types/alert-rules';
 
 export const runtime = 'nodejs';
 
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-
+561
     // 필수 필드 검증
     if (!body.name || !body.category || !body.severity) {
       return NextResponse.json(

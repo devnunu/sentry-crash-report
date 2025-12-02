@@ -1,23 +1,21 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import {usePathname} from 'next/navigation';
 import Link from 'next/link';
-import { AppShell, Stack, Text, NavLink, ScrollArea } from '@mantine/core';
+import {AppShell, NavLink, ScrollArea, Stack, Text} from '@mantine/core';
 import {
-  IconRocket,
-  IconCalendar,
-  IconCalendarEvent,
-  IconSearch,
-  IconBell,
-  IconSettings,
-  IconPlaystationTriangle,
-  IconClock,
-  IconHistory,
-  IconVariable,
-  IconBrandAndroid,
-  IconBrandApple,
-  IconFileAnalytics,
-  IconRobot
+    IconBell,
+    IconBrandAndroid,
+    IconBrandApple,
+    IconCalendar,
+    IconClock,
+    IconFileAnalytics,
+    IconHistory,
+    IconPlaystationTriangle,
+    IconRobot,
+    IconRocket,
+    IconSearch,
+    IconVariable
 } from '@tabler/icons-react';
 
 export function Sidebar() {
@@ -65,24 +63,6 @@ export function Sidebar() {
               icon: IconBrandApple,
               href: '/monitor/daily/ios',
               active: pathname.startsWith('/monitor/daily/ios')
-            }
-          ]
-        },
-        {
-          label: '주간 리포트',
-          icon: IconCalendarEvent,
-          children: [
-            {
-              label: 'Android',
-              icon: IconBrandAndroid,
-              href: '/monitor/weekly/android',
-              active: pathname.startsWith('/monitor/weekly/android')
-            },
-            {
-              label: 'iOS',
-              icon: IconBrandApple,
-              href: '/monitor/weekly/ios',
-              active: pathname.startsWith('/monitor/weekly/ios')
             }
           ]
         }
