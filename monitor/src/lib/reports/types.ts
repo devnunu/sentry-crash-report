@@ -1,5 +1,5 @@
-import { z } from 'zod'
-import type { Platform } from '../types'
+import {z} from 'zod'
+import type {Platform} from '../types'
 
 // 리포트 실행 기록 타입
 export interface ReportExecution {
@@ -46,8 +46,6 @@ export interface DailyReportData {
     impacted_users: number
     issues_count: number
     unique_issues_in_events: number
-    crash_free_sessions_pct?: number
-    crash_free_users_pct?: number
     // 해당 일자에 발생한 이슈 전체 목록 (이벤트/사용자 기준)
     issues?: WeeklyIssue[]
     // 기존 Top 5 (이전 호환성 유지 목적)
@@ -69,14 +67,11 @@ export interface WeeklyReportData {
     events: number
     issues: number
     users: number
-    crash_free_sessions?: number
-    crash_free_users?: number
   }
   prev_week: {
     events: number
     issues: number
     users: number
-    crash_free_sessions?: number
   }
   top5_events: WeeklyIssue[]
   prev_top_events: WeeklyIssue[]
@@ -230,11 +225,6 @@ export interface WeeklyAIAnalysis {
       current: number
       previous: number
       change_pct: number
-    }
-    crash_free_rate: {
-      current: number
-      previous: number
-      change_pp: number
     }
   }
 

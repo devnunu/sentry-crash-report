@@ -1,9 +1,9 @@
-import { reportsDb } from './database'
-import { getPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl } from '../utils'
-import { buildWeeklyReportUrl } from '../url-utils'
-import type { Platform } from '../types'
-import type { WeeklyReportData, WeeklyIssue, NewIssue, WeeklySurgeIssue, ReleaseFix, AIAnalysis, WeeklyAIAnalysis } from './types'
-import { aiAnalysisService } from './ai-analysis'
+import {reportsDb} from './database'
+import {getPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl} from '../utils'
+import {buildWeeklyReportUrl} from '../url-utils'
+import type {Platform} from '../types'
+import type {NewIssue, ReleaseFix, WeeklyAIAnalysis, WeeklyIssue, WeeklyReportData, WeeklySurgeIssue} from './types'
+import {aiAnalysisService} from './ai-analysis'
 
 // Python 스크립트와 동일한 상수들
 const API_BASE = "https://sentry.io/api/0"
@@ -195,19 +195,7 @@ export class WeeklyReportService {
         prevWeekStart.toISOString(), prevWeekEnd.toISOString()
       )
       
-      // [5/13] Crash Free 주간 평균 (이번주)
-      const { sessionsCrashFree, usersCrashFree } = await this.sessionsCrashFreeWeeklyAvg(
-        token, org, projectId, environment,
-        thisWeekStart.toISOString(), thisWeekEnd.toISOString()
-      )
-
-      // [5/13] Crash Free 주간 평균 (전주)
-      const { sessionsCrashFree: prevSessionsCrashFree, usersCrashFree: prevUsersCrashFree } = await this.sessionsCrashFreeWeeklyAvg(
-        token, org, projectId, environment,
-        prevWeekStart.toISOString(), prevWeekEnd.toISOString()
-      )
-      
-      // [6/13] 상위 이슈 수집
+      // [5/13] 상위 이슈 수집
       this.log('[6/13] 상위 이슈(이벤트 Top5) 수집…')
       const topEventsThis = await this.discoverIssueTable(
         token, org, projectId, environment,
@@ -245,15 +233,12 @@ export class WeeklyReportService {
         this_week: {
           events: thisSum.events,
           issues: thisSum.issues,
-          users: thisSum.users,
-          crash_free_sessions: sessionsCrashFree,
-          crash_free_users: usersCrashFree
+          users: thisSum.users
         },
         prev_week: {
           events: prevSum.events,
           issues: prevSum.issues,
-          users: prevSum.users,
-          crash_free_sessions: prevSessionsCrashFree
+          users: prevSum.users
         },
         top5_events: topEventsThis.slice(0, WEEKLY_TOP_LIMIT),
         prev_top_events: topEventsPrev.slice(0, WEEKLY_TOP_LIMIT),
@@ -428,66 +413,6 @@ export class WeeklyReportService {
     }
     this.log(`  - events=${out.events} / issues=${out.issues} / users=${out.users}`)
     return out
-  }
-  
-  // Python 스크립트의 sessions_crash_free_weekly_avg
-  private async sessionsCrashFreeWeeklyAvg(
-    token: string, org: string, projectId: number, environment: string | undefined,
-    startIso: string, endIso: string
-  ): Promise<{ sessionsCrashFree?: number; usersCrashFree?: number }> {
-    this.log('[5/13] Crash Free(주간 평균) 집계…')
-    const url = `${API_BASE}/organizations/${org}/sessions/`
-    const params = new URLSearchParams({
-      project: projectId.toString(),
-      start: startIso,
-      end: endIso,
-      interval: '1d',
-      referrer: 'api.weekly.sessions'
-    })
-    params.append('field', 'crash_free_rate(session)')
-    params.append('field', 'crash_free_rate(user)')
-    if (environment) {
-      params.set('environment', environment)
-    }
-    
-    try {
-      const response = await this.ensureOk(
-        await fetch(`${url}?${params}`, { 
-          headers: this.authHeaders(token),
-          signal: AbortSignal.timeout(60000)
-        })
-      )
-      const data = await response.json()
-      let days = 0
-      let sumS = 0.0
-      let sumU = 0.0
-      
-      for (const g of data.groups || []) {
-        const series = g.series || {}
-        if (series['crash_free_rate(session)']) {
-          const arr = series['crash_free_rate(session)'] || []
-          if (arr.length) {
-            sumS += arr.reduce((a: number, b: number) => a + b, 0)
-            days = Math.max(days, arr.length)
-          }
-        }
-        if (series['crash_free_rate(user)']) {
-          const arr = series['crash_free_rate(user)'] || []
-          if (arr.length) {
-            sumU += arr.reduce((a: number, b: number) => a + b, 0)
-            days = Math.max(days, arr.length)
-          }
-        }
-      }
-      
-      const avgS = days > 0 ? sumS / days : undefined
-      const avgU = days > 0 ? sumU / days : undefined
-      this.log(`  - crash_free(session)=${this.fmtPctTrunc2(avgS)} / crash_free(user)=${this.fmtPctTrunc2(avgU)}`)
-      return { sessionsCrashFree: avgS, usersCrashFree: avgU }
-    } catch (error) {
-      this.log(`Sessions API 실패: ${error}`)
-      return { sessionsCrashFree: undefined, usersCrashFree: undefined }
-    }
   }
   
   private fmtPctTrunc2(v?: number): string {
@@ -1029,9 +954,6 @@ export class WeeklyReportService {
     const thisWeek = payload.this_week
     const prevWeek = payload.prev_week
 
-    const crashFreeRate = thisWeek?.crash_free_sessions || 0
-    const cfr = crashFreeRate > 1 ? crashFreeRate : crashFreeRate * 100
-
     const thisEvents = thisWeek?.events || 0
     const prevEvents = prevWeek?.events || 1
     const changePct = ((thisEvents - prevEvents) / prevEvents) * 100
@@ -1044,15 +966,15 @@ export class WeeklyReportService {
       issue => issue.event_count >= 500
     ).length
 
-    // Critical 조건 - 절대 건수 기준
+    // Critical 조건 - 절대 건수 및 이슈 수 기준
     if (criticalIssuesCount >= 2) return 'critical'
-    if (cfr < 99.0) return 'critical'
     if (dailyAvg >= 500) return 'critical'
+    if ((thisWeek?.issues || 0) >= 50) return 'critical'
 
-    // Warning 조건 - 절대 건수 기준
+    // Warning 조건 - 절대 건수 및 이슈 수 기준
     if ((payload.new_issues || []).length >= 3) return 'warning'
-    if (cfr < 99.5) return 'warning'
     if (dailyAvg >= 100) return 'warning'
+    if (changePct >= 50) return 'warning'
 
     return 'normal'
   }
@@ -1132,9 +1054,6 @@ export class WeeklyReportService {
       ? (((dailyAvg - prevDailyAvg) / prevDailyAvg) * 100).toFixed(1)
       : '0'
     const changeSign = Number(changePct) > 0 ? '+' : ''
-
-    const crashFreeRate = thisWeek?.crash_free_sessions || 0
-    const cfr = crashFreeRate > 1 ? crashFreeRate : crashFreeRate * 100
 
     // 주간 통계
     const uniqueIssues = thisWeek?.issues || 0

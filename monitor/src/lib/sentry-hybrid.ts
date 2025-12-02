@@ -692,67 +692,6 @@ export class SentryHybridService {
     }
   }
 
-  // Crash-Free Rate 조회 (HTTP only - Sessions API)
-  async getCrashFreeRate(
-    releaseVersion: string,
-    startTime: Date,
-    endTime: Date
-  ): Promise<{ crashFreeRate: number; crashFreeSessionRate: number }> {
-    const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
-    const projectId = await this.resolveProjectId()
-
-    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
-
-    try {
-      const queryParts = [
-        releaseVersion ? `release:${releaseVersion}` : '',
-        environment ? `environment:${environment}` : ''
-      ].filter(Boolean).join(' ')
-
-      const params = {
-        field: ['crash_free_rate(user)', 'crash_free_rate(session)'],
-        groupBy: releaseVersion ? ['release'] : [],
-        project: projectId,
-        start: startTime.toISOString(),
-        end: endTime.toISOString(),
-        query: queryParts || undefined,
-        statsPeriod: '14d',
-        interval: '1d'
-      }
-
-      const response = await this.fetchSentryAPI<any>(
-        `/organizations/${orgSlug}/sessions/`,
-        params
-      )
-
-      const totals = response.groups && response.groups.length > 0
-        ? response.groups[0].totals
-        : response.totals
-
-      if (totals) {
-        let crashFreeRate = totals?.['crash_free_rate(user)'] ?? 99.9
-        let crashFreeSessionRate = totals?.['crash_free_rate(session)'] ?? 99.9
-
-        if (typeof crashFreeRate === 'number' && crashFreeRate <= 1) {
-          crashFreeRate = crashFreeRate * 100
-        }
-        if (typeof crashFreeSessionRate === 'number' && crashFreeSessionRate <= 1) {
-          crashFreeSessionRate = crashFreeSessionRate * 100
-        }
-
-        return {
-          crashFreeRate: typeof crashFreeRate === 'number' ? crashFreeRate : 99.9,
-          crashFreeSessionRate: typeof crashFreeSessionRate === 'number' ? crashFreeSessionRate : 99.9
-        }
-      }
-
-      return { crashFreeRate: 99.9, crashFreeSessionRate: 99.9 }
-    } catch (error) {
-      console.error('[Sentry Hybrid] Failed to get crash-free rates:', error)
-      return { crashFreeRate: 99.9, crashFreeSessionRate: 99.9 }
-    }
-  }
-
   // 상세 이슈 정보 조회
   async getDetailedTopIssues(
     releaseVersion: string,

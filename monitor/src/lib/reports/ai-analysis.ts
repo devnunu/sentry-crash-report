@@ -1,4 +1,12 @@
-import type { DailyReportData, AIAnalysis, TopIssue, NewIssue, SurgeIssue, WeeklyReportData, WeeklyAIAnalysis } from './types'
+import type {
+  AIAnalysis,
+  DailyReportData,
+  NewIssue,
+  SurgeIssue,
+  TopIssue,
+  WeeklyAIAnalysis,
+  WeeklyReportData
+} from './types'
 
 interface CriticalIssue {
   issue_id: string
@@ -11,7 +19,6 @@ interface Avg7DaysData {
   events: number
   issues: number
   users: number
-  crashFreeRate: number
 }
 
 export class AIAnalysisService {
@@ -119,15 +126,13 @@ export class AIAnalysisService {
     const yesterday = {
       events: targetData.crash_events || 0,
       issues: targetData.unique_issues || 0,
-      users: targetData.impacted_users || 0,
-      crashFreeRate: targetData.crash_free_users_pct ? (targetData.crash_free_users_pct * 100) : 100
+      users: targetData.impacted_users || 0
     }
 
     const dayBefore = prevData ? {
       events: prevData.crash_events || 0,
       issues: prevData.unique_issues || 0,
-      users: prevData.impacted_users || 0,
-      crashFreeRate: prevData.crash_free_users_pct ? (prevData.crash_free_users_pct * 100) : 100
+      users: prevData.impacted_users || 0
     } : undefined
 
     // 간결한 이슈 정보
@@ -185,20 +190,17 @@ ${environment ? `- 환경: ${environment}` : ''}
 - 크래시 이벤트: ${yesterday.events}건
 - 고유 이슈: ${yesterday.issues}개
 - 영향 사용자: ${yesterday.users}명
-- Crash Free Rate: ${yesterday.crashFreeRate.toFixed(2)}%
 
 ${dayBefore ? `=== 그저께 데이터 ===
 - 크래시 이벤트: ${dayBefore.events}건
 - 고유 이슈: ${dayBefore.issues}개
 - 영향 사용자: ${dayBefore.users}명
-- Crash Free Rate: ${dayBefore.crashFreeRate.toFixed(2)}%
 ` : ''}
 
 ${avg7Days ? `=== 최근 7일 평균 ===
 - 크래시 이벤트: ${Math.round(avg7Days.events)}건
 - 고유 이슈: ${Math.round(avg7Days.issues)}개
 - 영향 사용자: ${Math.round(avg7Days.users)}명
-- Crash Free Rate: ${avg7Days.crashFreeRate.toFixed(2)}%
 ` : ''}
 
 === 상위 이슈 ===
@@ -498,11 +500,6 @@ ${JSON.stringify(criticalIssues, null, 2)}
     const prevDailyAvg = prevWeek?.events ? Math.round(prevWeek.events / 7) : 0
     const dailyAvgChange = prevDailyAvg > 0 ? ((thisDailyAvg - prevDailyAvg) / prevDailyAvg * 100) : 0
 
-    // CFR
-    const thisCFR = thisWeek?.crash_free_sessions || 0
-    const prevCFR = prevWeek?.crash_free_sessions || 0
-    const cfrChange = thisCFR - prevCFR
-
     // Top 5 이슈 변화
     const top5Events = reportData.top5_events || []
     const prevTopEvents = reportData.prev_top_events || []
@@ -533,9 +530,8 @@ ${JSON.stringify(criticalIssues, null, 2)}
 - 이번 주 전체 크래시 이벤트: ${thisWeek?.events || 0}건 (일평균 ${thisDailyAvg}건)
 - 전주 전체 크래시 이벤트: ${prevWeek?.events || 0}건 (일평균 ${prevDailyAvg}건)
 - 전주 대비 일평균 변화: ${dailyAvgChange > 0 ? '+' : ''}${dailyAvgChange.toFixed(1)}%
-- 이번 주 Crash Free Rate: ${(thisCFR > 1 ? thisCFR : thisCFR * 100).toFixed(2)}%
-- 전주 Crash Free Rate: ${(prevCFR > 1 ? prevCFR : prevCFR * 100).toFixed(2)}%
-- CFR 변화: ${cfrChange > 0 ? '+' : ''}${cfrChange.toFixed(2)}%p
+- 이번 주 고유 이슈: ${thisWeek?.issues || 0}개
+- 전주 고유 이슈: ${prevWeek?.issues || 0}개
 - 신규 이슈: ${newIssues.length}개
 - 해결된 이슈: ${releaseFixes.reduce((sum, fix) => sum + (fix.disappeared?.length || 0), 0)}개
 ${environment ? `- 환경: ${environment}` : ''}
@@ -579,11 +575,6 @@ ${JSON.stringify(releaseFixes.map(fix => ({
       "current": ${thisDailyAvg},
       "previous": ${prevDailyAvg},
       "change_pct": ${dailyAvgChange.toFixed(1)}
-    },
-    "crash_free_rate": {
-      "current": ${thisCFR > 1 ? thisCFR.toFixed(2) : (thisCFR * 100).toFixed(2)},
-      "previous": ${prevCFR > 1 ? prevCFR.toFixed(2) : (prevCFR * 100).toFixed(2)},
-      "change_pp": ${cfrChange.toFixed(2)}
     }
   },
   "key_changes": {
@@ -615,24 +606,24 @@ ${JSON.stringify(releaseFixes.map(fix => ({
       "title": "다음 주 집중할 액션 제목",
       "current_status": "현재 상태 (예: '일평균 150건 발생')",
       "goal": "목표 (예: '일평균 100건 이하로 감소')",
-      "expected_impact": "기대 효과 (예: 'Crash Free Rate 0.5%p 향상')"
+      "expected_impact": "기대 효과 (예: '사용자 경험 개선')"
     }
   ],
-  "next_week_goal": "다음 주 전체 목표 한 줄 (예: 'Crash Free Rate 99.5% 이상 유지 및 신규 이슈 조기 대응')"
+  "next_week_goal": "다음 주 전체 목표 한 줄 (예: '크래시 발생 빈도 감소 및 신규 이슈 조기 대응')"
 }
 
 === 분석 가이드라인 ===
 
 1. **weekly_summary.level** 판단:
    **critical** (긴급 조치 필요):
-   - CFR < 99.0%
    - 일평균 크래시 500건 이상
    - Critical 이슈 2개 이상 (이벤트 500건 이상)
+   - 고유 이슈 50개 이상
 
    **warning** (주의 필요):
-   - CFR 99.0~99.5%
    - 일평균 크래시 100건 이상
    - 신규 이슈 3개 이상
+   - 전주 대비 50% 이상 증가
 
    **normal** (정상):
    - 위 조건에 해당하지 않음
@@ -642,8 +633,8 @@ ${JSON.stringify(releaseFixes.map(fix => ({
    - 릴리즈로 해결된 이슈, 크래시 감소 등
    - 구체적 수치와 이유 포함
    - ⚠️ before와 after는 반드시 같은 단위여야 함:
-     * 크래시 건수: "1500건 → 1200건" (O), "0건 → 99.94%" (X)
-     * Crash Free Rate: "98.5% → 99.2%" (O), "100건 → 99%" (X)
+     * 크래시 건수: "1500건 → 1200건" (O)
+     * 이슈 수: "50개 → 30개" (O)
      * before와 after 중 하나라도 0이면 해당 항목 제외
 
 3. **key_changes.concerns**:
@@ -671,10 +662,6 @@ ${JSON.stringify(releaseFixes.map(fix => ({
     const prevDailyAvg = prevWeek?.events ? Math.round(prevWeek.events / 7) : 0
     const dailyAvgChange = prevDailyAvg > 0 ? ((thisDailyAvg - prevDailyAvg) / prevDailyAvg * 100) : 0
 
-    const thisCFR = thisWeek?.crash_free_sessions || 0
-    const prevCFR = prevWeek?.crash_free_sessions || 0
-    const cfrChange = thisCFR - prevCFR
-
     return {
       weekly_summary: {
         level: data.weekly_summary?.level || 'normal',
@@ -683,11 +670,6 @@ ${JSON.stringify(releaseFixes.map(fix => ({
           current: thisDailyAvg,
           previous: prevDailyAvg,
           change_pct: dailyAvgChange
-        },
-        crash_free_rate: data.weekly_summary?.crash_free_rate || {
-          current: thisCFR > 1 ? thisCFR : thisCFR * 100,
-          previous: prevCFR > 1 ? prevCFR : prevCFR * 100,
-          change_pp: cfrChange
         }
       },
       key_changes: {
@@ -722,7 +704,7 @@ ${JSON.stringify(releaseFixes.map(fix => ({
             expected_impact: String(item.expected_impact || '')
           }))
         : [],
-      next_week_goal: String(data.next_week_goal || 'Crash Free Rate 99.5% 이상 유지')
+      next_week_goal: String(data.next_week_goal || '크래시 발생 빈도 감소 및 안정성 유지')
     }
   }
 
@@ -734,10 +716,6 @@ ${JSON.stringify(releaseFixes.map(fix => ({
     const prevDailyAvg = prevWeek?.events ? Math.round(prevWeek.events / 7) : 0
     const dailyAvgChange = prevDailyAvg > 0 ? ((thisDailyAvg - prevDailyAvg) / prevDailyAvg * 100) : 0
 
-    const thisCFR = thisWeek?.crash_free_sessions || 0
-    const prevCFR = prevWeek?.crash_free_sessions || 0
-    const cfrChange = thisCFR - prevCFR
-
     return {
       weekly_summary: {
         level: 'normal',
@@ -746,11 +724,6 @@ ${JSON.stringify(releaseFixes.map(fix => ({
           current: thisDailyAvg,
           previous: prevDailyAvg,
           change_pct: dailyAvgChange
-        },
-        crash_free_rate: {
-          current: thisCFR > 1 ? thisCFR : thisCFR * 100,
-          previous: prevCFR > 1 ? prevCFR : prevCFR * 100,
-          change_pp: cfrChange
         }
       },
       key_changes: {
@@ -758,7 +731,7 @@ ${JSON.stringify(releaseFixes.map(fix => ({
         concerns: []
       },
       next_week_focus: [],
-      next_week_goal: 'Crash Free Rate 99.5% 이상 유지'
+      next_week_goal: '크래시 발생 빈도 감소 및 안정성 유지'
     }
   }
 }

@@ -1,29 +1,11 @@
-import { reportsDb } from './database'
-import { aiAnalysisService } from './ai-analysis'
-import { createSlackService } from '../slack'
-import { createSentryService } from '../sentry'
-import {
-  getKSTDayBounds,
-  getYesterday,
-  formatKSTDate,
-  mean,
-  std,
-  median,
-  mad,
-  calculateZScore,
-  calculateMADScore
-} from './utils'
-import type {
-  DailyReportData,
-  TopIssue,
-  NewIssue,
-  SurgeIssue,
-  AIAnalysis
-} from './types'
-import { getRequiredEnv, getPlatformEnv, getRequiredPlatformEnv, getPlatformEnvOrDefault, getSlackWebhookUrl } from '../utils'
-import { buildDailyReportUrl } from '../url-utils'
-import { SentryDataService } from './sentry-data'
-import type { Platform } from '../types'
+import {reportsDb} from './database'
+import {aiAnalysisService} from './ai-analysis'
+import {formatKSTDate, getKSTDayBounds, getYesterday, mad, mean, median, std} from './utils'
+import type {AIAnalysis, DailyReportData, NewIssue, SurgeIssue, TopIssue} from './types'
+import {getPlatformEnv, getPlatformEnvOrDefault, getRequiredEnv, getSlackWebhookUrl} from '../utils'
+import {buildDailyReportUrl} from '../url-utils'
+import {SentryDataService} from './sentry-data'
+import type {Platform} from '../types'
 
 export interface DailyReportOptions {
   targetDate?: Date
@@ -75,14 +57,6 @@ interface SentryNewIssueResult {
   permalink?: string
 }
 
-interface SentryCrashFreeResult {
-  groups: Array<{
-    series: {
-      'crash_free_rate(session)'?: number[]
-      'crash_free_rate(user)'?: number[]
-    }
-  }>
-}
 
 export class DailyReportService {
   private executionLogs: string[] = []
@@ -172,31 +146,23 @@ export class DailyReportService {
       const ySummary = await this.discoverAggregatesForDay(token, org, projectId, environment, yStart, yEnd)
       this.log(`  - events=${ySummary.crash_events} / issues=${ySummary.unique_issues} / users=${ySummary.impacted_users}`)
 
-      this.log(`[Daily] [5/14] 어제 Crash Free(session/user) 수집...`)
-      const [yCfS, yCfU] = await this.sessionsCrashFreeForDay(token, org, projectId, environment, yStart, yEnd)
-      this.log(`  - crash_free(session)=${this.fmtPct(yCfS)} / crash_free(user)=${this.fmtPct(yCfU)}`)
-
-      this.log(`[Daily] [6/14] 어제 이슈 목록(당일 기준) 수집...`)
+      this.log(`[Daily] [5/14] 어제 이슈 목록(당일 기준) 수집...`)
       const sentryData = new SentryDataService(this.platform)
       const yIssuesRaw = await sentryData.getIssuesForDay(yesterday, 200)
       this.log(`  - issues count=${yIssuesRaw.length}`)
 
-      this.log(`[Daily] [7/14] 어제 신규 발생 이슈(firstSeen 당일) 수집...`)
+      this.log(`[Daily] [6/14] 어제 신규 발생 이슈(firstSeen 당일) 수집...`)
       const yNew = await this.newIssuesForDay(token, org, projectId, environment, yStart, yEnd)
       this.log(`  - new issues count=${yNew.length}`)
 
-      this.log(`[Daily] [8/14] 어제 급증(서지) 이슈 탐지(베이스라인 ${BASELINE_DAYS}일)...`)
+      this.log(`[Daily] [7/14] 어제 급증(서지) 이슈 탐지(베이스라인 ${BASELINE_DAYS}일)...`)
       const ySurgeAdv = await this.detectSurgeIssuesAdvanced(token, org, projectId, environment, yStart, yEnd)
       this.log(`  - surge detected=${ySurgeAdv.length} (min_count=${SURGE_MIN_COUNT})`)
 
       // 그저께 데이터 수집 (비교용)
-      this.log(`[Daily] [9/14] 그저께 집계 수집...`)
+      this.log(`[Daily] [8/14] 그저께 집계 수집...`)
       const dbySummary = await this.discoverAggregatesForDay(token, org, projectId, environment, dbyStart, dbyEnd)
       this.log(`  - events=${dbySummary.crash_events} / issues=${dbySummary.unique_issues} / users=${dbySummary.impacted_users}`)
-
-      this.log(`[Daily] [10/14] 그저께 Crash Free(session/user) 수집...`)
-      const [dbyCfS, dbyCfU] = await this.sessionsCrashFreeForDay(token, org, projectId, environment, dbyStart, dbyEnd)
-      this.log(`  - crash_free(session)=${this.fmtPct(dbyCfS)} / crash_free(user)=${this.fmtPct(dbyCfU)}`)
 
       // 리포트 데이터 구성 (Python과 동일한 구조)
       const reportData: DailyReportData = {
@@ -205,10 +171,9 @@ export class DailyReportService {
           ...ySummary,
           issues_count: ySummary.unique_issues,
           unique_issues_in_events: ySummary.unique_issues,
-          crash_free_sessions_pct: yCfS,
-          crash_free_users_pct: yCfU,
           issues: yIssuesRaw.map(it => ({
             issue_id: it.id,
+            short_id: it.id,
             title: it.title,
             events: it.count,
             users: it.users,
@@ -222,21 +187,21 @@ export class DailyReportService {
           ...dbySummary,
           issues_count: dbySummary.unique_issues,
           unique_issues_in_events: dbySummary.unique_issues,
-          crash_free_sessions_pct: dbyCfS,
-          crash_free_users_pct: dbyCfU,
+          new_issues: [],
+          surge_issues: [],
           window_utc: { start: dbyStart, end: dbyEnd }
         }
       }
 
-      this.log(`[Daily] [11/14] 콘솔 출력(JSON)...`)
+      this.log(`[Daily] [9/14] 콘솔 출력(JSON)...`)
       this.log(`Report data: ${JSON.stringify(reportData, null, 2).substring(0, 500)}...`)
 
       // AI 분석을 위한 추가 데이터 수집
-      let avg7DaysData: { events: number; issues: number; users: number; crashFreeRate: number } | undefined
+      let avg7DaysData: { events: number; issues: number; users: number } | undefined
       let criticalIssuesForAI: Array<{ issue_id: string; title: string; event_count: number; users?: number }> = []
 
       if (includeAI && process.env.OPENAI_API_KEY) {
-        this.log(`[Daily] [11.5/14] AI 분석을 위한 추가 데이터 수집...`)
+        this.log(`[Daily] [9.5/14] AI 분석을 위한 추가 데이터 수집...`)
         try {
           // 최근 7일 데이터 조회
           const last7Days = await this.getLast7DaysData(formatKSTDate(yesterday))
@@ -244,13 +209,11 @@ export class DailyReportService {
             const totalEvents = last7Days.reduce((sum, d) => sum + d.events, 0)
             const totalIssues = last7Days.reduce((sum, d) => sum + d.issues, 0)
             const totalUsers = last7Days.reduce((sum, d) => sum + d.users, 0)
-            const avgCrashFree = last7Days.reduce((sum, d) => sum + d.crashFreeRate, 0) / last7Days.length
 
             avg7DaysData = {
               events: totalEvents / last7Days.length,
               issues: totalIssues / last7Days.length,
-              users: totalUsers / last7Days.length,
-              crashFreeRate: avgCrashFree
+              users: totalUsers / last7Days.length
             }
             this.log(`  - 7일 평균: events=${Math.round(avg7DaysData.events)}, issues=${Math.round(avg7DaysData.issues)}, users=${Math.round(avg7DaysData.users)}`)
           }
@@ -447,53 +410,6 @@ export class DailyReportService {
       unique_issues: parseInt(String(row0['count_unique(issue)'] || 0)),
       impacted_users: parseInt(String(row0['count_unique(user)'] || 0))
     }
-  }
-
-  private async sessionsCrashFreeForDay(
-    token: string,
-    org: string,
-    projectId: number,
-    environment: string | null,
-    startIsoUtc: string,
-    endIsoUtc: string
-  ): Promise<[number | null, number | null]> {
-    const params = new URLSearchParams({
-      project: projectId.toString(),
-      start: startIsoUtc,
-      end: endIsoUtc,
-      interval: '1d',
-      field: 'crash_free_rate(session)',
-      referrer: 'api.summaries.daily'
-    })
-    params.append('field', 'crash_free_rate(user)')
-    if (environment) {
-      params.set('environment', environment)
-    }
-
-    const response = await fetch(`https://sentry.io/api/0/organizations/${org}/sessions/?${params}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-      timeout: 60000
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} for GET sessions`)
-    }
-
-    const data = await response.json() as SentryCrashFreeResult
-    let cfS: number | null = null
-    let cfU: number | null = null
-    
-    for (const g of data.groups || []) {
-      const series = g.series || {}
-      if (series['crash_free_rate(session)']?.length) {
-        cfS = parseFloat(String(series['crash_free_rate(session)'].slice(-1)[0]))
-      }
-      if (series['crash_free_rate(user)']?.length) {
-        cfU = parseFloat(String(series['crash_free_rate(user)'].slice(-1)[0]))
-      }
-    }
-    
-    return [cfS, cfU]
   }
 
   private async topIssuesForDay(
@@ -1472,14 +1388,12 @@ export class DailyReportService {
     events: number
     issues: number
     users: number
-    crashFreeRate: number
   }>> {
     const result: Array<{
       date: string
       events: number
       issues: number
       users: number
-      crashFreeRate: number
     }> = []
 
     // targetDate로부터 7일 전까지 순회
@@ -1513,10 +1427,7 @@ export class DailyReportService {
               date: dateStr,
               events: dayData.crash_events || 0,
               issues: dayData.unique_issues || 0,
-              users: dayData.impacted_users || 0,
-              crashFreeRate: dayData.crash_free_users_pct !== null && dayData.crash_free_users_pct !== undefined
-                ? dayData.crash_free_users_pct * 100  // 0.9988 -> 99.88
-                : 0
+              users: dayData.impacted_users || 0
             })
           } else {
             // 데이터가 없으면 0으로 채움
@@ -1524,8 +1435,7 @@ export class DailyReportService {
               date: dateStr,
               events: 0,
               issues: 0,
-              users: 0,
-              crashFreeRate: 0
+              users: 0
             })
           }
         } else {
@@ -1534,8 +1444,7 @@ export class DailyReportService {
             date: dateStr,
             events: 0,
             issues: 0,
-            users: 0,
-            crashFreeRate: 0
+            users: 0
           })
         }
       } catch (error) {
@@ -1545,8 +1454,7 @@ export class DailyReportService {
           date: dateStr,
           events: 0,
           issues: 0,
-          users: 0,
-          crashFreeRate: 0
+          users: 0
         })
       }
     }

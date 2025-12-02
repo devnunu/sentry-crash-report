@@ -1,15 +1,14 @@
 // Alert Rules 평가 엔진
 
 import {
-  AlertRule,
+  AlertCategory,
   AlertCondition,
   AlertMetric,
-  AlertOperator,
-  AlertCategory,
+  AlertRule,
   METRIC_METADATA,
   OPERATOR_METADATA
 } from './types/alert-rules';
-import { alertRulesDb } from './database/alert-rules';
+import {alertRulesDb} from './database/alert-rules';
 
 // 리포트 데이터에서 Metric 값 추출
 export function getMetricValue(data: any, metric: AlertMetric): number {
@@ -17,9 +16,6 @@ export function getMetricValue(data: any, metric: AlertMetric): number {
     total_crashes: (d) => d.totalCrashes || d.cumulative?.totalCrashes || d.events || 0,
     unique_issues: (d) => d.uniqueIssues || d.cumulative?.uniqueIssues || d.issues || 0,
     affected_users: (d) => d.affectedUsers || d.cumulative?.affectedUsers || d.users || 0,
-    crash_free_rate: (d) => d.crashFreeRate || d.cumulative?.crashFreeRate || 100,
-    crash_free_session_rate: (d) =>
-      d.crashFreeSessionRate || d.cumulative?.crashFreeSessionRate || 100,
     new_issues: (d) => {
       if (Array.isArray(d.newIssues)) return d.newIssues.length;
       if (d.topIssues && Array.isArray(d.topIssues)) {

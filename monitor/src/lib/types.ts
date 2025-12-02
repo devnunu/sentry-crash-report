@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import {z} from 'zod'
 
 // 플랫폼 타입
 export type Platform = 'android' | 'ios'
@@ -110,8 +110,6 @@ export interface VersionMonitorSnapshot {
     totalCrashes: number
     uniqueIssues: number
     affectedUsers: number
-    crashFreeRate: number
-    crashFreeSessionRate: number
   }
 
   recentChange?: {

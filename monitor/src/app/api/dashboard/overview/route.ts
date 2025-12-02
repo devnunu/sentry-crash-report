@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { reportsDb } from '@/lib/reports/database'
-import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
-import type { ReportExecution, DailyReportData, WeeklyReportData } from '@/lib/reports/types'
+import {NextRequest, NextResponse} from 'next/server'
+import {reportsDb} from '@/lib/reports/database'
+import {createApiError, createApiResponse, getErrorMessage} from '@/lib/utils'
+import type {DailyReportData, ReportExecution, WeeklyReportData} from '@/lib/reports/types'
 
 interface DashboardMetrics {
   overall: {
-    crashFreeRate: number
     totalEvents: number
     totalIssues: number
     criticalIssues: number
@@ -13,7 +12,6 @@ interface DashboardMetrics {
   }
   platforms: Array<{
     platform: 'android' | 'ios'
-    crashFreeRate: number
     totalEvents: number
     totalIssues: number
     criticalIssues: number
@@ -39,11 +37,10 @@ function extractMetricsFromReport(report: ReportExecution): {
   events: number
   issues: number
   users: number
-  crashFreeRate: number
   criticalIssues: any[]
 } {
   if (!report.result_data) {
-    return { events: 0, issues: 0, users: 0, crashFreeRate: 100, criticalIssues: [] }
+    return { events: 0, issues: 0, users: 0, criticalIssues: [] }
   }
 
   const data = report.result_data as any
@@ -51,49 +48,45 @@ function extractMetricsFromReport(report: ReportExecution): {
   if (report.report_type === 'daily') {
     const dailyData = data as DailyReportData
     const dayKey = Object.keys(dailyData).find(key => key !== 'slack_blocks' && typeof dailyData[key] === 'object')
-    
+
     if (dayKey && dailyData[dayKey] && typeof dailyData[dayKey] === 'object') {
       const dayData = dailyData[dayKey] as any
-      
+
       // 일간 리포트의 실제 필드명 사용
       const events = dayData.crash_events || dayData.total_events || 0
       const issues = dayData.unique_issues || dayData.issues_count || dayData.total_issues || 0
       const users = dayData.impacted_users || dayData.total_users || 0
-      const crashFree = dayData.crash_free_sessions_pct 
-        ? (dayData.crash_free_sessions_pct <= 1 ? dayData.crash_free_sessions_pct * 100 : dayData.crash_free_sessions_pct)
-        : dayData.crash_free_sessions || 100
-      
+
       // Top 이슈에서 critical 찾기 (실제 필드명 사용)
       const topIssues = dayData.top_5_issues || dayData.top5_events || []
-      const criticalIssues = topIssues.filter((issue: any) => 
+      const criticalIssues = topIssues.filter((issue: any) =>
         (issue.events || issue.event_count || 0) > 100 || (issue.users || issue.user_count || 0) > 50
       )
 
-      return { events, issues, users, crashFreeRate: crashFree, criticalIssues }
+      return { events, issues, users, criticalIssues }
     }
   } else if (report.report_type === 'weekly') {
     const weeklyData = data as WeeklyReportData
     const thisWeek = weeklyData.this_week
-    
+
     if (thisWeek) {
       const events = thisWeek.events || 0
       const issues = thisWeek.issues || 0
       const users = thisWeek.users || 0
-      const crashFree = thisWeek.crash_free_sessions || 100
-      
+
       // Top 이슈와 surge 이슈에서 critical 찾기
       const topIssues = weeklyData.top5_events || []
       const surgeIssues = weeklyData.surge_issues || []
       const allIssues = [...topIssues, ...surgeIssues]
-      const criticalIssues = allIssues.filter((issue: any) => 
+      const criticalIssues = allIssues.filter((issue: any) =>
         (issue.events || issue.event_count || 0) > 200 || (issue.users || 0) > 100
       )
 
-      return { events, issues, users, crashFreeRate: crashFree, criticalIssues }
+      return { events, issues, users, criticalIssues }
     }
   }
 
-  return { events: 0, issues: 0, users: 0, crashFreeRate: 100, criticalIssues: [] }
+  return { events: 0, issues: 0, users: 0, criticalIssues: [] }
 }
 
 // 이슈 심각도 계산
@@ -145,10 +138,10 @@ export async function GET(request: NextRequest) {
     const androidPrevious = androidSuccessReports[1]
     const iosPrevious = iosSuccessReports[1]
 
-    const androidMetrics = androidLatest ? extractMetricsFromReport(androidLatest) : 
-      { events: 0, issues: 0, users: 0, crashFreeRate: 100, criticalIssues: [] }
-    const iosMetrics = iosLatest ? extractMetricsFromReport(iosLatest) : 
-      { events: 0, issues: 0, users: 0, crashFreeRate: 100, criticalIssues: [] }
+    const androidMetrics = androidLatest ? extractMetricsFromReport(androidLatest) :
+      { events: 0, issues: 0, users: 0, criticalIssues: [] }
+    const iosMetrics = iosLatest ? extractMetricsFromReport(iosLatest) :
+      { events: 0, issues: 0, users: 0, criticalIssues: [] }
 
     const androidPrevMetrics = androidPrevious ? extractMetricsFromReport(androidPrevious) : androidMetrics
     const iosPrevMetrics = iosPrevious ? extractMetricsFromReport(iosPrevious) : iosMetrics
@@ -163,12 +156,10 @@ export async function GET(request: NextRequest) {
     let totalIssues = 0
     let totalUsers = 0
     let totalCriticalIssues = 0
-    let overallCrashFreeRate = 100
 
     if (!platform || platform === 'android') {
       platforms.push({
         platform: 'android' as const,
-        crashFreeRate: Math.round(androidMetrics.crashFreeRate * 10) / 10,
         totalEvents: androidMetrics.events,
         totalIssues: androidMetrics.issues,
         criticalIssues: androidMetrics.criticalIssues.length,
@@ -185,7 +176,6 @@ export async function GET(request: NextRequest) {
     if (!platform || platform === 'ios') {
       platforms.push({
         platform: 'ios' as const,
-        crashFreeRate: Math.round(iosMetrics.crashFreeRate * 10) / 10,
         totalEvents: iosMetrics.events,
         totalIssues: iosMetrics.issues,
         criticalIssues: iosMetrics.criticalIssues.length,
@@ -197,18 +187,6 @@ export async function GET(request: NextRequest) {
       totalIssues += iosMetrics.issues
       totalUsers += iosMetrics.users
       totalCriticalIssues += iosMetrics.criticalIssues.length
-    }
-
-    // 전체 Crash Free Rate 계산
-    if (totalUsers > 0) {
-      let weightedSum = 0
-      if (!platform || platform === 'android') {
-        weightedSum += androidMetrics.crashFreeRate * androidMetrics.users
-      }
-      if (!platform || platform === 'ios') {
-        weightedSum += iosMetrics.crashFreeRate * iosMetrics.users
-      }
-      overallCrashFreeRate = weightedSum / totalUsers
     }
 
     // 최근 중요 이슈들 추출
@@ -294,7 +272,6 @@ export async function GET(request: NextRequest) {
 
     const dashboardData: DashboardMetrics = {
       overall: {
-        crashFreeRate: Math.round(overallCrashFreeRate * 10) / 10,
         totalEvents,
         totalIssues,
         criticalIssues: totalCriticalIssues,

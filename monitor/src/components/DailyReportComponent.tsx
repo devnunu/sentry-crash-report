@@ -1,66 +1,63 @@
 'use client'
 
-import React, { useMemo, useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import React, {useEffect, useMemo, useState} from 'react'
+import {useSearchParams} from 'next/navigation'
 import {
+  Accordion,
   ActionIcon,
+  Alert,
   Badge,
   Button,
   Card,
-  Group,
-  Modal,
-  Stack,
-  Text,
-  Title,
-  Grid,
-  Alert,
-  RingProgress,
-  Paper,
-  List,
-  Table,
-  Select,
-  Accordion,
   Code,
-  Pagination
+  Grid,
+  Group,
+  List,
+  Modal,
+  Pagination,
+  Paper,
+  Select,
+  Stack,
+  Table,
+  Tabs,
+  Text,
+  Title
 } from '@mantine/core'
 import {
-  IconChevronLeft,
-  IconChevronRight,
-  IconRefresh,
+  IconAlertTriangle,
   IconBrandAndroid,
   IconBrandApple,
   IconBug,
-  IconUsers,
-  IconAlertTriangle,
-  IconShield,
-  IconFileAnalytics,
-  IconList,
-  IconTrendingUp,
-  IconTrendingDown,
-  IconMinus,
-  IconTrash,
-  IconRobot,
-  IconChartLine,
-  IconTable,
-  IconInfoCircle,
-  IconSparkles,
-  IconExternalLink,
-  IconHistory,
   IconBulb,
-  IconChecklist
+  IconChartLine,
+  IconChecklist,
+  IconChevronLeft,
+  IconChevronRight,
+  IconExternalLink,
+  IconFileAnalytics,
+  IconInfoCircle,
+  IconList,
+  IconMinus,
+  IconRefresh,
+  IconRobot,
+  IconSparkles,
+  IconTable,
+  IconTrash,
+  IconTrendingDown,
+  IconTrendingUp,
+  IconUsers
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
 import SlackPreview from '@/lib/SlackPreview'
 import LoadingScreen from '@/components/LoadingScreen'
 import AlertRulesSummary from '@/components/AlertRulesSummary'
-import { formatExecutionTime, formatKST } from '@/lib/utils'
-import { useReportHistory } from '@/lib/reports/useReportHistory'
-import type { Platform } from '@/lib/types'
-import type { DailyReportData, ReportExecution } from '@/lib/reports/types'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Tabs } from '@mantine/core'
-import { format, parseISO } from 'date-fns'
+import {formatExecutionTime, formatKST} from '@/lib/utils'
+import {useReportHistory} from '@/lib/reports/useReportHistory'
+import type {Platform} from '@/lib/types'
+import type {DailyReportData} from '@/lib/reports/types'
+import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts'
+import {format, parseISO} from 'date-fns'
 
 type DailyReportPayload = (DailyReportData & { slack_blocks?: unknown }) | undefined
 
@@ -122,12 +119,6 @@ const formatDateLabel = (date?: string) => {
   return formatKST(`${date}T00:00:00Z`).split(' ')[0] ?? date
 }
 
-const toPercent = (value?: number | null) => {
-  if (value === null || value === undefined || Number.isNaN(value)) return '-'
-  const percent = value <= 1 ? value * 100 : value
-  return `${percent.toFixed(1)}%`
-}
-
 const formatNumber = (value: number | null | undefined): string => {
   if (value === null || value === undefined) return '0'
   return value.toLocaleString()
@@ -152,19 +143,18 @@ const calculateChange = (current: number | null | undefined, previous: number | 
 }
 
 // 변동률 표시 컴포넌트
-const ChangeIndicator = ({ current, previous, unit = '', isCrashFreeRate = false }: { 
-  current: number | null | undefined, 
-  previous: number | null | undefined, 
-  unit?: string,
-  isCrashFreeRate?: boolean 
+const ChangeIndicator = ({ current, previous, unit = '' }: {
+  current: number | null | undefined,
+  previous: number | null | undefined,
+  unit?: string
 }) => {
   const { percent, trend } = calculateChange(current, previous)
-  
+
   const curr = Number(current) || 0
   const prev = Number(previous) || 0
   const absoluteChange = curr - prev
   const sign = trend === 'up' ? '+' : ''
-  
+
   // 변동 없음 표시
   if (trend === 'stable') {
     return (
@@ -176,25 +166,13 @@ const ChangeIndicator = ({ current, previous, unit = '', isCrashFreeRate = false
       </Group>
     )
   }
-  
+
   const color = trend === 'up' ? 'red' : 'green'
   const Icon = trend === 'up' ? IconTrendingUp : IconTrendingDown
-  
-  // Crash Free Rate의 경우 퍼센트 포인트만 표시
-  if (isCrashFreeRate) {
-    return (
-      <Group gap={4} align="center">
-        <Icon size={14} color={color} />
-        <Text size="xs" c={color} fw={600}>
-          {sign}{Math.abs(absoluteChange).toFixed(2)}%p
-        </Text>
-      </Group>
-    )
-  }
-  
+
   // 일반 지표의 경우 절대값과 백분율 모두 표시
   const displayValue = formatNumber(Math.abs(absoluteChange))
-  
+
   return (
     <Group gap={4} align="center">
       <Icon size={14} color={color} />
@@ -240,12 +218,6 @@ const getDeltaColor = (delta: number): string => {
   return 'gray'
 }
 
-// Crash Free Rate 델타 색상 (증가가 좋음)
-const getCrashFreeDeltaColor = (delta: number): string => {
-  if (delta > 0.1) return 'green'   // 증가 = 좋음
-  if (delta < -0.5) return 'red'    // 하락 = 나쁨
-  return 'gray'
-}
 
 // 7일 평균 대비 비교
 const formatComparison = (current: number, avg: number): string => {
@@ -256,27 +228,20 @@ const formatComparison = (current: number, avg: number): string => {
 }
 
 // 비교 색상 (이벤트/이슈/사용자는 평균보다 낮으면 좋음)
-const getComparisonColor = (current: number, avg: number, isCrashFree = false): string => {
+const getComparisonColor = (current: number, avg: number): string => {
   if (avg === 0) return 'gray'
   const diff = ((current - avg) / avg) * 100
 
-  if (isCrashFree) {
-    // Crash Free Rate는 평균보다 높으면 좋음
-    if (diff > 0.5) return 'green'
-    if (diff < -0.5) return 'red'
-    return 'gray'
-  } else {
-    // 이벤트/이슈/사용자는 평균보다 낮으면 좋음
-    if (diff < -20) return 'green'
-    if (diff > 20) return 'red'
-    return 'gray'
-  }
+  // 이벤트/이슈/사용자는 평균보다 낮으면 좋음
+  if (diff < -20) return 'green'
+  if (diff > 20) return 'red'
+  return 'gray'
 }
 
 // 해석 생성
 const getInterpretation = (
-  yesterday: { events: number; issues: number; users: number; crashFreeRate: number } | undefined,
-  avg7Days: { events: number; issues: number; users: number; crashFreeRate: number }
+  yesterday: { events: number; issues: number; users: number } | undefined,
+  avg7Days: { events: number; issues: number; users: number }
 ): string => {
   if (!yesterday) return '데이터가 충분하지 않습니다.'
 
@@ -285,15 +250,15 @@ const getInterpretation = (
   if (avg7Days.events > 0 && yesterday.events < avg7Days.events * 0.8) {
     comparisons.push('이벤트 수가 평균보다 20% 이상 낮습니다')
   }
-  if (avg7Days.crashFreeRate > 0 && yesterday.crashFreeRate > avg7Days.crashFreeRate) {
-    comparisons.push('Crash Free Rate가 평균보다 높습니다')
-  }
   if (avg7Days.events > 0 && yesterday.events > avg7Days.events * 1.5) {
     comparisons.push('이벤트 수가 평균보다 50% 이상 높습니다')
   }
+  if (avg7Days.issues > 0 && yesterday.issues < avg7Days.issues * 0.8) {
+    comparisons.push('이슈 수가 평균보다 20% 이상 낮습니다')
+  }
 
   if (comparisons.length > 0) {
-    const sentiment = yesterday.events < avg7Days.events && yesterday.crashFreeRate >= avg7Days.crashFreeRate
+    const sentiment = yesterday.events < avg7Days.events
       ? '전반적으로 안정적입니다'
       : '주의가 필요합니다'
     return `어제는 최근 7일 평균보다 ${comparisons.join(', ')}. ${sentiment}.`
@@ -332,7 +297,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     events: number
     issues: number
     users: number
-    crashFreeRate: number
   }>>([])
   const [chartLoading, setChartLoading] = useState(false)
   const [issueFilter, setIssueFilter] = useState<FilterType>('all')
@@ -672,8 +636,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     const avg7Days = {
       events: mean(last7DaysData.map(d => d.events)),
       issues: mean(last7DaysData.map(d => d.issues)),
-      users: mean(last7DaysData.map(d => d.users)),
-      crashFreeRate: mean(last7DaysData.map(d => d.crashFreeRate))
+      users: mean(last7DaysData.map(d => d.users))
     }
 
     // 델타 계산 (어제 vs 그저께)
@@ -685,8 +648,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
     const deltas = {
       events: calculateDelta(yesterday.events, dayBefore?.events),
       issues: calculateDelta(yesterday.issues, dayBefore?.issues),
-      users: calculateDelta(yesterday.users, dayBefore?.users),
-      crashFreeRate: yesterday.crashFreeRate - (dayBefore?.crashFreeRate || 0) // %p 차이
+      users: calculateDelta(yesterday.users, dayBefore?.users)
     }
 
     return {
@@ -970,32 +932,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
           )}
 
           <Grid>
-            <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-              <Card withBorder p="md" style={{ backgroundColor: 'rgba(34, 197, 94, 0.05)', minHeight: '100px' }}>
-                <Group justify="space-between" align="center" h="100%">
-                  <div>
-                    <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                      Crash Free Rate (세션)
-                    </Text>
-                    <Text size="xl" fw={700} c={`${config.color}.6`}>
-                      {toPercent(dayData.crash_free_sessions_pct)}
-                    </Text>
-                  </div>
-                  <RingProgress
-                    size={60}
-                    thickness={6}
-                    sections={[{ 
-                      value: dayData.crash_free_sessions_pct ? 
-                        (dayData.crash_free_sessions_pct <= 1 ? dayData.crash_free_sessions_pct * 100 : dayData.crash_free_sessions_pct) : 
-                        100, 
-                      color: config.ringColor 
-                    }]}
-                  />
-                </Group>
-              </Card>
-            </Grid.Col>
-
-            <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+            <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
               <Card withBorder p="md" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)', minHeight: '100px' }}>
                 <Group justify="space-between" align="center" h="100%">
                   <div>
@@ -1005,8 +942,8 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Text size="xl" fw={700} c="blue.6">
                       {formatNumber(dayData.crash_events)}건
                     </Text>
-                    <ChangeIndicator 
-                      current={dayData.crash_events} 
+                    <ChangeIndicator
+                      current={dayData.crash_events}
                       previous={previousDayData?.crash_events}
                       unit="건"
                     />
@@ -1016,7 +953,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
               </Card>
             </Grid.Col>
 
-            <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+            <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
               <Card withBorder p="md" style={{ backgroundColor: 'rgba(168, 85, 247, 0.05)', minHeight: '100px' }}>
                 <Group justify="space-between" align="center" h="100%">
                   <div>
@@ -1026,8 +963,8 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Text size="xl" fw={700} c="violet.6">
                       {formatNumber(dayData.unique_issues || dayData.issues_count)}개
                     </Text>
-                    <ChangeIndicator 
-                      current={dayData.unique_issues || dayData.issues_count} 
+                    <ChangeIndicator
+                      current={dayData.unique_issues || dayData.issues_count}
                       previous={previousDayData?.unique_issues || previousDayData?.issues_count}
                       unit="개"
                     />
@@ -1037,7 +974,7 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
               </Card>
             </Grid.Col>
 
-            <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+            <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
               <Card withBorder p="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', minHeight: '100px' }}>
                 <Group justify="space-between" align="center" h="100%">
                   <div>
@@ -1047,8 +984,8 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                     <Text size="xl" fw={700} c="red.6">
                       {formatNumber(dayData.impacted_users)}명
                     </Text>
-                    <ChangeIndicator 
-                      current={dayData.impacted_users} 
+                    <ChangeIndicator
+                      current={dayData.impacted_users}
                       previous={previousDayData?.impacted_users}
                       unit="명"
                     />
@@ -1387,7 +1324,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                 <Tabs.Tab value="events">이벤트 수</Tabs.Tab>
                 <Tabs.Tab value="issues">이슈 수</Tabs.Tab>
                 <Tabs.Tab value="users">사용자 수</Tabs.Tab>
-                <Tabs.Tab value="crashFreeRate">Crash Free %</Tabs.Tab>
               </Tabs.List>
 
               <Tabs.Panel value="events">
@@ -1457,34 +1393,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                       type="monotone"
                       dataKey="users"
                       stroke="#ef4444"
-                      strokeWidth={2}
-                      dot={{ r: 4 }}
-                      activeDot={{ r: 6 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </Tabs.Panel>
-
-              <Tabs.Panel value="crashFreeRate">
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={last7DaysData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="date"
-                      tickFormatter={(date) => format(parseISO(date), 'MM/dd')}
-                    />
-                    <YAxis
-                      domain={[95, 100]}
-                      tickFormatter={(value) => `${value}%`}
-                    />
-                    <Tooltip
-                      labelFormatter={(date) => format(parseISO(date as string), 'yyyy-MM-dd')}
-                      formatter={(value: number) => [`${value.toFixed(2)}%`, 'Crash Free Rate']}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="crashFreeRate"
-                      stroke="#22c55e"
                       strokeWidth={2}
                       dot={{ r: 4 }}
                       activeDot={{ r: 6 }}
@@ -1604,35 +1512,6 @@ export default function DailyReportComponent({ platform }: DailyReportComponentP
                       color={getComparisonColor(comparisonData.yesterday.users, comparisonData.avg7Days.users)}
                     >
                       {formatComparison(comparisonData.yesterday.users, comparisonData.avg7Days.users)}
-                    </Badge>
-                  </Group>
-                </Table.Td>
-              </Table.Tr>
-
-              {/* Crash Free Rate */}
-              <Table.Tr>
-                <Table.Td fw={500}>Crash Free Rate</Table.Td>
-                <Table.Td style={{ textAlign: 'right' }}>{comparisonData.yesterday.crashFreeRate.toFixed(2)}%</Table.Td>
-                <Table.Td style={{ textAlign: 'right' }}>
-                  {comparisonData.dayBefore ? `${comparisonData.dayBefore.crashFreeRate.toFixed(2)}%` : '-'}
-                </Table.Td>
-                <Table.Td style={{ textAlign: 'right' }}>
-                  {comparisonData.dayBefore ? (
-                    <Badge color={getCrashFreeDeltaColor(comparisonData.deltas.crashFreeRate)} size="md">
-                      {comparisonData.deltas.crashFreeRate > 0 ? '+' : ''}{comparisonData.deltas.crashFreeRate.toFixed(2)}%p
-                    </Badge>
-                  ) : (
-                    '-'
-                  )}
-                </Table.Td>
-                <Table.Td style={{ textAlign: 'right' }}>
-                  <Group gap={4} justify="flex-end">
-                    <Text>{comparisonData.avg7Days.crashFreeRate.toFixed(2)}%</Text>
-                    <Badge
-                      size="xs"
-                      color={getComparisonColor(comparisonData.yesterday.crashFreeRate, comparisonData.avg7Days.crashFreeRate, true)}
-                    >
-                      {formatComparison(comparisonData.yesterday.crashFreeRate, comparisonData.avg7Days.crashFreeRate)}
                     </Badge>
                   </Group>
                 </Table.Td>

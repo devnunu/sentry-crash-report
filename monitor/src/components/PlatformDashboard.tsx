@@ -1,40 +1,25 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
-import { 
-  Card, 
-  Group, 
-  Text, 
-  Title, 
-  Stack, 
-  Grid, 
-  Badge, 
-  Button,
-  RingProgress,
-  Alert,
-  SegmentedControl
-} from '@mantine/core'
-import { 
-  IconRefresh, 
-  IconTrendingUp, 
-  IconTrendingDown, 
+import React, {useEffect, useMemo, useState} from 'react'
+import {Alert, Badge, Button, Card, Grid, Group, SegmentedControl, Stack, Text, Title} from '@mantine/core'
+import {
   IconAlertTriangle,
-  IconDeviceMobile,
   IconBrandAndroid,
   IconBrandApple,
-  IconUsers,
   IconBug,
+  IconChartLine,
+  IconRefresh,
   IconShield,
-  IconArrowRight,
-  IconChartLine
+  IconTrendingDown,
+  IconTrendingUp,
+  IconUsers
 } from '@tabler/icons-react'
 import Link from 'next/link'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
+import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts'
 import LoadingScreen from '@/components/LoadingScreen'
 
 interface DashboardData {
   overall: {
-    crashFreeRate: number
     totalEvents: number
     totalIssues: number
     criticalIssues: number
@@ -42,7 +27,6 @@ interface DashboardData {
   }
   platforms: Array<{
     platform: 'android' | 'ios'
-    crashFreeRate: number
     totalEvents: number
     totalIssues: number
     criticalIssues: number
@@ -64,7 +48,6 @@ interface DashboardData {
 }
 
 interface PeriodSummary {
-  crashFreeRate: number
   totalEvents: number
   totalIssues: number
   criticalIssues: number
@@ -87,19 +70,16 @@ interface TrendData {
     events: number
     issues: number
     users: number
-    crashFreeRate: number
   }
   ios: {
     events: number
     issues: number
     users: number
-    crashFreeRate: number
   }
   total: {
     events: number
     issues: number
     users: number
-    crashFreeRate: number
   }
 }
 
@@ -172,7 +152,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [trendDays, setTrendDays] = useState<'7' | '14' | '30'>('7')
-  const [chartMetric, setChartMetric] = useState<'events' | 'issues' | 'users' | 'crashFreeRate'>('events')
+  const [chartMetric, setChartMetric] = useState<'events' | 'issues' | 'users'>('events')
 
   const config = getPlatformConfig(platform)
 
@@ -236,28 +216,25 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
 
   const generateSummaryFromTrendData = () => {
     if (trendData.length === 0) return
-    
+
     const platformData = trendData.map(d => d[platform])
     const platformDataWithReports = trendData.filter(d => d[platform].events > 0 || d[platform].issues > 0 || d[platform].users > 0)
-    const validData = platformData.filter(d => d.crashFreeRate > 0)
-    
-    if (validData.length === 0) return
-    
+
+    if (platformDataWithReports.length === 0) return
+
     const totalEvents = platformData.reduce((sum, d) => sum + d.events, 0)
     const totalIssues = platformData.reduce((sum, d) => sum + d.issues, 0)
     const totalUsers = platformData.reduce((sum, d) => sum + d.users, 0)
-    const avgCrashFreeRate = validData.reduce((sum, d) => sum + d.crashFreeRate, 0) / validData.length
-    
+
     const missingDates = trendData
       .filter(d => d[platform].events === 0 && d[platform].issues === 0 && d[platform].users === 0)
       .map(d => d.date)
-    
+
     const firstDate = trendData[0]?.date
     const lastDate = trendData[trendData.length - 1]?.date
     const dateRange = firstDate && lastDate ? `${firstDate} ~ ${lastDate}` : ''
-    
+
     setPeriodSummary({
-      crashFreeRate: Number(avgCrashFreeRate.toFixed(2)),
       totalEvents,
       totalIssues,
       criticalIssues: 0,
@@ -311,45 +288,10 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
       }))
   }, [trendData, chartMetric, platform])
 
-  // Crash Free Rate 차트용 동적 Y축 범위 계산
-  const crashFreeRateRange = useMemo(() => {
-    if (chartMetric !== 'crashFreeRate' || chartData.length === 0) {
-      return [95, 100]
-    }
-    
-    const values = chartData
-      .map(item => item[platform === 'android' ? 'Android' : 'iOS'] as number)
-      .filter(val => val > 0 && val <= 100)
-    
-    if (values.length === 0) {
-      return [95, 100]
-    }
-    
-    const min = Math.min(...values)
-    const max = Math.max(...values)
-    const range = max - min
-    
-    // 범위가 너무 작으면 최소 1% 정도의 여백을 둠
-    const minRange = 1
-    const actualRange = Math.max(range, minRange)
-    
-    // 위아래로 10% 정도 여백 추가
-    const padding = actualRange * 0.1
-    const yMin = Math.max(0, min - padding)
-    const yMax = Math.min(100, max + padding)
-    
-    // 소수점 한 자리로 반올림
-    return [
-      Math.floor(yMin * 10) / 10,
-      Math.ceil(yMax * 10) / 10
-    ]
-  }, [chartData, chartMetric, platform])
-
   const criticalIssuesCount = data?.recentIssues.filter(issue => issue.severity === 'critical').length || 0
   const platformInfo = data?.platforms.find(p => p.platform === platform)
-  
+
   const displayData = periodSummary || {
-    crashFreeRate: platformInfo?.crashFreeRate || 0,
     totalEvents: platformInfo?.totalEvents || 0,
     totalIssues: platformInfo?.totalIssues || 0,
     criticalIssues: platformInfo?.criticalIssues || 0,
@@ -507,27 +449,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
         </Group>
         
         <Grid>
-          <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
-            <Card withBorder p="md" style={{ backgroundColor: `rgba(${platform === 'android' ? '34, 197, 94' : '59, 130, 246'}, 0.05)`, minHeight: '100px' }}>
-              <Group justify="space-between" align="center" h="100%">
-                <div>
-                  <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                    Crash Free Rate (세션)
-                  </Text>
-                  <Text size="xl" fw={700} c={`${config.color}.6`}>
-                    {displayData.crashFreeRate}%
-                  </Text>
-                </div>
-                <RingProgress
-                  size={60}
-                  thickness={6}
-                  sections={[{ value: displayData.crashFreeRate, color: config.ringColor }]}
-                />
-              </Group>
-            </Card>
-          </Grid.Col>
-
-          <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+          <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
             <Card withBorder p="md" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)', minHeight: '100px' }}>
               <Group justify="space-between" align="center" h="100%">
                 <div>
@@ -543,7 +465,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
             </Card>
           </Grid.Col>
 
-          <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+          <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
             <Card withBorder p="md" style={{ backgroundColor: 'rgba(168, 85, 247, 0.05)', minHeight: '100px' }}>
               <Group justify="space-between" align="center" h="100%">
                 <div>
@@ -559,7 +481,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
             </Card>
           </Grid.Col>
 
-          <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+          <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
             <Card withBorder p="md" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', minHeight: '100px' }}>
               <Group justify="space-between" align="center" h="100%">
                 <div>
@@ -617,8 +539,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
               data={[
                 { label: '이벤트', value: 'events' },
                 { label: '이슈', value: 'issues' },
-                { label: '사용자', value: 'users' },
-                { label: 'Crash Free %', value: 'crashFreeRate' }
+                { label: '사용자', value: 'users' }
               ]}
               size="xs"
             />
@@ -641,70 +562,36 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
         ) : (
           <div style={{ height: '300px', width: '100%' }}>
             <ResponsiveContainer>
-              {chartMetric === 'crashFreeRate' ? (
-                <AreaChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-3)" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="var(--mantine-color-gray-6)"
-                    fontSize={12}
-                  />
-                  <YAxis 
-                    stroke="var(--mantine-color-gray-6)"
-                    fontSize={12}
-                    domain={crashFreeRateRange}
-                    tickFormatter={(value) => `${value.toFixed(1)}%`}
-                  />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'var(--mantine-color-dark-7)',
-                      border: '1px solid var(--mantine-color-gray-4)',
-                      borderRadius: '8px'
-                    }}
-                    formatter={(value: number) => [`${value.toFixed(2)}%`, platform.toUpperCase()]}
-                    labelFormatter={(label) => `날짜: ${label}`}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey={platform === 'android' ? 'Android' : 'iOS'} 
-                    stroke={config.chartColor}
-                    fill="var(--mantine-color-blue-1)"
-                    strokeWidth={3}
-                    name={platform.toUpperCase()}
-                  />
-                </AreaChart>
-              ) : (
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-3)" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="var(--mantine-color-gray-6)"
-                    fontSize={12}
-                  />
-                  <YAxis 
-                    stroke="var(--mantine-color-gray-6)"
-                    fontSize={12}
-                  />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'var(--mantine-color-dark-7)',
-                      border: '1px solid var(--mantine-color-gray-4)',
-                      borderRadius: '8px'
-                    }}
-                    formatter={(value: number) => [value.toLocaleString(), platform.toUpperCase()]}
-                    labelFormatter={(label) => `날짜: ${label}`}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey={platform === 'android' ? 'Android' : 'iOS'} 
-                    stroke={config.chartColor}
-                    strokeWidth={3}
-                    dot={{ fill: config.chartColor, strokeWidth: 2, r: 4 }}
-                    activeDot={{ r: 6, stroke: config.chartColor, strokeWidth: 2 }}
-                    name={platform.toUpperCase()}
-                  />
-                </LineChart>
-              )}
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-3)" />
+                <XAxis
+                  dataKey="date"
+                  stroke="var(--mantine-color-gray-6)"
+                  fontSize={12}
+                />
+                <YAxis
+                  stroke="var(--mantine-color-gray-6)"
+                  fontSize={12}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'var(--mantine-color-dark-7)',
+                    border: '1px solid var(--mantine-color-gray-4)',
+                    borderRadius: '8px'
+                  }}
+                  formatter={(value: number) => [value.toLocaleString(), platform.toUpperCase()]}
+                  labelFormatter={(label) => `날짜: ${label}`}
+                />
+                <Line
+                  type="monotone"
+                  dataKey={platform === 'android' ? 'Android' : 'iOS'}
+                  stroke={config.chartColor}
+                  strokeWidth={3}
+                  dot={{ fill: config.chartColor, strokeWidth: 2, r: 4 }}
+                  activeDot={{ r: 6, stroke: config.chartColor, strokeWidth: 2 }}
+                  name={platform.toUpperCase()}
+                />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         )}

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { reportsDb } from '@/lib/reports/database'
-import { createApiResponse, createApiError, getErrorMessage } from '@/lib/utils'
-import type { ReportExecution, DailyReportData, WeeklyReportData } from '@/lib/reports/types'
+import {NextRequest, NextResponse} from 'next/server'
+import {reportsDb} from '@/lib/reports/database'
+import {createApiError, createApiResponse, getErrorMessage} from '@/lib/utils'
+import type {DailyReportData, ReportExecution, WeeklyReportData} from '@/lib/reports/types'
 
 interface TrendData {
   date: string
@@ -9,19 +9,16 @@ interface TrendData {
     events: number
     issues: number
     users: number
-    crashFreeRate: number
   }
   ios: {
     events: number
     issues: number
     users: number
-    crashFreeRate: number
   }
   total: {
     events: number
     issues: number
     users: number
-    crashFreeRate: number
   }
 }
 
@@ -29,11 +26,10 @@ function extractMetricsFromReport(report: ReportExecution): {
   events: number
   issues: number
   users: number
-  crashFreeRate: number
 } {
   if (!report.result_data) {
     console.log(`[extractMetrics] No result_data for report ${report.id}`)
-    return { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
+    return { events: 0, issues: 0, users: 0 }
   }
 
   const data = report.result_data as any
@@ -44,20 +40,17 @@ function extractMetricsFromReport(report: ReportExecution): {
     const dayKey = Object.keys(dailyData).find(key => key !== 'slack_blocks' && typeof dailyData[key] === 'object')
     console.log(`[extractMetrics] Daily data keys:`, Object.keys(dailyData))
     console.log(`[extractMetrics] Found dayKey:`, dayKey)
-    
+
     if (dayKey && dailyData[dayKey] && typeof dailyData[dayKey] === 'object') {
       const dayData = dailyData[dayKey] as any
       console.log(`[extractMetrics] Day data:`, dayData)
-      
+
       // 일간 리포트의 실제 필드명 사용
       const events = dayData.crash_events || dayData.total_events || 0
       const issues = dayData.unique_issues || dayData.issues_count || dayData.total_issues || 0
       const users = dayData.impacted_users || dayData.total_users || 0
-      const crashFree = dayData.crash_free_sessions_pct 
-        ? (dayData.crash_free_sessions_pct <= 1 ? dayData.crash_free_sessions_pct * 100 : dayData.crash_free_sessions_pct)
-        : dayData.crash_free_sessions || 100
-      
-      const result = { events, issues, users, crashFreeRate: crashFree }
+
+      const result = { events, issues, users }
       console.log(`[extractMetrics] Extracted metrics:`, result)
       return result
     }
@@ -65,13 +58,12 @@ function extractMetricsFromReport(report: ReportExecution): {
     const weeklyData = data as WeeklyReportData
     const thisWeek = weeklyData.this_week
     console.log(`[extractMetrics] Weekly this_week:`, thisWeek)
-    
+
     if (thisWeek) {
       const result = {
         events: thisWeek.events || 0,
         issues: thisWeek.issues || 0,
-        users: thisWeek.users || 0,
-        crashFreeRate: thisWeek.crash_free_sessions || 100
+        users: thisWeek.users || 0
       }
       console.log(`[extractMetrics] Extracted weekly metrics:`, result)
       return result
@@ -79,7 +71,7 @@ function extractMetricsFromReport(report: ReportExecution): {
   }
 
   console.log(`[extractMetrics] Returning default values for report ${report.id}`)
-  return { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
+  return { events: 0, issues: 0, users: 0 }
 }
 
 export async function GET(request: NextRequest) {
@@ -148,17 +140,14 @@ export async function GET(request: NextRequest) {
     // 각 날짜에 대해 데이터 생성
     const trendData: TrendData[] = allDates.map(date => {
       const platforms = dateMap.get(date) || {}
-      const android = platforms.android || { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
-      const ios = platforms.ios || { events: 0, issues: 0, users: 0, crashFreeRate: 100 }
-      
+      const android = platforms.android || { events: 0, issues: 0, users: 0 }
+      const ios = platforms.ios || { events: 0, issues: 0, users: 0 }
+
       // 전체 총계 계산
       const total = {
         events: android.events + ios.events,
         issues: android.issues + ios.issues,
-        users: android.users + ios.users,
-        crashFreeRate: android.users + ios.users > 0 
-          ? (android.crashFreeRate * android.users + ios.crashFreeRate * ios.users) / (android.users + ios.users)
-          : 100
+        users: android.users + ios.users
       }
 
       return {

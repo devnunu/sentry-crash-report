@@ -1,6 +1,6 @@
-import { getPlatformEnv, getPlatformEnvOrDefault, getRequiredEnv } from '../utils'
-import { getKSTDayBounds, formatKSTDate } from './utils'
-import type { Platform } from '../types'
+import {getPlatformEnv, getPlatformEnvOrDefault, getRequiredEnv} from '../utils'
+import {formatKSTDate, getKSTDayBounds} from './utils'
+import type {Platform} from '../types'
 
 interface Aggregates {
   crash_events: number
@@ -9,8 +9,6 @@ interface Aggregates {
 }
 
 interface DayMetrics extends Aggregates {
-  crash_free_sessions_pct: number | null
-  crash_free_users_pct: number | null
   window_utc: { start: string; end: string }
   date_kst: string
 }
@@ -86,38 +84,6 @@ export class SentryDataService {
     }
   }
 
-  private async sessionsCrashFreeForDay(startIsoUtc: string, endIsoUtc: string): Promise<[number | null, number | null]> {
-    const params = new URLSearchParams({
-      project: String(this.projectId),
-      start: startIsoUtc,
-      end: endIsoUtc,
-      interval: '1d',
-      field: 'crash_free_rate(session)',
-      referrer: 'api.summaries.daily'
-    })
-    if (this.environment) params.set('environment', this.environment)
-    params.append('field', 'crash_free_rate(user)')
-
-    const resp = await fetch(`https://sentry.io/api/0/organizations/${this.org}/sessions/?${params}`, {
-      headers: { Authorization: `Bearer ${this.token}` },
-      timeout: 60000
-    })
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} for GET sessions`)
-    const data = await resp.json()
-    let cfS: number | null = null
-    let cfU: number | null = null
-    for (const g of data.groups || []) {
-      const series = g.series || {}
-      if (series['crash_free_rate(session)']?.length) {
-        cfS = parseFloat(String(series['crash_free_rate(session)'].slice(-1)[0]))
-      }
-      if (series['crash_free_rate(user)']?.length) {
-        cfU = parseFloat(String(series['crash_free_rate(user)'].slice(-1)[0]))
-      }
-    }
-    return [cfS, cfU]
-  }
-
   async getDayMetrics(date: Date): Promise<DayMetrics> {
     await this.ensureConfigured()
     const bounds = getKSTDayBounds(date)
@@ -125,13 +91,10 @@ export class SentryDataService {
     const endIso = bounds.end.toISOString().replace('+00:00', 'Z')
 
     const agg = await this.discoverAggregatesForDay(startIso, endIso)
-    const [cfS, cfU] = await this.sessionsCrashFreeForDay(startIso, endIso)
 
     return {
       date_kst: formatKSTDate(date),
       ...agg,
-      crash_free_sessions_pct: cfS,
-      crash_free_users_pct: cfU,
       window_utc: { start: startIso, end: endIso }
     }
   }

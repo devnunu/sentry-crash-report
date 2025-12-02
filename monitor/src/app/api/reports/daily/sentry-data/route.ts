@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
-import type { Platform } from '@/lib/types'
-import { addDays, format } from 'date-fns'
-import { getRequiredEnv, getPlatformEnv } from '@/lib/utils'
+import {NextRequest, NextResponse} from 'next/server'
+import type {Platform} from '@/lib/types'
+import {addDays, format} from 'date-fns'
+import {getPlatformEnv, getRequiredEnv} from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,7 +25,6 @@ interface DayStat {
   events: number
   issues: number
   users: number
-  crashFreeRate: number
 }
 
 export async function GET(request: NextRequest) {
@@ -140,45 +139,11 @@ export async function GET(request: NextRequest) {
           impactedUsers = parseInt(String(row0['count_unique(user)'] || 0))
         }
 
-        // Get session stats for crash free rate
-        const sessionParams = new URLSearchParams({
-          project: projectId.toString(),
-          start: startIso,
-          end: endIso,
-          interval: '1d',
-          field: 'crash_free_rate(session)',
-          referrer: 'api.summaries.daily'
-        })
-        sessionParams.append('field', 'crash_free_rate(user)')
-        if (environment) {
-          sessionParams.set('environment', environment)
-        }
-
-        const sessionResponse = await fetch(
-          `https://sentry.io/api/0/organizations/${org}/sessions/?${sessionParams}`,
-          {
-            headers: { 'Authorization': `Bearer ${token}` }
-          }
-        )
-
-        let crashFreeRate = 99.9
-        if (sessionResponse.ok) {
-          const sessionData = await sessionResponse.json()
-          for (const g of sessionData.groups || []) {
-            const series = g.series || {}
-            if (series['crash_free_rate(user)']?.length) {
-              crashFreeRate = parseFloat(String(series['crash_free_rate(user)'].slice(-1)[0]))
-              break
-            }
-          }
-        }
-
         last7DaysData.push({
           date: dateStr,
           events: totalEvents,
           issues: uniqueIssues,
-          users: impactedUsers,
-          crashFreeRate
+          users: impactedUsers
         })
       } catch (error) {
         console.error(`Failed to fetch data for ${dateStr}:`, error)
@@ -187,8 +152,7 @@ export async function GET(request: NextRequest) {
           date: dateStr,
           events: 0,
           issues: 0,
-          users: 0,
-          crashFreeRate: 0
+          users: 0
         })
       }
     }

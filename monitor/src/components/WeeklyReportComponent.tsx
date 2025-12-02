@@ -1,43 +1,43 @@
 'use client'
 
-import React, { useMemo, useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import React, {useEffect, useMemo, useState} from 'react'
+import {useSearchParams} from 'next/navigation'
 import {
   ActionIcon,
+  Alert,
   Badge,
   Button,
   Card,
   Group,
   Modal,
+  Paper,
+  SimpleGrid,
   Stack,
   Text,
-  Title,
-  Alert,
-  SimpleGrid,
-  Paper
+  Title
 } from '@mantine/core'
 import {
+  IconAlertCircle,
+  IconAlertTriangle,
+  IconBrandAndroid,
+  IconBrandApple,
   IconChevronLeft,
   IconChevronRight,
   IconRefresh,
-  IconBrandAndroid,
-  IconBrandApple,
-  IconAlertTriangle,
+  IconTarget,
   IconTrash,
-  IconTrendingDown,
-  IconAlertCircle,
-  IconTarget
+  IconTrendingDown
 } from '@tabler/icons-react'
 import StatusBadge from '@/components/StatusBadge'
 import SectionToggle from '@/components/SectionToggle'
 import SlackPreview from '@/lib/SlackPreview'
 import LoadingScreen from '@/components/LoadingScreen'
 import AlertRulesSummary from '@/components/AlertRulesSummary'
-import { formatExecutionTime } from '@/lib/utils'
-import { useReportHistory } from '@/lib/reports/useReportHistory'
-import type { Platform } from '@/lib/types'
-import type { WeeklyReportData, ReportExecution, WeeklyAIAnalysis } from '@/lib/reports/types'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import {formatExecutionTime} from '@/lib/utils'
+import {useReportHistory} from '@/lib/reports/useReportHistory'
+import type {Platform} from '@/lib/types'
+import type {ReportExecution, WeeklyAIAnalysis, WeeklyReportData} from '@/lib/reports/types'
+import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts'
 
 type WeeklyReportPayload = (WeeklyReportData & { slack_blocks?: unknown }) | undefined
 
@@ -81,16 +81,10 @@ const formatDelta = (value: number): string => {
   return `${sign}${value.toFixed(1)}%`
 }
 
-const formatDeltaColor = (value: number, inverse = false): string => {
-  if (inverse) {
-    // Crash Free Rate는 증가가 좋음
-    if (value > 0) return 'green'
-    if (value < 0) return 'red'
-  } else {
-    // 크래시 건수는 감소가 좋음
-    if (value > 0) return 'red'
-    if (value < 0) return 'green'
-  }
+const formatDeltaColor = (value: number): string => {
+  // 크래시 건수는 감소가 좋음
+  if (value > 0) return 'red'
+  if (value < 0) return 'green'
   return 'gray'
 }
 
@@ -154,10 +148,10 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     const prevDailyAvg = prevWeek?.events ? prevWeek.events / 7 : 0
     const dailyAvgChange = prevDailyAvg > 0 ? ((dailyAvg - prevDailyAvg) / prevDailyAvg) * 100 : 0
 
-    // Crash Free Rate
-    const crashFreeRate = thisWeek?.crash_free_sessions || 0
-    const prevCrashFreeRate = prevWeek?.crash_free_sessions || 0
-    const crashFreeRateChange = crashFreeRate - prevCrashFreeRate
+    // 총 이슈 수
+    const totalIssues = thisWeek?.issues || 0
+    const prevTotalIssues = prevWeek?.issues || 0
+    const totalIssuesChange = prevTotalIssues > 0 ? ((totalIssues - prevTotalIssues) / prevTotalIssues) * 100 : 0
 
     // 신규/해결
     const newIssuesCount = payload.new_issues?.length || 0
@@ -171,9 +165,9 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
       dailyAvg: Math.round(dailyAvg),
       prevDailyAvg: Math.round(prevDailyAvg),
       dailyAvgChange,
-      crashFreeRate: crashFreeRate > 1 ? crashFreeRate : crashFreeRate * 100,
-      prevCrashFreeRate: prevCrashFreeRate > 1 ? prevCrashFreeRate : prevCrashFreeRate * 100,
-      crashFreeRateChange,
+      totalIssues,
+      prevTotalIssues,
+      totalIssuesChange,
       newIssuesCount,
       resolvedIssuesCount
     }
@@ -215,7 +209,6 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     if (!metrics || !payload) return 'normal'
 
     const dailyAvg = metrics.dailyAvg
-    const cfr = metrics.crashFreeRate
 
     // Critical 이슈 개수 (500건 이상)
     const criticalIssuesCount = (payload.surge_issues || []).filter(
@@ -224,13 +217,13 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
 
     // Critical 조건 - 절대 건수 기준
     if (criticalIssuesCount >= 2) return 'critical'
-    if (cfr < 99.0) return 'critical'
     if (dailyAvg >= 500) return 'critical'
+    if (metrics.totalIssues >= 50) return 'critical'
 
     // Warning 조건 - 절대 건수 기준
     if (metrics.newIssuesCount >= 3) return 'warning'
-    if (cfr < 99.5) return 'warning'
     if (dailyAvg >= 100) return 'warning'
+    if (metrics.dailyAvgChange >= 50) return 'warning'
 
     return 'normal'
   }, [metrics, payload])
@@ -320,17 +313,18 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
       }
     })
 
-    // 4. Crash Free Rate 개선
-    const thisCFR = payload.this_week?.crash_free_sessions || 0
-    const prevCFR = payload.prev_week?.crash_free_sessions || 0
-    if (thisCFR > prevCFR) {
-      const improvement = (thisCFR - prevCFR).toFixed(2)
+    // 4. 이슈 수 감소
+    const thisIssues = payload.this_week?.issues || 0
+    const prevIssues = payload.prev_week?.issues || 0
+    if (prevIssues > 0 && thisIssues < prevIssues) {
+      const reduction = prevIssues - thisIssues
+      const reductionPct = ((reduction / prevIssues) * 100).toFixed(1)
       items.push({
-        title: 'Crash Free Rate 개선',
-        before: prevCFR > 1 ? prevCFR : prevCFR * 100,
-        after: thisCFR > 1 ? thisCFR : thisCFR * 100,
-        reason: `세션 안정성 ${improvement}%p 향상`,
-        impact: '사용자 경험 및 앱 안정성 개선'
+        title: '고유 이슈 수 감소',
+        before: prevIssues,
+        after: thisIssues,
+        reason: `전주 대비 ${reduction}개 감소 (${reductionPct}% 개선)`,
+        impact: '전반적인 앱 안정성 향상'
       })
     }
 
@@ -439,8 +433,6 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
 
     const thisWeekEvents = payload.this_week?.events || 0
     const dailyAvg = Math.round(thisWeekEvents / 7)
-    const currentCFR = payload.this_week?.crash_free_sessions || 0
-    const targetCFR = 99.5
 
     // 1. Surge Issues 중 가장 심각한 것
     const surgeIssues = payload.surge_issues || []
@@ -453,20 +445,19 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
         title: `급증 이슈 해결: ${topSurge.title.slice(0, 50)}${topSurge.title.length > 50 ? '...' : ''}`,
         current_status: `주간 ${topSurge.event_count}건 발생 (전주 대비 ${topSurge.growth_multiplier?.toFixed(1)}배 증가)`,
         goal: `${reduction}건 이하로 감소 (70% 개선)`,
-        expected_impact: `Crash Free Rate ${impact}%p 향상 기대`
+        expected_impact: `일평균 크래시 ${impact}% 감소 기대`
       })
     }
 
     // 2. 전체적인 안정성 개선 목표
-    if (currentCFR < targetCFR) {
-      const gap = targetCFR - (currentCFR > 1 ? currentCFR : currentCFR * 100)
-      const targetReduction = Math.round(thisWeekEvents * (gap / 100))
+    if (dailyAvg >= 50) {
+      const targetReduction = Math.round(dailyAvg * 0.2) // 20% 감소 목표
       items.push({
-        priority: 2,
+        priority: items.length + 1,
         title: '전체 크래시 발생률 감소',
-        current_status: `일평균 ${dailyAvg}건 발생, CFR ${(currentCFR > 1 ? currentCFR : currentCFR * 100).toFixed(2)}%`,
-        goal: `일평균 ${Math.max(dailyAvg - Math.round(targetReduction / 7), 0)}건 이하, CFR ${targetCFR}% 이상`,
-        expected_impact: `사용자 경험 개선 및 앱 안정성 ${gap.toFixed(1)}%p 향상`
+        current_status: `일평균 ${dailyAvg}건 발생`,
+        goal: `일평균 ${dailyAvg - targetReduction}건 이하 (20% 감소)`,
+        expected_impact: `사용자 경험 개선 및 앱 안정성 향상`
       })
     }
 
@@ -484,7 +475,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
         title: `신규 이슈 조기 대응: ${significantNewIssue.title.slice(0, 50)}${significantNewIssue.title.length > 50 ? '...' : ''}`,
         current_status: `주간 ${count}건 발생 (신규)`,
         goal: '조기 패치로 확산 방지',
-        expected_impact: `추가 ${impact}%p 악화 방지`
+        expected_impact: `추가 ${impact}% 악화 방지`
       })
     }
 
@@ -499,7 +490,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
         title: `주요 이슈 개선: ${topIssue.title.slice(0, 50)}${topIssue.title.length > 50 ? '...' : ''}`,
         current_status: `주간 ${topIssue.events}건 발생`,
         goal: `${reduction}건 이하로 감소 (50% 개선)`,
-        expected_impact: `Crash Free Rate ${impact}%p 향상`
+        expected_impact: `일평균 크래시 ${impact}% 감소`
       })
     }
 
@@ -511,7 +502,7 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
     if (aiAnalysis?.next_week_goal) {
       return aiAnalysis.next_week_goal
     }
-    return 'Crash Free Rate 99.5% 이상 유지'
+    return '크래시 발생 빈도 감소 및 안정성 유지'
   }, [aiAnalysis])
 
   const toggleSection = (section: 'logs' | 'data' | 'slack' | 'report') => {
@@ -703,15 +694,15 @@ export default function WeeklyReportComponent({ platform }: WeeklyReportComponen
               </div>
 
               <div>
-                <Text size="xs" c="dimmed">주간 Crash Free Rate</Text>
+                <Text size="xs" c="dimmed">주간 고유 이슈</Text>
                 <Group gap="xs">
-                  <Text size="xl" fw={700}>{metrics.crashFreeRate.toFixed(2)}%</Text>
-                  <Badge color={formatDeltaColor(metrics.crashFreeRateChange, true)}>
-                    {metrics.crashFreeRateChange > 0 ? '+' : ''}{metrics.crashFreeRateChange.toFixed(2)}%p
+                  <Text size="xl" fw={700}>{metrics.totalIssues}개</Text>
+                  <Badge color={formatDeltaColor(metrics.totalIssuesChange)}>
+                    {formatDelta(metrics.totalIssuesChange)}
                   </Badge>
                 </Group>
                 <Text size="xs" c="dimmed">
-                  전주 {metrics.prevCrashFreeRate.toFixed(2)}% 대비
+                  전주 {metrics.prevTotalIssues}개 대비
                 </Text>
               </div>
             </SimpleGrid>

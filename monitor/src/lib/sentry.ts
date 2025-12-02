@@ -1,5 +1,5 @@
-import { getRequiredEnv, getRequiredPlatformEnv, getPlatformEnvOrDefault } from './utils'
-import type { WindowAggregation, TopIssue, Platform } from './types'
+import {getPlatformEnvOrDefault, getRequiredEnv, getRequiredPlatformEnv} from './utils'
+import type {Platform, TopIssue, WindowAggregation} from './types'
 
 // Sentry API 설정
 const SENTRY_API_BASE = 'https://sentry.io/api/0'
@@ -572,79 +572,6 @@ export class SentryService {
     return {
       dashboard: dashboardUrl,
       issues: issuesUrl
-    }
-  }
-
-  // Crash-Free Rate (CFR) 조회
-  async getCrashFreeRate(
-    releaseVersion: string,
-    startTime: Date,
-    endTime: Date
-  ): Promise<{ crashFreeRate: number; crashFreeSessionRate: number }> {
-    const orgSlug = getRequiredEnv('SENTRY_ORG_SLUG')
-    const projectId = await this.resolveProjectId()
-
-    const environment = getPlatformEnvOrDefault(this.platform, 'SENTRY_ENVIRONMENT', 'production')
-
-    try {
-      // sessions:crash_free_rate 조회
-      const queryParts = [
-        releaseVersion ? `release:${releaseVersion}` : '',
-        environment ? `environment:${environment}` : ''
-      ].filter(Boolean).join(' ')
-
-      const params = {
-        field: ['crash_free_rate(user)', 'crash_free_rate(session)'],
-        groupBy: releaseVersion ? ['release'] : [],
-        project: projectId,
-        start: startTime.toISOString(),
-        end: endTime.toISOString(),
-        query: queryParts || undefined,
-        statsPeriod: '14d',
-        interval: '1d'
-      }
-
-      const response = await this.fetchSentryAPI<any>(
-        `/organizations/${orgSlug}/sessions/`,
-        params
-      )
-
-      // 응답 파싱 (Sentry stats API 응답 구조에 따라 조정 필요)
-      // groupBy가 있으면 response.groups[0].totals에서, 없으면 response.totals에서 가져오기
-      const totals = response.groups && response.groups.length > 0
-        ? response.groups[0].totals
-        : response.totals
-
-      if (totals) {
-        let crashFreeRate = totals?.['crash_free_rate(user)'] ?? 99.9
-        let crashFreeSessionRate = totals?.['crash_free_rate(session)'] ?? 99.9
-
-        // Sentry API가 0-1 범위로 반환하는 경우 100을 곱함 (0.999 -> 99.9%)
-        // 1보다 작거나 같으면 0-1 범위로 판단
-        if (typeof crashFreeRate === 'number' && crashFreeRate <= 1) {
-          console.log(`[CFR] Converting from decimal: ${crashFreeRate} -> ${crashFreeRate * 100}%`)
-          crashFreeRate = crashFreeRate * 100
-        }
-        if (typeof crashFreeSessionRate === 'number' && crashFreeSessionRate <= 1) {
-          console.log(`[CFSR] Converting from decimal: ${crashFreeSessionRate} -> ${crashFreeSessionRate * 100}%`)
-          crashFreeSessionRate = crashFreeSessionRate * 100
-        }
-
-        console.log(`[Crash-Free Rates] User: ${crashFreeRate}%, Session: ${crashFreeSessionRate}%`)
-
-        return {
-          crashFreeRate: typeof crashFreeRate === 'number' ? crashFreeRate : 99.9,
-          crashFreeSessionRate: typeof crashFreeSessionRate === 'number' ? crashFreeSessionRate : 99.9
-        }
-      }
-
-      // 기본값 반환
-      console.log('[Crash-Free Rates] No data found, using default: 99.9%')
-      return { crashFreeRate: 99.9, crashFreeSessionRate: 99.9 }
-    } catch (error) {
-      console.error('Failed to get crash-free rates:', error)
-      // 에러 발생 시 기본값 반환
-      return { crashFreeRate: 99.9, crashFreeSessionRate: 99.9 }
     }
   }
 

@@ -1,7 +1,7 @@
 // 버전 모니터링 헬퍼 함수들
 
-import { format, formatDistanceToNow, differenceInHours, differenceInDays, differenceInMinutes } from 'date-fns';
-import { ko } from 'date-fns/locale';
+import {differenceInDays, differenceInHours, format, formatDistanceToNow} from 'date-fns';
+import {ko} from 'date-fns/locale';
 
 // 진행률 계산
 export function getProgress(startedAt: string, expiresAt: string): number {
@@ -144,8 +144,7 @@ export function getMetricLabel(metric: string): string {
   const labels: Record<string, string> = {
     'crashes': '크래시 수',
     'issues': '이슈 수',
-    'users': '사용자 수',
-    'cfr': 'Crash Free Rate (%)'
+    'users': '사용자 수'
   };
   return labels[metric] || metric;
 }

@@ -44,9 +44,8 @@ export class MonitoringService {
     const totalDurationDays = Math.ceil((expiresAt.getTime() - new Date(monitor.started_at).getTime()) / (1000 * 60 * 60 * 24))
 
     // 누적 데이터 수집
-    const [cumulativeAggregation, crashFreeRates, detailedIssues, hourlyTrend] = await Promise.all([
+    const [cumulativeAggregation, detailedIssues, hourlyTrend] = await Promise.all([
       sentryService.getWindowAggregates(matchedRelease, releaseStart, currentTime),
-      sentryService.getCrashFreeRate(matchedRelease, releaseStart, currentTime),
       sentryService.getDetailedTopIssues(matchedRelease, releaseStart, currentTime, previousCheckTime, 10),
       sentryService.getHourlyTrend(matchedRelease, currentTime, 24)
     ])
@@ -78,9 +77,7 @@ export class MonitoringService {
       cumulative: {
         totalCrashes: cumulativeAggregation.events,
         uniqueIssues: cumulativeAggregation.issues,
-        affectedUsers: cumulativeAggregation.users,
-        crashFreeRate: crashFreeRates.crashFreeRate,
-        crashFreeSessionRate: crashFreeRates.crashFreeSessionRate
+        affectedUsers: cumulativeAggregation.users
       },
 
       recentChange,
@@ -464,7 +461,7 @@ export class MonitoringService {
         currentTime
       )
 
-      console.log(`📊 [${monitor.platform}:${monitor.base_release}] 최종 통계: 크래시 ${snapshot.cumulative.totalCrashes}건, 이슈 ${snapshot.cumulative.uniqueIssues}개, CFR ${snapshot.cumulative.crashFreeRate.toFixed(2)}%`)
+      console.log(`📊 [${monitor.platform}:${monitor.base_release}] 최종 통계: 크래시 ${snapshot.cumulative.totalCrashes}건, 이슈 ${snapshot.cumulative.uniqueIssues}개, 영향받은 사용자 ${snapshot.cumulative.affectedUsers}명`)
 
       // 새로운 완료 메시지 빌드
       const blocks = platformSlackService.buildVersionMonitorCompletionMessage(

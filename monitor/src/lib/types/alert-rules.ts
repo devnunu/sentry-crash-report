@@ -4,8 +4,6 @@ export type AlertMetric =
   | 'total_crashes'
   | 'unique_issues'
   | 'affected_users'
-  | 'crash_free_rate'
-  | 'crash_free_session_rate'
   | 'new_issues'
   | 'fatal_issues'
   | 'fatal_issues_with_min_events' // n개 이상 발생한 fatal 이슈가 m개 이상
@@ -73,20 +71,6 @@ export const METRIC_METADATA: Record<AlertMetric, MetricMetadata> = {
     description: '크래시를 경험한 사용자 수',
     unit: 'count',
     applicableTo: ['daily', 'weekly', 'version-monitor']
-  },
-  crash_free_rate: {
-    key: 'crash_free_rate',
-    label: 'Crash Free Rate',
-    description: '크래시 없는 사용자 비율',
-    unit: 'percentage',
-    applicableTo: ['daily', 'weekly', 'version-monitor']
-  },
-  crash_free_session_rate: {
-    key: 'crash_free_session_rate',
-    label: 'Crash Free Session',
-    description: '크래시 없는 세션 비율',
-    unit: 'percentage',
-    applicableTo: ['version-monitor']
   },
   new_issues: {
     key: 'new_issues',
