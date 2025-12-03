@@ -692,13 +692,6 @@ export class DailyReportService {
     return out
   }
 
-  private fmtPct(v: number | null): string {
-    if (v === null) return 'N/A'
-    const pct = v * 100
-    const truncated = Math.floor(pct * 100) / 100
-    return `${truncated.toFixed(2)}%`
-  }
-
   private truncate(s: string | null | undefined, n: number): string {
     if (!s) return '(제목 없음)'
     return s.length <= n ? s : s.substring(0, n - 1) + '…'
@@ -713,15 +706,6 @@ export class DailyReportService {
     } else {
       return '변화 없음 —'
     }
-  }
-
-  // 퍼센트 포인트 델타 포맷팅
-  private formatPercentagePointDelta(delta: number): string {
-    if (Math.abs(delta) < 0.0001) {
-      return '변화 없음 —'
-    }
-    const emoji = delta >= 0 ? '↑' : '↓'
-    return `${emoji} ${Math.abs(delta * 100).toFixed(1)}%p`
   }
 
   private diffStr(cur: number, prev: number, suffix: string = '건'): string {
@@ -1003,8 +987,6 @@ export class DailyReportService {
     projectId: number | null = null
   ): any[] {
     // 현재값
-    const cfS = dayObj.crash_free_sessions_pct
-    const cfU = dayObj.crash_free_users_pct
     const events = parseInt(String(dayObj.crash_events || 0))
     const issues = parseInt(String(dayObj.unique_issues || 0))
     const users = parseInt(String(dayObj.impacted_users || 0))
@@ -1022,17 +1004,14 @@ export class DailyReportService {
     // 전일값
     let prevEvents = 0
     let prevUsers = 0
-    let prevCfU = null as number | null
     if (prevDayObj) {
       prevEvents = parseInt(String(prevDayObj.crash_events || 0))
       prevUsers = parseInt(String(prevDayObj.impacted_users || 0))
-      prevCfU = prevDayObj.crash_free_users_pct
     }
 
     // 증감률 계산
     const eventChangePercent = prevEvents > 0 ? ((events - prevEvents) / prevEvents) * 100 : 0
     const userChangePercent = prevUsers > 0 ? ((users - prevUsers) / prevUsers) * 100 : 0
-    const cfuChange = prevCfU !== null && cfU !== null ? cfU - prevCfU : 0
 
     // Critical 이슈 탐지 (신규 + fatal 레벨 or 매우 많은 이벤트)
     const criticalIssues = surgeIssues.filter(issue => {
@@ -1052,18 +1031,10 @@ export class DailyReportService {
       status = 'critical'
       reasons.push(`Critical 이슈 ${criticalIssues.length}건`)
     }
-    if (cfU !== null && cfU < 0.99) {
-      status = 'critical'
-      reasons.push(`Crash Free Rate ${this.fmtPct(cfU)} (99% 미만)`)
-    }
     // 절대 건수 기준
     if (events >= 500) {
       status = 'critical'
       reasons.push(`이벤트 ${events}건 (500건 이상)`)
-    }
-    if (cfuChange < -0.01) { // -1.0%p 이하 하락
-      status = 'critical'
-      reasons.push(`Crash Free Rate ${Math.abs(cfuChange * 100).toFixed(1)}%p 하락`)
     }
 
     // Warning 판정 (Critical이 아닐 때만)
@@ -1072,18 +1043,10 @@ export class DailyReportService {
         status = 'warning'
         reasons.push(`급증 이슈 ${surgeIssues.length}건`)
       }
-      if (cfU !== null && cfU >= 0.99 && cfU < 0.995) {
-        status = 'warning'
-        reasons.push(`Crash Free Rate ${this.fmtPct(cfU)} (99.5% 미만)`)
-      }
       // 절대 건수 기준
       if (events >= 100) {
         status = 'warning'
         reasons.push(`이벤트 ${events}건 (100건 이상)`)
-      }
-      if (cfuChange < -0.005 && cfuChange >= -0.01) { // -0.5%p ~ -1.0%p 하락
-        status = 'warning'
-        reasons.push(`Crash Free Rate ${Math.abs(cfuChange * 100).toFixed(1)}%p 하락`)
       }
     }
 
@@ -1133,7 +1096,6 @@ export class DailyReportService {
           type: 'mrkdwn',
           text: [
             '*📊 이슈 수치가 정상입니다*',
-            `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
             `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
             `• 고유 이슈: ${issues}개`,
             `• Fatal 이슈: ${fatalIssueCount}개`,
@@ -1151,7 +1113,6 @@ export class DailyReportService {
           type: 'mrkdwn',
           text: [
             '*📊 오늘은 주의가 필요합니다*',
-            `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
             `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
             `• 고유 이슈: ${issues}개`,
             `• Fatal 이슈: ${fatalIssueCount}개`,
@@ -1224,7 +1185,6 @@ export class DailyReportService {
         text: {
           type: 'mrkdwn',
           text: [
-            `• Crash Free Rate: ${this.fmtPct(cfU)} (${this.formatPercentagePointDelta(cfuChange)})`,
             `• 크래시 이벤트: ${events}건 (전일 대비 ${this.formatDelta(eventChangePercent)})`,
             `• 고유 이슈: ${issues}개`,
             `• Fatal 이슈: ${fatalIssueCount}개`,

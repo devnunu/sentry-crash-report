@@ -90,6 +90,28 @@ async function processDailyReport() {
 
   while (retryCount < maxRetries) {
     try {
+      // 중복 실행 방지: 최근 5분 이내에 실행된 리포트가 있는지 확인
+      const recentExecutions = await reportsDb.getReportExecutions('daily', 1)
+      if (recentExecutions.length > 0) {
+        const lastExecution = recentExecutions[0]
+        const lastExecutionTime = new Date(lastExecution.created_at).getTime()
+        const now = Date.now()
+        const timeDiff = now - lastExecutionTime
+        const MIN_INTERVAL = 5 * 60 * 1000 // 5분
+
+        if (timeDiff < MIN_INTERVAL && lastExecution.trigger_type === 'scheduled') {
+          console.log(`[QStash Webhook] Daily report skipped - recent execution found (${Math.round(timeDiff / 1000)}s ago)`)
+          return NextResponse.json({
+            success: true,
+            type: 'daily-report',
+            skipped: true,
+            reason: 'Recent execution exists',
+            lastExecutionId: lastExecution.id,
+            timeSinceLastMs: timeDiff
+          })
+        }
+      }
+
       // Fetch settings to apply AI/test flags
       const settings = await reportsDb.getReportSettings('daily')
       const includeAI = settings?.ai_enabled ?? true
