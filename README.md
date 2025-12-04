@@ -1,126 +1,175 @@
-# 📊 Sentry Daily & Weekly Reports
+# Sentry AI Assistant
 
-자동으로 Sentry 데이터를 수집하고 요약해 Slack으로 전송하는 **일간/주간 리포트 시스템**입니다.  
-앱 안정성 현황을 매일 아침, 그리고 매주 월요일 한눈에 확인할 수 있어요! 🚀
+Sentry 에러 이슈를 AI로 분석하고 리포트를 생성하는 사내용 도구입니다.
 
----
+## 📌 주요 기능
 
-## ✨ 주요 기능
+- **Sentry Webhook 수신**: 실시간으로 Sentry 이슈를 수신하고 저장
+- **중요 이슈 알림**: 중요도 기준에 따라 Slack으로 자동 알림 전송
+- **AI 분석 연동**: 외부 분석 서버와 연동하여 이슈 원인 분석
+- **리포트 생성**: 기간/버전별 크래시 리포트 자동 생성
+- **Streamlit UI**: 내부용 관리 대시보드
 
-### 🗓️ Daily Report (화~금 오전 9시)
-- 💥 **전날 전체 이벤트 발생 건수** & 🐞 **유니크 이슈 개수** 요약
-- 📈 **급증(서지) 이슈** 탐지 (DoD, Z-score, MAD 분석)
-- 🆕 **신규 이슈 목록** 자동 추출
-- 🧠 **AI 분석 코멘트** 제공 (중요 포인트 요약 + 친절한 코멘트)
-- 🔗 **대시보드/필터된 이슈 페이지 바로가기 버튼** 탑재
+## 🛠️ 기술 스택
 
----
+- **Backend**: FastAPI + Uvicorn
+- **Database**: SQLite + SQLAlchemy ORM
+- **UI**: Streamlit
+- **HTTP Client**: httpx
 
-### 📅 Weekly Report (월요일 오전 9시)
-- 📝 **지난주 이벤트/이슈/사용자 주간 합계** & Crash Free 주간 평균
-- 🏅 **Top 5 이벤트 이슈** (전주 대비 변화량 함께 표기)
-- 📈 **급증 이슈** 상세 분석
-- 📦 **최신 릴리즈에서 사라진 이슈 / 많이 감소한 이슈** 자동 리포트
-- 🆕 **지난주 신규 이슈 목록** 제공
-
----
-
-## ⚙️ 환경 변수 설정 (GitHub Secrets)
-
-| Name                      | 설명                                      |
-|---------------------------|-----------------------------------------|
-| `SENTRY_AUTH_TOKEN`       | Sentry API Token                        |
-| `SENTRY_ORG_SLUG`         | Sentry Organization Slug                |
-| `ANDROID_PROJECT_ID`      | Android Sentry Project ID               |
-| `ANDROID_PROJECT_SLUG`    | Android Sentry Project Slug             |
-| `ANDROID_DASHBOARD_URL`   | Android Sentry 대시보드 URL             |
-| `ANDROID_SLACK_WEBHOOK_URL` | Android 리포트 Slack Webhook URL    |
-| `IOS_PROJECT_ID`          | iOS Sentry Project ID                   |
-| `IOS_PROJECT_SLUG`        | iOS Sentry Project Slug                 |
-| `IOS_DASHBOARD_URL`       | iOS Sentry 대시보드 URL                 |
-| `IOS_SLACK_WEBHOOK_URL`   | iOS 리포트 Slack Webhook URL           |
-| `OPENAI_API_KEY`          | OpenAI API Key (AI 코멘트 생성용)      |
-
----
-
-## 🚀 GitHub Actions 워크플로우
-
-워크플로우 파일: `.github/workflows/sentry-reports.yml`
-
-- 매일 오전 9시 (화~금): **일간 리포트 실행**
-- 매주 월요일 오전 9시: **주간 리포트 실행**
-- `workflow_dispatch`로 **수동 실행 가능** (플랫폼/리포트 타입 지정 가능)
-
-```yaml
-on:
-  schedule:
-    - cron: '0 0 * * 1'   # 매주 월요일 9시 (KST)
-    - cron: '0 0 * * 2-5' # 매일 화~금 9시 (KST)
-  workflow_dispatch:
-    inputs:
-      which:
-        description: '리포트 종류 (daily/weekly/both)'
-        required: true
-        default: 'both'
-      platform:
-        description: '플랫폼 (android/ios/both)'
-        required: true
-        default: 'both'
-```
-
----
-
-## 🧩 코드 구조
+## 📁 프로젝트 구조
 
 ```
-sentry_daily_crash_report.py   # 일간 리포트 생성 코드
-sentry_weekly_crash_report.py  # 주간 리포트 생성 코드
+sentry-ai-assistant/
+├── app/
+│   ├── main.py              # FastAPI entrypoint
+│   ├── api/
+│   │   ├── issues.py        # /api/issues 엔드포인트
+│   │   ├── reports.py       # /api/reports 엔드포인트
+│   │   └── webhook.py       # /webhook/sentry
+│   ├── services/
+│   │   ├── analysis_client.py   # 분석 서버 HTTP 클라이언트
+│   │   ├── slack_client.py      # Slack Webhook 클라이언트
+│   │   ├── issue_service.py     # Issue 비즈니스 로직
+│   │   ├── report_service.py    # Report 비즈니스 로직
+│   │   └── sentry_mapper.py     # Sentry payload 변환
+│   └── db/
+│       ├── session.py       # SQLite 연결/세션
+│       ├── models.py        # ORM 모델
+│       └── init_db.py       # 테이블 생성
+├── ui/
+│   └── streamlit_app.py     # Streamlit 대시보드
+├── config/
+│   └── settings.py          # 환경변수/설정
+├── .env_template            # 환경변수 템플릿
+├── requirements.txt
+└── README.md
 ```
 
-- Sentry API를 통해 데이터를 수집
-- 급증 탐지(Z-score, MAD), 신규 이슈 탐지, 최신 릴리즈 비교
-- Slack 메시지 블록 생성 및 Webhook 전송
-- OpenAI API로 AI 분석 코멘트 생성
+## 🚀 시작하기
 
----
+### 1. 환경 설정
 
-## 🖼️ Slack 메시지 예시
+```bash
+# 프로젝트 디렉토리로 이동
+cd sentry-ai-assistant
 
-```
-📌 Daily Report
+# 가상환경 생성 (선택사항)
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-💥 총 이벤트 발생 건수: 65,904건 → 전일 대비 🔻37,981건 (-36.6%)
-🐞 유니크 이슈 개수: 49개 → 전일 대비 🔺8개 (+19.5%)
+# 의존성 설치
+pip install -r requirements.txt
 
-📈 급증 이슈
-• UnknownHostException... · 191건
-  ↳ 전일 0건 → 어제 191건으로 급증. 최근 7일 평균 5.3건 대비 급상승.
-
-🧠 AI 분석 코멘트
-> 오늘은 큰 에러가 줄었지만 특정 API 호출 실패가 폭증했어요. API 쪽 네트워크 이슈 점검 필요!
+# 환경변수 설정
+cp .env_template .env
+# .env 파일을 열어 필요한 값들을 입력하세요
 ```
 
----
+### 2. FastAPI 서버 실행
 
-```
-📌 Weekly Report
+```bash
+# 개발 모드 (자동 리로드)
+uvicorn app.main:app --reload --port 8000
 
-💥 총 이벤트 발생 건수: 120,000건 → 전주 대비 🔻20,000건 (-14.2%)
-📦 최신 릴리즈에서 사라진 이슈
-• [Crash on Login] — 전 7일 50건 → 후 7일 0건 (Resolved)
-
-📈 급증 이슈
-• PaymentTimeoutException · 130건
-  ↳ 전주 30건 → 이번주 130건. 중앙값 대비 이상치로 판정.
+# 또는 직접 실행
+python -m app.main
 ```
 
----
+서버가 시작되면:
+- API 문서: http://localhost:8000/docs
+- Health check: http://localhost:8000/health
 
-## 💡 사용 팁
-	•	매일 아침 슬랙 리포트로 앱 안정성을 체크하세요! ☕️
-	•	최신 릴리즈에 반영된 개선 사항도 자동으로 확인 가능 💪
-	•	workflow_dispatch로 임의 날짜 범위나 플랫폼만 따로 리포트 가능 🎛️
+### 3. Streamlit UI 실행
 
----
+```bash
+# 별도 터미널에서 실행
+streamlit run ui/streamlit_app.py --server.port 8501
+```
 
-이제 매일, 매주 버그 현황을 빠르고 간편하게 확인해보세요!
+UI 접속: http://localhost:8501
+
+## 📡 API 엔드포인트
+
+### Health Check
+- `GET /health` - 서버 상태 확인
+
+### Webhook
+- `POST /webhook/sentry` - Sentry Webhook 수신
+
+### Issues
+- `GET /api/issues` - 이슈 목록 조회
+- `GET /api/issues/{id}` - 이슈 상세 조회
+- `POST /api/issues/{id}/trigger-analysis` - AI 분석 트리거
+- `POST /api/issues/manual-analysis` - 수동 분석 요청
+- `GET /api/issues/{id}/analysis-status` - 분석 상태 조회
+
+### Reports
+- `GET /api/reports` - 리포트 목록 조회
+- `POST /api/reports` - 리포트 생성
+- `GET /api/reports/{id}` - 리포트 상세 조회
+- `POST /api/reports/{id}/refresh` - 리포트 상태 새로고침
+
+## ⚙️ 환경변수
+
+| 변수명 | 설명 | 기본값 |
+|--------|------|--------|
+| `SENTRY_AUTH_TOKEN` | Sentry API 인증 토큰 | - |
+| `SENTRY_ORG_SLUG` | Sentry 조직 슬러그 | - |
+| `ANDROID_PROJECT_SLUG` | Android 프로젝트 슬러그 | - |
+| `ANDROID_PROJECT_ID` | Android 프로젝트 ID | - |
+| `ANDROID_SENTRY_ENVIRONMENT` | Android 환경 | production |
+| `IOS_PROJECT_SLUG` | iOS 프로젝트 슬러그 | - |
+| `IOS_PROJECT_ID` | iOS 프로젝트 ID | - |
+| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | - |
+| `ANALYSIS_SERVER_BASE_URL` | 분석 서버 URL | http://localhost:9000 |
+| `DATABASE_URL` | 데이터베이스 URL | sqlite:///./sentry_ai.db |
+| `APP_ENV` | 환경 (development/production) | development |
+| `TEST_MODE` | 테스트 모드 | true |
+
+## 🔗 외부 분석 서버 API
+
+이 프로젝트는 별도의 AI 분석 서버와 통신합니다. 분석 서버는 다음 API를 제공해야 합니다:
+
+### Issue 분석
+- `POST /analysis/issue` - 이슈 분석 요청
+- `GET /analysis/issue/{issueId}` - 분석 결과 조회
+
+### Report 생성
+- `POST /analysis/report` - 리포트 생성 요청
+- `GET /analysis/report/{reportId}` - 리포트 결과 조회
+
+자세한 API 스펙은 요구사항 문서를 참조하세요.
+
+## 🗄️ 데이터베이스 스키마
+
+### issues
+- Sentry 이슈 정보 저장
+- 필드: id, sentry_issue_id, title, level, event_count, user_count, release, environment, status, etc.
+
+### issue_analysis
+- AI 분석 결과 저장
+- 필드: id, issue_id (FK), priority_score, root_cause, cause_type, solution, etc.
+
+### reports
+- 크래시 리포트 저장
+- 필드: id, report_id, from_date, to_date, status, summary, insights, etc.
+
+### alert_logs
+- 알림 발송 기록
+- 필드: id, issue_id (FK), alerted_at, alert_type, etc.
+
+## 📝 개발 가이드
+
+### 새로운 API 추가
+1. `app/api/` 디렉토리에 라우터 파일 생성
+2. `app/main.py`에서 라우터 등록
+3. 필요시 `app/services/`에 비즈니스 로직 추가
+
+### 데이터베이스 모델 수정
+1. `app/db/models.py`에서 모델 수정
+2. 기존 데이터가 있다면 마이그레이션 필요 (수동 또는 Alembic 사용)
+
+## 📜 라이선스
+
+Internal use only.
